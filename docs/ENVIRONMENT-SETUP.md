@@ -5,7 +5,7 @@ come from a website. Everything else in `.env.example` has a working default.
 
 | # | Variable(s) | Where it comes from | Cost |
 |---|---|---|---|
-| 1 | `DATABASE_URL` + `DIRECT_URL` | Neon dashboard | Free tier |
+| 1 | `DATABASE_URL` + `DIRECT_URL` | Neon — Vercel integration, or the Connect modal | Free tier |
 | 2 | `AUTH_SECRET` | `openssl` on your machine | — |
 | 3 | `CRON_SECRET` | `openssl` on your machine | — |
 | 4 | `GROQ_API_KEY` | Groq console | Free tier |
@@ -17,34 +17,68 @@ come from a website. Everything else in `.env.example` has a working default.
 The only mandatory external service. Neon's free tier is enough for an internal
 team.
 
+### Option A — let Vercel set it up for you (easiest)
+
+If you are deploying to Vercel, install Neon from the Vercel Marketplace and it
+provisions the database *and* writes the environment variables for you:
+
+1. Vercel → **Storage** (or the [Neon listing on the Vercel
+   Marketplace](https://vercel.com/marketplace/neon)) → **Install**.
+2. Pick region and plan, name the database.
+3. **Connect Project** → tick Development, Preview and Production.
+
+It then sets these in your Vercel project automatically:
+
+| Variable it creates | What it is | Maps to |
+|---|---|---|
+| `DATABASE_URL` | pooled | `DATABASE_URL` — used as-is ✅ |
+| `DATABASE_URL_UNPOOLED` | direct | **this app calls it `DIRECT_URL`** ⚠️ |
+| `PGHOST`, `PGUSER`, … | components | unused |
+
+> **The one manual step:** Neon names the direct string
+> `DATABASE_URL_UNPOOLED`; Prisma's convention (and this app's) is `DIRECT_URL`.
+> Copy the value across, or add `DIRECT_URL` in Vercel with the same value.
+>
+> In practice this only matters on your own machine — `DIRECT_URL` is read by
+> the Prisma **CLI** during `migrate`, never by the app at runtime. The deployed
+> app only needs `DATABASE_URL`.
+
+### Option B — copy the strings by hand
+
 1. Go to **<https://console.neon.tech>** and sign in with GitHub.
-2. **Create a project.** Name it `taskforge`. Pick the region closest to your
-   team. Postgres 16 or 17 — either works.
-3. You land on the project dashboard with a **Connection string** box.
-4. There is a **toggle labelled "Connection pooling"**. You need the value in
-   *both* positions:
+2. **Create a project.** Name it `taskforge`, pick the region closest to your
+   team.
+3. Click the **Connect** button in the console navigation (it is also on the
+   Project Dashboard). This opens the **“Connect to your database”** modal.
+4. In the modal, choose your **Branch**, **Compute**, **Database** and **Role**.
+   The snippet dropdown defaults to **Connection string** — if it is showing
+   `psql`, switch it.
+5. The modal has a **Connection pooling** toggle, **on by default**. You need
+   the value in *both* positions:
 
-   **Pooling ON** → the host contains `-pooler` → this is **`DATABASE_URL`**
+   **Toggle ON** → hostname contains `-pooler` → this is **`DATABASE_URL`**
    ```
-   postgresql://neondb_owner:npg_XXXX@ep-cool-name-12345678-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
-                                                              ^^^^^^^
-   ```
-
-   **Pooling OFF** → no `-pooler` → this is **`DIRECT_URL`**
-   ```
-   postgresql://neondb_owner:npg_XXXX@ep-cool-name-12345678.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+   postgresql://neondb_owner:npg_XXXX@ep-cool-darkness-12345678-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+                                                                    ^^^^^^^
    ```
 
-   They are otherwise identical. Only the host differs.
+   **Toggle OFF** → no `-pooler` → this is **`DIRECT_URL`**
+   ```
+   postgresql://neondb_owner:npg_XXXX@ep-cool-darkness-12345678.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+   ```
 
-> **This is the step people get wrong.** Putting the pooled URL in `DIRECT_URL`
-> makes `prisma migrate` hang forever with no error — migrations take advisory
-> locks, which cannot travel through PgBouncer. If migrations hang, check this
-> first.
+   They are otherwise identical — only the hostname differs.
+
+> **Why two?** The pooled host runs PgBouncer, which is what keeps serverless
+> functions from exhausting Neon's connection limit. But schema migrations take
+> advisory locks that do not survive transaction pooling, so `prisma migrate`
+> needs the direct host. Neon documents this: migrations should use a direct
+> connection.
+>
+> Symptom of getting them the wrong way round: `npx prisma migrate` sits there
+> doing nothing. If that happens, check this first.
 
 Make sure both end with `?sslmode=require`.
-
----
 
 ## 2. `AUTH_SECRET`
 
@@ -163,7 +197,8 @@ errors. It should end with `✅ 26 checks passed`.
 
 | Symptom | Cause |
 |---|---|
-| `prisma migrate` hangs with no output | `DIRECT_URL` is the pooled host |
+| `prisma migrate` hangs with no output | `DIRECT_URL` is the pooled host (or is missing) |
+| `Environment variable not found: DIRECT_URL` | Neon's integration named it `DATABASE_URL_UNPOOLED` — copy it across |
 | `Invalid environment configuration` at boot | A required variable is missing — the error names it |
 | Signed out immediately after signing in | `AUTH_SECRET` is unset, or differs between build and runtime |
 | `Can't reach database server` | Wrong password in the URL, or `?sslmode=require` is missing |
