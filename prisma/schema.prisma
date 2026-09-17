@@ -1,0 +1,907 @@
+// =============================================================================
+// TaskForge — Prisma Schema
+// AI-first internal project & ticket management platform
+// =============================================================================
+// Design principles:
+//   1. Fully normalized. No JSON columns are used to model relational data.
+//   2. Every foreign key declares an explicit referential action.
+//   3. Workflow configuration (statuses / priorities / types / labels) is
+//      PROJECT-SCOPED. The workspace-wide "admin configurable" defaults live in
+//      ProjectTemplate, which is cloned into a project at creation time.
+//      This avoids nullable-FK ambiguity and lets each project own its board.
+//   4. Indexes cover every filter, sort and lookup path used by the UI.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+/// Global platform roles. Permissions for each are defined as a typed matrix in
+/// src/core/domain/rbac — the DB stores the assignment, the domain owns policy.
+enum RoleKey {
+  ADMIN
+  PROJECT_MANAGER
+  USER
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+/// A member's capability inside one project, independent of their global role.
+enum ProjectMemberRole {
+  MANAGER
+  MEMBER
+  VIEWER
+}
+
+/// Semantic bucket for a status. Drives progress rollup, dashboards and the
+/// "is this ticket finished?" question without hardcoding status names.
+enum StatusCategory {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum ResourceType {
+  GITHUB
+  SHAREPOINT
+  FIGMA
+  BUILD
+  DOCUMENTATION
+  API_SPEC
+  OTHER
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum ActivityEntity {
+  PROJECT
+  TICKET
+  COMMENT
+  USER
+  LABEL
+  MEMBER
+  RESOURCE
+  STATUS
+  PRIORITY
+  TICKET_TYPE
+  TEMPLATE
+  RECURRING_TICKET
+}
+
+enum ActivityAction {
+  CREATED
+  UPDATED
+  DELETED
+  ARCHIVED
+  RESTORED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  ASSIGNED
+  UNASSIGNED
+  LABEL_ADDED
+  LABEL_REMOVED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  COMMENTED
+  COMMENT_EDITED
+  COMMENT_DELETED
+  RESOURCE_ADDED
+  RESOURCE_REMOVED
+  PARENT_CHANGED
+  DUE_DATE_CHANGED
+  ACTIVATED
+  DEACTIVATED
+  PASSWORD_RESET
+  LOGGED_IN
+  AI_GENERATED
+}
+
+enum FilterField {
+  PROJECT
+  ASSIGNEE
+  REPORTER
+  STATUS
+  STATUS_CATEGORY
+  PRIORITY
+  TYPE
+  LABEL
+  PARENT
+  DUE_DATE
+  CREATED_AT
+  UPDATED_AT
+  SEARCH
+}
+
+enum FilterOperator {
+  EQUALS
+  NOT_EQUALS
+  IN
+  NOT_IN
+  CONTAINS
+  BEFORE
+  AFTER
+  BETWEEN
+  IS_NULL
+  IS_NOT_NULL
+}
+
+enum ViewType {
+  TABLE
+  KANBAN
+  CALENDAR
+  TIMELINE
+}
+
+// =============================================================================
+// IDENTITY & ACCESS
+// =============================================================================
+
+model Role {
+  id          String  @id @default(cuid())
+  key         RoleKey @unique
+  name        String
+  description String?
+  /// System roles cannot be deleted or re-keyed.
+  isSystem    Boolean @default(true)
+
+  users User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("roles")
+}
+
+model User {
+  id           String  @id @default(cuid())
+  username     String  @unique
+  email        String  @unique
+  name         String
+  passwordHash String
+  /// Short colour token used for the generated avatar. Keeps the UI stable
+  /// without storing uploads.
+  avatarColor  String  @default("slate")
+  jobTitle     String?
+
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  isActive           Boolean @default(true)
+  /// Forces a password change on next sign-in. Set by admin password resets.
+  mustChangePassword Boolean @default(false)
+  /// Bumped on deactivation / password reset to invalidate every issued JWT.
+  sessionVersion     Int     @default(1)
+
+  lastLoginAt   DateTime?
+  deactivatedAt DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers User[] @relation("UserCreatedBy")
+
+  // --- reverse relations -----------------------------------------------------
+  ownedProjects       Project[]         @relation("ProjectOwner")
+  createdProjects     Project[]         @relation("ProjectCreatedBy")
+  defaultForSettings  ProjectSettings[] @relation("ProjectDefaultAssignee")
+  memberships         ProjectMember[]   @relation("ProjectMemberUser")
+  membershipsAdded    ProjectMember[]   @relation("ProjectMemberAddedBy")
+  assignedTickets     Ticket[]          @relation("TicketAssignee")
+  reportedTickets     Ticket[]          @relation("TicketReporter")
+  createdTickets      Ticket[]          @relation("TicketCreatedBy")
+  comments            Comment[]
+  mentions            CommentMention[]
+  activities          ActivityLog[]     @relation("ActivityActor")
+  resources           TicketResource[]
+  savedFilters        SavedFilter[]
+  sessions            UserSession[]
+  createdTemplates    ProjectTemplate[]
+  recurringTickets    RecurringTicket[] @relation("RecurringCreatedBy")
+  recurringAssignee   RecurringTicket[] @relation("RecurringAssignee")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId])
+  @@index([isActive])
+  @@index([name])
+  @@map("users")
+}
+
+/// Login audit trail. Sessions themselves are stateless JWTs (required by the
+/// Credentials provider); these rows give the admin visibility and an explicit
+/// revoke action, enforced through User.sessionVersion.
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@index([userId, createdAt])
+  @@map("user_sessions")
+}
+
+// =============================================================================
+// PROJECT TEMPLATES
+// Workspace-level, admin-configurable blueprints. Cloned into a project on
+// "Create from Template".
+// =============================================================================
+
+model ProjectTemplate {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  icon        String  @default("layout-template")
+  color       String  @default("indigo")
+  isActive    Boolean @default(true)
+  /// The single template applied when a project is created without choosing one.
+  isDefault   Boolean @default(false)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  statuses   TemplateStatus[]
+  priorities TemplatePriority[]
+  types      TemplateTicketType[]
+  labels     TemplateLabel[]
+  tickets    TemplateTicket[]
+  projects   Project[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("project_templates")
+}
+
+model TemplateStatus {
+  id         String          @id @default(cuid())
+  templateId String
+  template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  name      String
+  category  StatusCategory
+  color     String         @default("slate")
+  position  Int
+  /// Status applied to newly created tickets.
+  isInitial Boolean        @default(false)
+
+  @@unique([templateId, name])
+  @@unique([templateId, position])
+  @@index([templateId])
+  @@map("template_statuses")
+}
+
+model TemplatePriority {
+  id         String          @id @default(cuid())
+  templateId String
+  template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  name      String
+  color     String  @default("slate")
+  /// Higher = more urgent. Drives sorting.
+  level     Int
+  isDefault Boolean @default(false)
+
+  @@unique([templateId, name])
+  @@unique([templateId, level])
+  @@index([templateId])
+  @@map("template_priorities")
+}
+
+model TemplateTicketType {
+  id         String          @id @default(cuid())
+  templateId String
+  template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  name      String
+  color     String  @default("slate")
+  icon      String  @default("circle-dot")
+  position  Int
+  isDefault Boolean @default(false)
+
+  @@unique([templateId, name])
+  @@index([templateId])
+  @@map("template_ticket_types")
+}
+
+model TemplateLabel {
+  id         String          @id @default(cuid())
+  templateId String
+  template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  name        String
+  color       String  @default("slate")
+  description String?
+
+  @@unique([templateId, name])
+  @@index([templateId])
+  @@map("template_labels")
+}
+
+/// Default ticket scaffold. Self-referencing so a template can ship a parent
+/// feature with its child tasks already laid out.
+model TemplateTicket {
+  id         String          @id @default(cuid())
+  templateId String
+  template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  /// Resolved by NAME against the cloned project config at creation time.
+  typeName     String?
+  priorityName String?
+  labelNames   TemplateTicketLabel[]
+
+  parentId String?
+  parent   TemplateTicket?  @relation("TemplateTicketTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children TemplateTicket[] @relation("TemplateTicketTree")
+
+  position Int @default(0)
+
+  @@index([templateId])
+  @@index([parentId])
+  @@map("template_tickets")
+}
+
+model TemplateTicketLabel {
+  templateTicketId String
+  templateTicket   TemplateTicket @relation(fields: [templateTicketId], references: [id], onDelete: Cascade)
+  labelName        String
+
+  @@id([templateTicketId, labelName])
+  @@map("template_ticket_labels")
+}
+
+// =============================================================================
+// PROJECTS
+// =============================================================================
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  /// Short uppercase key, also used as the ticket prefix (e.g. "AUTH" -> AUTH-14).
+  code        String        @unique
+  description String?
+  status      ProjectStatus @default(PLANNING)
+  startDate   DateTime?
+  endDate     DateTime?
+
+  ownerId String
+  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  templateId String?
+  template   ProjectTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  settings         ProjectSettings?
+  members          ProjectMember[]
+  labels           Label[]
+  statuses         Status[]
+  priorities       Priority[]
+  ticketTypes      TicketType[]
+  tickets          Ticket[]
+  activities       ActivityLog[]
+  recurringTickets RecurringTicket[]
+  savedFilters     SavedFilter[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([isArchived])
+  @@index([code])
+  @@map("projects")
+}
+
+/// One-to-one project configuration. Split from Project so the hot path
+/// (listing projects) never loads settings it does not need.
+model ProjectSettings {
+  id        String  @id @default(cuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Monotonic counter backing per-project ticket numbering (PROJ-1, PROJ-2...).
+  nextTicketNumber Int     @default(1)
+  color            String  @default("indigo")
+  icon             String  @default("folder-kanban")
+
+  /// Roll a parent's status up automatically from its children's progress.
+  autoStatusRollup Boolean @default(true)
+  /// Allow creating child tickets under a parent.
+  allowSubtasks    Boolean @default(true)
+  /// Reject ticket creation without a due date.
+  requireDueDate   Boolean @default(false)
+  /// Only members of the project may view it.
+  isPrivate        Boolean @default(false)
+
+  defaultAssigneeId String?
+  defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("project_settings")
+}
+
+model ProjectMember {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation("ProjectMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  role ProjectMemberRole @default(MEMBER)
+
+  addedById String?
+  addedBy   User?   @relation("ProjectMemberAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  joinedAt DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([projectId, role])
+  @@map("project_members")
+}
+
+// =============================================================================
+// PROJECT-SCOPED WORKFLOW CONFIGURATION
+// =============================================================================
+
+model Status {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name      String
+  category  StatusCategory
+  color     String         @default("slate")
+  position  Int
+  isInitial Boolean        @default(false)
+
+  tickets          Ticket[]
+  recurringTickets RecurringTicket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId, position])
+  @@index([projectId, category])
+  @@map("statuses")
+}
+
+model Priority {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name      String
+  color     String  @default("slate")
+  level     Int
+  isDefault Boolean @default(false)
+
+  tickets          Ticket[]
+  recurringTickets RecurringTicket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, name])
+  @@unique([projectId, level])
+  @@index([projectId, level])
+  @@map("priorities")
+}
+
+model TicketType {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name      String
+  color     String  @default("slate")
+  icon      String  @default("circle-dot")
+  position  Int     @default(0)
+  isDefault Boolean @default(false)
+
+  tickets          Ticket[]
+  recurringTickets RecurringTicket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId, position])
+  @@map("ticket_types")
+}
+
+model Label {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String
+  color       String  @default("slate")
+  description String?
+
+  tickets          TicketLabel[]
+  recurringTickets RecurringTicketLabel[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("labels")
+}
+
+// =============================================================================
+// TICKETS
+// Hierarchy: Project -> Parent Ticket (feature) -> Child Ticket (task).
+// Depth is capped at 2 levels; the rule is enforced in the domain layer.
+// =============================================================================
+
+model Ticket {
+  id String @id @default(cuid())
+
+  /// Per-project sequential number, allocated from ProjectSettings.
+  number Int
+  /// Denormalized human key ("AUTH-14"). Unique platform-wide, indexed for the
+  /// command palette and AI lookups. Derived from project.code + number.
+  key    String @unique
+
+  title       String
+  description String?
+  /// Free-form operator notes, kept separate from the description.
+  remarks     String?
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  statusId String
+  status   Status @relation(fields: [statusId], references: [id], onDelete: Restrict)
+
+  priorityId String
+  priority   Priority @relation(fields: [priorityId], references: [id], onDelete: Restrict)
+
+  typeId String
+  type   TicketType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+
+  assigneeId String?
+  assignee   User?   @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  reporterId String?
+  reporter   User?   @relation("TicketReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+
+  parentId String?
+  parent   Ticket?  @relation("TicketTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Ticket[] @relation("TicketTree")
+
+  startDate DateTime?
+  dueDate   DateTime?
+  completedAt DateTime?
+
+  estimateHours Decimal? @db.Decimal(6, 2)
+  storyPoints   Int?
+
+  /// Sparse float ordering for drag-and-drop within a Kanban column.
+  position Float @default(0)
+
+  isArchived Boolean @default(false)
+
+  /// Set when the ticket was materialized by a RecurringTicket schedule.
+  recurringTicketId String?
+  recurringTicket   RecurringTicket? @relation(fields: [recurringTicketId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User?   @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  labels     TicketLabel[]
+  resources  TicketResource[]
+  comments   Comment[]
+  activities ActivityLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, number])
+  @@index([projectId, statusId])
+  @@index([projectId, isArchived])
+  @@index([assigneeId, statusId])
+  @@index([parentId])
+  @@index([dueDate])
+  @@index([priorityId])
+  @@index([typeId])
+  @@index([reporterId])
+  @@index([createdAt])
+  @@index([projectId, statusId, position])
+  @@index([recurringTicketId])
+  @@map("tickets")
+}
+
+/// Explicit join model (rather than an implicit m-n) so the pairing carries its
+/// own timestamp and can be audited.
+model TicketLabel {
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  labelId  String
+  label    Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([ticketId, labelId])
+  @@index([labelId])
+  @@map("ticket_labels")
+}
+
+/// References to external artefacts. The platform deliberately stores no file
+/// uploads — only links.
+model TicketResource {
+  id       String @id @default(cuid())
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  name  String
+  type  ResourceType @default(OTHER)
+  url   String
+  notes String?
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ticketId])
+  @@index([type])
+  @@map("ticket_resources")
+}
+
+// =============================================================================
+// COLLABORATION
+// =============================================================================
+
+model Comment {
+  id       String @id @default(cuid())
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  body String @db.Text
+
+  /// Threading: a reply points at the comment it answers.
+  parentId String?
+  parent   Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentThread")
+
+  isEdited Boolean   @default(false)
+  editedAt DateTime?
+  /// Soft delete keeps the thread structure intact.
+  deletedAt DateTime?
+
+  mentions CommentMention[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ticketId, createdAt])
+  @@index([authorId])
+  @@index([parentId])
+  @@map("comments")
+}
+
+model CommentMention {
+  commentId String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([commentId, userId])
+  @@index([userId])
+  @@map("comment_mentions")
+}
+
+// =============================================================================
+// AUDIT
+// A single append-only timeline across every entity. Field-level diffs are
+// stored as columns rather than JSON so they stay queryable.
+// =============================================================================
+
+model ActivityLog {
+  id String @id @default(cuid())
+
+  action     ActivityAction
+  entityType ActivityEntity
+  /// Id of the changed entity. Not an FK — the row must survive its deletion.
+  entityId   String
+  /// Human label captured at write time so the log reads correctly even after
+  /// the referenced record is renamed or removed.
+  entityLabel String?
+
+  /// Optional scoping FKs, set when the change belongs to a project / ticket so
+  /// the timeline can be filtered cheaply.
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ticketId  String?
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  actorId String?
+  actor   User?   @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  /// Field-level diff for UPDATED-style actions.
+  field    String?
+  oldValue String?
+  newValue String?
+  /// Pre-rendered one-line summary, e.g. "moved AUTH-14 to In Review".
+  summary  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([ticketId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+// =============================================================================
+// AUTOMATION
+// =============================================================================
+
+model RecurringTicket {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String
+  title       String
+  description String?
+
+  statusId String
+  status   Status @relation(fields: [statusId], references: [id], onDelete: Restrict)
+
+  priorityId String
+  priority   Priority @relation(fields: [priorityId], references: [id], onDelete: Restrict)
+
+  typeId String
+  type   TicketType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+
+  assigneeId String?
+  assignee   User?   @relation("RecurringAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  frequency RecurrenceFrequency
+  /// Repeat every N periods of `frequency` (e.g. frequency=WEEKLY, interval=2).
+  interval  Int                 @default(1)
+  /// 0 = Sunday .. 6 = Saturday. Used by WEEKLY / BIWEEKLY.
+  dayOfWeek  Int?
+  /// 1..31, clamped to the month's length. Used by MONTHLY / QUARTERLY / YEARLY.
+  dayOfMonth Int?
+  /// Days added to the generated ticket's creation date to set its due date.
+  dueInDays  Int?
+
+  startDate DateTime
+  endDate   DateTime?
+
+  nextRunAt DateTime
+  lastRunAt DateTime?
+  runCount  Int       @default(0)
+  isActive  Boolean   @default(true)
+
+  createdById String?
+  createdBy   User?   @relation("RecurringCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  labels           RecurringTicketLabel[]
+  generatedTickets Ticket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([isActive, nextRunAt])
+  @@map("recurring_tickets")
+}
+
+model RecurringTicketLabel {
+  recurringTicketId String
+  recurringTicket   RecurringTicket @relation(fields: [recurringTicketId], references: [id], onDelete: Cascade)
+  labelId           String
+  label             Label           @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([recurringTicketId, labelId])
+  @@index([labelId])
+  @@map("recurring_ticket_labels")
+}
+
+// =============================================================================
+// SAVED FILTERS
+// Criteria are normalized into rows rather than stored as a JSON blob, so a
+// saved filter can itself be queried ("which filters reference this label?").
+// =============================================================================
+
+model SavedFilter {
+  id      String @id @default(cuid())
+  name    String
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  /// Null = the filter spans every project the viewer can access.
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Visible to every user who can see the underlying tickets.
+  isShared Boolean  @default(false)
+  isPinned Boolean  @default(false)
+  viewType ViewType @default(TABLE)
+
+  sortBy  String  @default("updatedAt")
+  sortDir String  @default("desc")
+
+  criteria SavedFilterCriterion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerId, name])
+  @@index([ownerId])
+  @@index([projectId])
+  @@map("saved_filters")
+}
+
+model SavedFilterCriterion {
+  id            String      @id @default(cuid())
+  savedFilterId String
+  savedFilter   SavedFilter @relation(fields: [savedFilterId], references: [id], onDelete: Cascade)
+
+  field    FilterField
+  operator FilterOperator
+  /// Scalar operand. Multi-value operators (IN / BETWEEN) emit one row per value.
+  value    String
+
+  position Int @default(0)
+
+  @@index([savedFilterId])
+  @@map("saved_filter_criteria")
+}
