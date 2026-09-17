@@ -68,3 +68,110 @@ export async function listProjects(
 }
 
 export type ProjectListItem = Awaited<ReturnType<typeof listProjects>>[number]
+
+/** Full project context used by every view under /projects/[projectId]. */
+export const getProjectDetail = cache(async (projectId: string) => {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      description: true,
+      status: true,
+      startDate: true,
+      endDate: true,
+      isArchived: true,
+      archivedAt: true,
+      createdAt: true,
+      owner: { select: { id: true, name: true, username: true, avatarColor: true } },
+      template: { select: { id: true, name: true } },
+      settings: true,
+      members: {
+        select: {
+          role: true,
+          joinedAt: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              avatarColor: true,
+              jobTitle: true,
+              isActive: true,
+            },
+          },
+        },
+        orderBy: { joinedAt: 'asc' },
+      },
+      statuses: {
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          category: true,
+          position: true,
+          isInitial: true,
+          _count: { select: { tickets: true } },
+        },
+        orderBy: { position: 'asc' },
+      },
+      priorities: {
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          level: true,
+          isDefault: true,
+          _count: { select: { tickets: true } },
+        },
+        orderBy: { level: 'desc' },
+      },
+      ticketTypes: {
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          icon: true,
+          position: true,
+          isDefault: true,
+          _count: { select: { tickets: true } },
+        },
+        orderBy: { position: 'asc' },
+      },
+      labels: {
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          description: true,
+          _count: { select: { tickets: true } },
+        },
+        orderBy: { name: 'asc' },
+      },
+      _count: { select: { tickets: true } },
+    },
+  })
+
+  return project
+})
+
+export type ProjectDetail = NonNullable<Awaited<ReturnType<typeof getProjectDetail>>>
+
+/** Projects the actor can import labels from (everything except the target). */
+export async function listImportSourceProjects(actor: Actor, excludeProjectId: string) {
+  return prisma.project.findMany({
+    where: {
+      id: { not: excludeProjectId },
+      ...projectVisibilityFilter(actor),
+      labels: { some: {} },
+    },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      _count: { select: { labels: true } },
+    },
+    orderBy: { name: 'asc' },
+  })
+}

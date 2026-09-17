@@ -1121,3 +1121,25 @@ export async function deleteCommentAction(
     return ok()
   })
 }
+
+// -----------------------------------------------------------------------------
+// Read helpers callable from client components
+// -----------------------------------------------------------------------------
+
+/**
+ * Duplicate suggestions shown while a ticket is being drafted.
+ * Deterministic title-overlap scoring — no AI call, no cost, instant.
+ */
+export async function suggestSimilarTicketsAction(
+  projectId: string,
+  title: string,
+): Promise<ActionResult<Array<{ id: string; key: string; title: string; statusName: string; score: number }>>> {
+  return runAction(async () => {
+    if (title.trim().length < 5) return ok([])
+    await requireProjectPermission(projectId, 'project:view')
+
+    const { findSimilarTickets } = await import('./queries')
+    const matches = await findSimilarTickets(projectId, title, 4)
+    return ok(matches)
+  })
+}
