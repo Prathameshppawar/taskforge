@@ -45,6 +45,16 @@ audit-log entry.
 | **Automation** | Recurring tickets (daily → yearly) with auto-generation |
 | **Analytics** | Completion %, trend, priority distribution, tickets by label, overdue, team workload |
 
+## Keyboard
+
+| Shortcut | Action |
+|---|---|
+| `⌘K` / `Ctrl+K` | Command palette — search tickets and projects, run commands |
+| `→` on a ticket | Open its quick actions (assign, change status) |
+| `⌘J` / `Ctrl+J` | Toggle the AI Copilot |
+| `G` then `D` / `T` / `P` / `A` / `S` | Go to Dashboard · My Tickets · Projects · Activity · Settings |
+| `⌘↵` | Send a comment |
+
 ## Quick start
 
 ```bash
@@ -66,6 +76,20 @@ npm run db:seed
 npm run dev
 ```
 
+Add `SEED_DEMO=true` before step 4 to also create a demo workspace — two
+projects built from templates, 38 tickets spread across the workflow, comments,
+audit history and recurring schedules. Useful for evaluating the app; never run
+it against production.
+
+### Other commands
+
+```bash
+npm run verify      # 49 assertions over the domain — no DB, no network, <1s
+npm run typecheck   # strict TypeScript, zero errors
+npm run build       # production build
+npm run db:studio   # browse the database
+```
+
 Sign in at <http://localhost:3000> with the `ADMIN_USERNAME` / `ADMIN_PASSWORD`
 you set in `.env`.
 
@@ -75,8 +99,29 @@ you set in `.env`.
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layering, the shape of a mutation, authorization model, AI design |
 | [`docs/ER-DIAGRAM.md`](docs/ER-DIAGRAM.md) | Full entity relationship model, normalization notes, index coverage |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Vercel + Neon deployment, cron setup, production checklist |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Vercel + Neon deployment, cron setup, troubleshooting |
+| [`docs/PROJECT-STRUCTURE.md`](docs/PROJECT-STRUCTURE.md) | Folder layout, the dependency rule, where to add things |
 | [`.env.example`](.env.example) | Every environment variable, annotated with where to obtain it |
+
+## How it is put together
+
+A few decisions worth knowing before reading the code:
+
+- **The domain is framework-free.** `src/core/domain` imports nothing from
+  Next.js, Prisma or React, so the hierarchy rules, progress rollup, recurrence
+  maths and permission matrix are directly testable — which is what
+  `npm run verify` exercises.
+- **Every mutation follows one path**: guard → validate → transact → audit →
+  revalidate. The audit entry is written *inside* the same transaction as the
+  change, so the timeline can never drift from the data.
+- **The AI Copilot has no privileged access.** The model emits a typed tool
+  call; it is validated with Zod and dispatched to the same Server Actions the
+  UI uses. It inherits every permission check and audit entry, and cannot do
+  anything the signed-in user could not do by hand.
+- **Filters live in the URL**, so every view is shareable and the back button
+  behaves.
+- **Chart colours are validated, not chosen by eye** — the palette passes
+  colourblind-separation and contrast checks in both light and dark.
 
 ## Licence
 

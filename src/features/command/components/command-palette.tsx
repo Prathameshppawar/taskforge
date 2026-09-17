@@ -4,6 +4,9 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Activity,
+  ArrowLeft,
+  ArrowRight,
+  Check,
   FolderKanban,
   FolderPlus,
   LayoutDashboard,
@@ -15,7 +18,10 @@ import {
   Sparkles,
   Sun,
   Ticket,
+  UserCog,
+  UserX,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useTheme } from 'next-themes'
 
 import { cn } from '@/lib/utils'
@@ -30,8 +36,16 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from '@/components/ui/command'
-import { StatusBadge } from '@/components/shared/badges'
-import { paletteSearchAction, type PaletteResults } from '../actions'
+import { ColorDot, StatusBadge } from '@/components/shared/badges'
+import { UserAvatar } from '@/components/shared/user-avatar'
+import { updateTicketAction } from '@/features/tickets/actions'
+import {
+  getTicketQuickActionsAction,
+  paletteSearchAction,
+  type PaletteResults,
+  type PaletteTicket,
+  type TicketQuickActions,
+} from '../actions'
 
 /**
  * Command palette (⌘K / Ctrl+K).
@@ -59,11 +73,20 @@ export function CommandPalette({
   const [results, setResults] = React.useState<PaletteResults>({ tickets: [], projects: [] })
   const [isLoading, setIsLoading] = React.useState(false)
 
+  /*
+   * The palette has a second level. Selecting a ticket with → (or Tab) opens
+   * its actions — assign, change status — without leaving the keyboard, which
+   * is the whole point of a palette. `page` is null at the root.
+   */
+  const [page, setPage] = React.useState<'ticket' | null>(null)
+  const [actions, setActions] = React.useState<TicketQuickActions | null>(null)
+  const [isActing, setIsActing] = React.useState(false)
+
   // Guards against an earlier, slower response landing after a newer one.
   const requestId = React.useRef(0)
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open || page === 'ticket') return
 
     const id = ++requestId.current
     setIsLoading(true)
@@ -77,11 +100,57 @@ export function CommandPalette({
     }, 180)
 
     return () => clearTimeout(timer)
-  }, [query, open])
+  }, [query, open, page])
 
+  // Reset to the root whenever the palette closes.
   React.useEffect(() => {
-    if (!open) setQuery('')
+    if (!open) {
+      setQuery('')
+      setPage(null)
+      setActions(null)
+    }
   }, [open])
+
+  async function openTicketActions(ticket: PaletteTicket) {
+    setIsActing(true)
+    const result = await getTicketQuickActionsAction(ticket.id)
+    setIsActing(false)
+
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
+
+    setActions(result.data)
+    setPage('ticket')
+    setQuery('')
+  }
+
+  function backToRoot() {
+    setPage(null)
+    setActions(null)
+    setQuery('')
+  }
+
+  function applyTicketChange(
+    change: Parameters<typeof updateTicketAction>[0],
+    message: string,
+  ) {
+    setIsActing(true)
+    void (async () => {
+      const result = await updateTicketAction(change)
+      setIsActing(false)
+
+      if (!result.success) {
+        toast.error(result.error)
+        return
+      }
+
+      toast.success(message)
+      onOpenChange(false)
+      router.refresh()
+    })()
+  }
 
   function run(action: () => void) {
     onOpenChange(false)
@@ -89,6 +158,143 @@ export function CommandPalette({
     setTimeout(action, 0)
   }
 
+  // --- ticket action sub-view ------------------------------------------------
+  if (page === 'ticket' && actions) {
+    return (
+      <CommandDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        title={`Actions for ${actions.ticket.key}`}
+        description="Assign or change status without leaving the keyboard"
+        className="sm:max-w-xl"
+      >
+        <div className="flex items-center gap-2 border-b px-3 py-2">
+          <button
+            type="button"
+            onClick={backToRoot}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ArrowLeft className="size-3" />
+            Back
+          </button>
+          <span className="font-mono text-xs text-muted-foreground">
+            {actions.ticket.key}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm">{actions.ticket.title}</span>
+          {isActing && <Loader2 className="size-3.5 shrink-0 animate-spin" />}
+        </div>
+
+        <CommandInput
+          placeholder="Filter actions…"
+          value={query}
+          onValueChange={setQuery}
+          onKeyDown={(event) => {
+            // Backspace on an empty filter steps back, the way a nested palette
+            // is expected to behave.
+            if (event.key === 'Backspace' && query === '') {
+              event.preventDefault()
+              backToRoot()
+            }
+            if (event.key === 'ArrowLeft' && query === '') {
+              event.preventDefault()
+              backToRoot()
+            }
+          }}
+        />
+
+        <CommandList className="max-h-[420px]">
+          <CommandEmpty>No matching action.</CommandEmpty>
+
+          {!actions.canEdit && (
+            <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+              You have read-only access to this project.
+            </div>
+          )}
+
+          {actions.canEdit && (
+            <>
+              <CommandGroup heading="Change status">
+                {actions.statuses.map((status) => (
+                  <CommandItem
+                    key={status.id}
+                    value={`status ${status.name}`}
+                    disabled={isActing}
+                    onSelect={() => {
+                      if (status.isCurrent) return
+                      applyTicketChange(
+                        { id: actions.ticket.id, statusId: status.id },
+                        `${actions.ticket.key} moved to ${status.name}.`,
+                      )
+                    }}
+                  >
+                    <ColorDot color={status.color} />
+                    <span className="flex-1 truncate">{status.name}</span>
+                    {status.isCurrent && <Check className="size-4 opacity-60" />}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+
+              <CommandSeparator />
+
+              <CommandGroup heading="Assign to">
+                <CommandItem
+                  value="assign unassigned"
+                  disabled={isActing}
+                  onSelect={() =>
+                    applyTicketChange(
+                      { id: actions.ticket.id, assigneeId: null },
+                      `${actions.ticket.key} unassigned.`,
+                    )
+                  }
+                >
+                  <UserX className="size-4 text-muted-foreground" />
+                  <span className="flex-1">Unassigned</span>
+                </CommandItem>
+
+                {actions.members.map((member) => (
+                  <CommandItem
+                    key={member.id}
+                    value={`assign ${member.name} ${member.username}`}
+                    disabled={isActing}
+                    onSelect={() => {
+                      if (member.isCurrent) return
+                      applyTicketChange(
+                        { id: actions.ticket.id, assigneeId: member.id },
+                        `${actions.ticket.key} assigned to ${member.name}.`,
+                      )
+                    }}
+                  >
+                    <UserAvatar name={member.name} color={member.avatarColor} size="xs" />
+                    <span className="flex-1 truncate">
+                      {member.name}
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        @{member.username}
+                      </span>
+                    </span>
+                    {member.isCurrent && <Check className="size-4 opacity-60" />}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+
+          <CommandSeparator />
+
+          <CommandGroup heading="Open">
+            <CommandItem
+              value="open ticket"
+              onSelect={() => run(() => router.push(`/tickets/${actions.ticket.key}`))}
+            >
+              <Ticket className="size-4" />
+              Open {actions.ticket.key}
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
+    )
+  }
+
+  // --- root view -------------------------------------------------------------
   return (
     <CommandDialog
       open={open}
@@ -102,6 +308,34 @@ export function CommandPalette({
         placeholder="Search tickets, projects, or type a command…"
         value={query}
         onValueChange={setQuery}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowRight' && event.key !== 'Tab') return
+
+          // ArrowRight must still move the caret when the user is mid-word.
+          const input = event.currentTarget
+          if (
+            event.key === 'ArrowRight' &&
+            input.selectionStart !== null &&
+            input.selectionStart < input.value.length
+          ) {
+            return
+          }
+
+          // cmdk marks the highlighted row with aria-selected.
+          const selected = document.querySelector<HTMLElement>(
+            '[cmdk-item][aria-selected="true"]',
+          )
+          const value = selected?.getAttribute('data-value') ?? ''
+          if (!value.startsWith('ticket-')) return
+
+          const ticket = results.tickets.find(
+            (candidate) => `ticket-${candidate.id}` === value,
+          )
+          if (!ticket) return
+
+          event.preventDefault()
+          void openTicketActions(ticket)
+        }}
       />
 
       <CommandList className="max-h-[420px]">
@@ -115,7 +349,7 @@ export function CommandPalette({
         )}
 
         {results.tickets.length > 0 && (
-          <CommandGroup heading="Tickets">
+          <CommandGroup heading="Tickets · → for actions">
             {results.tickets.map((ticket) => (
               <CommandItem
                 key={ticket.id}
@@ -128,6 +362,18 @@ export function CommandPalette({
                 </span>
                 <span className="min-w-0 flex-1 truncate">{ticket.title}</span>
                 <StatusBadge name={ticket.statusName} color={ticket.statusColor} />
+                <button
+                  type="button"
+                  aria-label={`Actions for ${ticket.key}`}
+                  className="ml-1 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-aria-selected:opacity-100"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    void openTicketActions(ticket)
+                  }}
+                >
+                  <ArrowRight className="size-3.5" />
+                </button>
               </CommandItem>
             ))}
           </CommandGroup>

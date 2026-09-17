@@ -2,12 +2,15 @@
 
 import { prisma } from '@/infrastructure/db/prisma'
 import {
+  getProjectAccess,
   projectVisibilityFilter,
   requireActor,
   ticketVisibilityFilter,
 } from '@/features/auth/guards'
+import { canInProject } from '@/core/domain/rbac'
 import { parseTicketKey } from '@/core/domain/ticket-rules'
 import { ok, type ActionResult } from '@/core/domain/result'
+import { NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
 
 export interface PaletteTicket {
@@ -158,4 +161,74 @@ function toProject(project: {
     code: project.code,
     color: project.settings?.color ?? 'indigo',
   }
+}
+
+export interface TicketQuickActions {
+  ticket: { id: string; key: string; title: string; projectId: string }
+  statuses: Array<{ id: string; name: string; color: string; isCurrent: boolean }>
+  members: Array<{ id: string; name: string; username: string; avatarColor: string; isCurrent: boolean }>
+  canEdit: boolean
+}
+
+/**
+ * Options for the palette's ticket action sub-view.
+ *
+ * Loaded on demand rather than shipped with every search result — statuses and
+ * members are project-scoped, and a search can span projects.
+ */
+export async function getTicketQuickActionsAction(
+  ticketId: string,
+): Promise<ActionResult<TicketQuickActions>> {
+  return runAction(async () => {
+    const actor = await requireActor()
+
+    const ticket = await prisma.ticket.findFirst({
+      where: { id: ticketId, ...ticketVisibilityFilter(actor) },
+      select: {
+        id: true,
+        key: true,
+        title: true,
+        projectId: true,
+        statusId: true,
+        assigneeId: true,
+      },
+    })
+    if (!ticket) throw new NotFoundError('Ticket', ticketId)
+
+    const access = await getProjectAccess(ticket.projectId, actor)
+    const canEdit = canInProject(access, 'ticket:update')
+
+    const [statuses, members] = await Promise.all([
+      prisma.status.findMany({
+        where: { projectId: ticket.projectId },
+        select: { id: true, name: true, color: true },
+        orderBy: { position: 'asc' },
+      }),
+      prisma.projectMember.findMany({
+        where: { projectId: ticket.projectId, user: { isActive: true } },
+        select: {
+          user: { select: { id: true, name: true, username: true, avatarColor: true } },
+        },
+        orderBy: { user: { name: 'asc' } },
+      }),
+    ])
+
+    return ok({
+      ticket: {
+        id: ticket.id,
+        key: ticket.key,
+        title: ticket.title,
+        projectId: ticket.projectId,
+      },
+      statuses: statuses.map((status) => ({
+        ...status,
+        isCurrent: status.id === ticket.statusId,
+      })),
+      members: members.map((member) => ({
+        ...member.user,
+        isCurrent: member.user.id === ticket.assigneeId,
+      })),
+      canEdit,
+    })
+  })
 }
