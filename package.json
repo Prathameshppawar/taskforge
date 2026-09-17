@@ -18,7 +18,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "verify": "tsx scripts/verify-domain.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -50,7 +51,8 @@
     "recharts": "^2.15.0",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
