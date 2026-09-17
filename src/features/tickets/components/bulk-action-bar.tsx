@@ -17,7 +17,7 @@ import {
 import { ColorDot, PriorityBadge } from '@/components/shared/badges'
 import { UserAvatar } from '@/components/shared/user-avatar'
 import { bulkUpdateTicketsAction } from '../actions'
-import type { ProjectViewContext } from '@/features/projects/project-context'
+import type { TicketTableContext } from './ticket-table'
 
 /** Floating toolbar shown while rows are selected in the table. */
 export function BulkActionBar({
@@ -26,7 +26,7 @@ export function BulkActionBar({
   onDone,
 }: {
   ticketIds: string[]
-  context: ProjectViewContext
+  context: TicketTableContext
   onDone: () => void
 }) {
   const router = useRouter()

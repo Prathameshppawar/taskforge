@@ -24,10 +24,43 @@ import {
 } from '@/components/ui/command'
 import { ColorDot } from '@/components/shared/badges'
 import { UserAvatar } from '@/components/shared/user-avatar'
-import { CreateTicketDialog } from '@/features/tickets/components/create-ticket-dialog'
+import {
+  CreateTicketDialog,
+  type TicketFormConfig,
+} from '@/features/tickets/components/create-ticket-dialog'
 import { SaveFilterDialog } from './save-filter-dialog'
 import { countActiveFilters, type TicketFilters } from '../types'
-import type { ProjectViewContext } from '@/features/projects/project-context'
+
+/**
+ * Minimal shape the toolbar needs, so it serves both a single project and the
+ * cross-project views.
+ *
+ * In the workspace scope an option's `id` may be several comma-joined ids (the
+ * same status exists once per project), which is why selection is compared with
+ * `isSelected` rather than a plain `includes`.
+ */
+export interface ToolbarOption {
+  id: string
+  name: string
+  color: string
+}
+
+export interface ToolbarContext {
+  statuses: ToolbarOption[]
+  priorities: Array<ToolbarOption & { level: number }>
+  types: ToolbarOption[]
+  labels: ToolbarOption[]
+  members: Array<{ id: string; name: string; username: string; avatarColor: string }>
+  can: { createTicket: boolean }
+  formConfig?: TicketFormConfig
+  projectId?: string
+}
+
+/** True when every id in a (possibly grouped) option is present. */
+function isSelected(selected: string[], optionId: string): boolean {
+  const parts = optionId.split(',')
+  return parts.every((part) => selected.includes(part))
+}
 
 /**
  * Filter toolbar shared by the board, table, calendar and timeline.
@@ -41,7 +74,7 @@ export function TicketToolbar({
   filters,
   total,
 }: {
-  context: ProjectViewContext
+  context: ToolbarContext
   filters: TicketFilters
   total: number
 }) {
@@ -67,9 +100,15 @@ export function TicketToolbar({
   const toggleParam = React.useCallback(
     (key: string, value: string) => {
       const current = (searchParams.get(key) ?? '').split(',').filter(Boolean)
-      const next = current.includes(value)
-        ? current.filter((v) => v !== value)
-        : [...current, value]
+      // `value` may itself be several comma-joined ids in the workspace scope,
+      // so the whole group is added or removed together.
+      const parts = value.split(',')
+      const allPresent = parts.every((part) => current.includes(part))
+
+      const next = allPresent
+        ? current.filter((v) => !parts.includes(v))
+        : [...current, ...parts.filter((part) => !current.includes(part))]
+
       setParam(key, next)
     },
     [searchParams, setParam],
@@ -267,9 +306,9 @@ export function TicketToolbar({
             {total} {total === 1 ? 'ticket' : 'tickets'}
           </span>
 
-          <SaveFilterDialog filters={filters} projectId={context.formConfig.projectId} />
+          <SaveFilterDialog filters={filters} projectId={context.projectId} />
 
-          {context.can.createTicket && (
+          {context.can.createTicket && context.formConfig && (
             <Button size="sm" className="h-8" onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" />
               New ticket
@@ -278,11 +317,13 @@ export function TicketToolbar({
         </span>
       </div>
 
-      <CreateTicketDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        config={context.formConfig}
-      />
+      {context.formConfig && (
+        <CreateTicketDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          config={context.formConfig}
+        />
+      )}
     </>
   )
 }
@@ -334,7 +375,7 @@ function FilterPopover({
                   <Check
                     className={cn(
                       'ml-auto size-4',
-                      selected.includes(item.id) ? 'opacity-100' : 'opacity-0',
+                      isSelected(selected, item.id) ? 'opacity-100' : 'opacity-0',
                     )}
                   />
                 </CommandItem>

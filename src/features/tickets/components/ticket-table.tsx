@@ -54,7 +54,18 @@ import { InlineStatusCell, InlineAssigneeCell, InlinePriorityCell } from './inli
 import { BulkActionBar } from './bulk-action-bar'
 import { deleteTicketAction } from '../actions'
 import type { TicketListItem } from '../queries'
-import type { ProjectViewContext } from '@/features/projects/project-context'
+
+/**
+ * The slice of context the table needs. Satisfied by both the single-project
+ * context and the cross-project workspace context.
+ */
+export interface TicketTableContext {
+  statuses: Array<{ id: string; name: string; color: string }>
+  priorities: Array<{ id: string; name: string; color: string; level: number }>
+  members: Array<{ id: string; name: string; username: string; avatarColor: string }>
+  labels: Array<{ id: string; name: string; color: string }>
+  can: { updateTicket: boolean; deleteTicket: boolean }
+}
 
 /**
  * Table view.
@@ -70,7 +81,7 @@ export function TicketTable({
   showProjectColumn = false,
 }: {
   tickets: TicketListItem[]
-  context: ProjectViewContext
+  context: TicketTableContext
   showProjectColumn?: boolean
 }) {
   const router = useRouter()
