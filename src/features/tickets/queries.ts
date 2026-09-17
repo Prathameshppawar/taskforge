@@ -154,7 +154,32 @@ const TICKET_LIST_SELECT = {
   _count: { select: { children: true, comments: true, resources: true } },
 } satisfies Prisma.TicketSelect
 
-export type TicketListItem = Prisma.TicketGetPayload<{ select: typeof TICKET_LIST_SELECT }>
+type RawTicketListItem = Prisma.TicketGetPayload<{ select: typeof TICKET_LIST_SELECT }>
+
+/**
+ * A ticket as the UI receives it.
+ *
+ * `estimateHours` is a Postgres NUMERIC, which Prisma returns as a Decimal
+ * instance. Decimal is a class, not a plain object, so React refuses to send it
+ * across the Server → Client boundary. Converting here — at the single point
+ * every view reads through — means no client component can ever be handed one,
+ * rather than relying on each view to remember.
+ *
+ * NUMERIC(6,2) fits in a float without loss, so Number() is safe. A wider
+ * precision column would need a string instead.
+ */
+export type TicketListItem = Omit<RawTicketListItem, 'estimateHours'> & {
+  estimateHours: number | null
+}
+
+function toSerializable<T extends { estimateHours: Prisma.Decimal | null }>(
+  ticket: T,
+): Omit<T, 'estimateHours'> & { estimateHours: number | null } {
+  return {
+    ...ticket,
+    estimateHours: ticket.estimateHours === null ? null : Number(ticket.estimateHours),
+  }
+}
 
 export async function listTickets(
   actor: Actor,
@@ -174,7 +199,7 @@ export async function listTickets(
     prisma.ticket.count({ where }),
   ])
 
-  return { items, total }
+  return { items: items.map(toSerializable), total }
 }
 
 /** Board data: the project's columns plus the tickets sitting in each. */
@@ -200,7 +225,7 @@ export async function getBoardData(
   const byStatus = new Map<string, TicketListItem[]>()
   for (const status of statuses) byStatus.set(status.id, [])
   for (const ticket of tickets) {
-    byStatus.get(ticket.status.id)?.push(ticket)
+    byStatus.get(ticket.status.id)?.push(toSerializable(ticket))
   }
 
   return {
@@ -270,7 +295,7 @@ export const getTicketByKey = cache(async (actor: Actor, key: string) => {
       ? rollupProgress(ticket.children.map((c) => ({ statusCategory: c.status.category })))
       : null
 
-  return { ...ticket, progress }
+  return { ...toSerializable(ticket), progress }
 })
 
 export type TicketDetail = NonNullable<Awaited<ReturnType<typeof getTicketByKey>>>

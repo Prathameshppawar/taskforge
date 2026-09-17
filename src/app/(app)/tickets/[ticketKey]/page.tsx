@@ -221,7 +221,7 @@ export default async function TicketDetailPage({
             {ticket.estimateHours != null && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Estimate</span>
-                <span className="tabular-nums">{String(ticket.estimateHours)}h</span>
+                <span className="tabular-nums">{ticket.estimateHours}h</span>
               </div>
             )}
 
