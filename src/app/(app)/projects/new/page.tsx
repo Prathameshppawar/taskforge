@@ -1,20 +1,14 @@
 import type { Metadata } from 'next'
-import { redirect } from 'next/navigation'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { requireUser } from '@/features/auth/guards'
-import { roleHas } from '@/core/domain/rbac'
+import { requirePermissionPage } from '@/features/auth/guards'
 import { CreateProjectForm } from '@/features/projects/components/create-project-form'
 import { PageHeader } from '@/components/shared/page-header'
 
 export const metadata: Metadata = { title: 'New project' }
 
 export default async function NewProjectPage() {
-  const actor = await requireUser()
-
-  if (!roleHas(actor.role, 'project:create')) {
-    redirect('/projects')
-  }
+  const actor = await requirePermissionPage('project:create')
 
   const [templates, users] = await Promise.all([
     prisma.projectTemplate.findMany({

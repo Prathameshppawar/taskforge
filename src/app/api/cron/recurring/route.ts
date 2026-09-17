@@ -1,0 +1,69 @@
+import { NextResponse, type NextRequest } from 'next/server'
+
+import { prisma } from '@/infrastructure/db/prisma'
+import { generateDueTickets } from '@/features/recurring/service'
+
+/**
+ * Recurring ticket scheduler.
+ *
+ * Invoked by Vercel Cron (see vercel.json) or any external scheduler. Guarded
+ * by a shared secret rather than a session, because there is no user here.
+ *
+ * Deliberately idempotent-ish: running it more often than necessary is
+ * harmless, since each schedule only fires when nextRunAt has passed and is
+ * then advanced beyond the current time.
+ */
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+export async function GET(request: NextRequest) {
+  const secret = process.env.CRON_SECRET
+
+  if (!secret) {
+    return NextResponse.json(
+      { error: 'CRON_SECRET is not configured on the server.' },
+      { status: 503 },
+    )
+  }
+
+  // Vercel Cron sends the secret as a Bearer token; allow a query parameter
+  // too so the endpoint can be driven by schedulers that cannot set headers.
+  const header = request.headers.get('authorization')
+  const provided =
+    header?.replace(/^Bearer\s+/i, '') ?? request.nextUrl.searchParams.get('key') ?? ''
+
+  if (!timingSafeEqual(provided, secret)) {
+    return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
+  }
+
+  const startedAt = Date.now()
+
+  try {
+    const result = await generateDueTickets(prisma)
+
+    return NextResponse.json({
+      ok: true,
+      generated: result.generated.length,
+      tickets: result.generated.map((entry) => entry.ticketKey),
+      deactivated: result.deactivated.length,
+      errors: result.errors,
+      durationMs: Date.now() - startedAt,
+    })
+  } catch (error) {
+    console.error('[cron/recurring] sweep failed:', error)
+    return NextResponse.json(
+      { ok: false, error: 'The sweep failed. Check the server logs.' },
+      { status: 500 },
+    )
+  }
+}
+
+/** Length-independent comparison, so the secret cannot be probed by timing. */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let mismatch = 0
+  for (let index = 0; index < a.length; index++) {
+    mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index)
+  }
+  return mismatch === 0
+}

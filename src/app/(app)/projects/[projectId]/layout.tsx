@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { Archive } from 'lucide-react'
 
-import { requireProjectView } from '@/features/auth/guards'
+import { requireProjectViewPage } from '@/features/auth/guards'
 import { getProjectDetail } from '@/features/projects/queries'
 import { ProjectTabs } from '@/features/projects/components/project-tabs'
 import { PROJECT_STATUS_LABELS } from '@/features/projects/components/project-card'
@@ -19,9 +19,9 @@ export default async function ProjectLayout({
 }) {
   const { projectId } = await params
 
-  // Throws ForbiddenError for a project the actor may not see; Next renders the
-  // nearest error boundary.
-  await requireProjectView(projectId)
+  // Redirects to /forbidden for a project the actor may not see, rather than
+  // surfacing a 500 for what is really an access decision.
+  await requireProjectViewPage(projectId)
 
   const project = await getProjectDetail(projectId)
   if (!project) notFound()

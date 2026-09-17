@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 
-import { requireProjectView } from '@/features/auth/guards'
+import { requireProjectViewPage } from '@/features/auth/guards'
 import { getProjectActivity } from '@/features/activity/queries'
 import { ActivityFeed } from '@/features/activity/components/activity-feed'
 import { PageHeader } from '@/components/shared/page-header'
@@ -13,7 +13,7 @@ export default async function ProjectActivityPage({
   params: Promise<{ projectId: string }>
 }) {
   const { projectId } = await params
-  await requireProjectView(projectId)
+  await requireProjectViewPage(projectId)
 
   const items = await getProjectActivity(projectId, 150)
 

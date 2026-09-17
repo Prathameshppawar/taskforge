@@ -1,5 +1,5 @@
 import { cache } from 'react'
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import type { RoleKey } from '@prisma/client'
 
 import { auth } from '@/auth'
@@ -179,5 +179,45 @@ export function ticketVisibilityFilter(actor: Actor) {
         { members: { some: { userId: actor.id } } },
       ],
     },
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Page-level guards
+//
+// Server Actions THROW on an authorization failure, because runAction turns the
+// throw into a typed ActionResult the form can render. Pages must not do that —
+// an uncaught ForbiddenError renders a 500, which is the wrong answer to "you
+// are not allowed here". These variants redirect to a proper explanation page
+// instead. They must never be used inside an action: redirect() throws a
+// control-flow signal that would escape as an unhandled error.
+// -----------------------------------------------------------------------------
+
+/** Admin-only page guard. */
+export async function requireAdminPage(): Promise<Actor> {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+  if (user.role !== 'ADMIN') redirect('/forbidden?reason=admin')
+  return user
+}
+
+/** Permission-gated page guard. */
+export async function requirePermissionPage(permission: Permission): Promise<Actor> {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+  if (!roleHas(user.role, permission)) redirect('/forbidden?reason=permission')
+  return user
+}
+
+/** Project-scoped page guard: redirects rather than throwing. */
+export async function requireProjectViewPage(projectId: string): Promise<ProjectGuardResult> {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
+  try {
+    return await requireProjectView(projectId)
+  } catch (error) {
+    if (error instanceof NotFoundError) notFound()
+    redirect('/forbidden?reason=project')
   }
 }
