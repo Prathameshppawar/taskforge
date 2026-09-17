@@ -99,6 +99,7 @@ you set in `.env`.
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layering, the shape of a mutation, authorization model, AI design |
 | [`docs/ER-DIAGRAM.md`](docs/ER-DIAGRAM.md) | Full entity relationship model, normalization notes, index coverage |
+| [`docs/ENVIRONMENT-SETUP.md`](docs/ENVIRONMENT-SETUP.md) | **Start here** — exactly where to obtain every environment variable |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Vercel + Neon deployment, cron setup, troubleshooting |
 | [`docs/PROJECT-STRUCTURE.md`](docs/PROJECT-STRUCTURE.md) | Folder layout, the dependency rule, where to add things |
 | [`.env.example`](.env.example) | Every environment variable, annotated with where to obtain it |
