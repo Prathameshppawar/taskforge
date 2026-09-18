@@ -134,6 +134,16 @@ function classifyGroqError(error: unknown, model: string): AiProviderError {
     )
   }
 
+  if (status === 400 && /tool call validation|did not match schema/i.test(raw)) {
+    return new AiProviderError(
+      'The model produced an invalid tool call and Groq rejected it. Rephrasing the request usually clears it.',
+      'groq',
+      'invalid_tool_call',
+      undefined,
+      error,
+    )
+  }
+
   if (status === 401 || status === 403) {
     return new AiProviderError(
       'Groq rejected the API key. Check GROQ_API_KEY.',

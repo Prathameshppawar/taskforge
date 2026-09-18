@@ -41,6 +41,12 @@ export interface ToolResult {
   data?: unknown
 }
 
+/** Bounds the model's numbers rather than rejecting them. Exported for tests. */
+export function clamp(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, Math.trunc(value)))
+}
+
 export interface ExecutionContext {
   actor: Actor
   /** Project the user currently has open, used when the model omits one. */
@@ -122,7 +128,7 @@ async function createTicket(args: CreateArgs, ctx: ExecutionContext): Promise<To
     assigneeId: assignee?.id ?? null,
     parentId: parentId ?? null,
     labelIds: labels.map((label) => label.id),
-    dueDate: args.dueInDays != null ? daysFromNow(args.dueInDays) : null,
+    dueDate: args.dueInDays != null ? daysFromNow(clamp(args.dueInDays, 0, 3650, 7)) : null,
     startDate: null,
     resources: [],
   })
@@ -233,7 +239,8 @@ async function searchTickets(args: SearchArgs, ctx: ExecutionContext): Promise<T
 
   const { items, total } = await listTickets(ctx.actor, filters, {
     projectId,
-    take: args.limit ?? 15,
+    // A model asking for 0 or 500 gets something sensible rather than an error.
+    take: clamp(args.limit, 1, 50, 15),
   })
 
   if (items.length === 0) {
@@ -319,7 +326,7 @@ async function updateTicket(args: UpdateArgs, ctx: ExecutionContext): Promise<To
     statusId: status?.id,
     priorityId: priority?.id,
     assigneeId: args.assignee != null ? (assignee?.id ?? null) : undefined,
-    dueDate: args.dueInDays != null ? daysFromNow(args.dueInDays) : undefined,
+    dueDate: args.dueInDays != null ? daysFromNow(clamp(args.dueInDays, 0, 3650, 7)) : undefined,
     ...(addLabels.length > 0 ? { labelIds: addLabels.map((l) => l.id) } : {}),
   })
 

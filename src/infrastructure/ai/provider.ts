@@ -54,6 +54,7 @@ export type AiFailureKind =
   | 'rate_limited'
   | 'unauthorized'
   | 'model_not_found'
+  | 'invalid_tool_call'
   | 'unreachable'
   | 'unknown'
 

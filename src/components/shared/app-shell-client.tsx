@@ -44,7 +44,41 @@ export function AppShellClient({
   const pathname = usePathname()
 
   const [paletteOpen, setPaletteOpen] = React.useState(false)
-  const [copilotOpen, setCopilotOpen] = React.useState(false)
+
+  /*
+   * The Copilot's open state is mirrored into sessionStorage.
+   *
+   * After the Copilot changes data it calls router.refresh() so the board
+   * behind it reflects the new tickets. That re-renders this layout from the
+   * server, and anything that remounts this component takes the drawer down
+   * with it — the panel appeared to close itself the moment a reply landed.
+   * Restoring from sessionStorage makes the drawer survive that regardless of
+   * what triggers a remount, and sessionStorage rather than localStorage so a
+   * new tab does not open with the panel already showing.
+   */
+  const [copilotOpen, setCopilotOpenState] = React.useState(false)
+
+  React.useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem('taskforge.copilot.open') === '1') {
+        setCopilotOpenState(true)
+      }
+    } catch {
+      // Storage unavailable (private window) — the panel simply starts closed.
+    }
+  }, [])
+
+  const setCopilotOpen = React.useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setCopilotOpenState((current) => {
+      const value = typeof next === 'function' ? next(current) : next
+      try {
+        window.sessionStorage.setItem('taskforge.copilot.open', value ? '1' : '0')
+      } catch {
+        // ignored
+      }
+      return value
+    })
+  }, [])
 
   // The Copilot needs to know which project the user is looking at, so it can
   // resolve "create a ticket" without being told the project every time.

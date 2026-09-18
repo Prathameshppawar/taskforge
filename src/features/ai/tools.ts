@@ -6,6 +6,16 @@ import type { AiToolDefinition } from '@/infrastructure/ai'
 /**
  * Copilot tool contracts.
  *
+ * NOTE ON NUMERIC BOUNDS: Groq validates tool arguments against this JSON
+ * Schema on its side and rejects the whole request with a 400 if they do not
+ * match — the call never reaches us, so we cannot correct it. A model that
+ * emits `limit: 0` to mean "no limit" therefore breaks the entire turn.
+ *
+ * So bounds are deliberately absent from the model-facing schema and enforced
+ * by clamping in the executor instead. Being strict here buys nothing: it
+ * converts a recoverable value into an unrecoverable failure.
+ *
+ *
  * The Zod schema is the single source of truth: the JSON Schema handed to the
  * model is generated from it, so the model-facing contract and the server-side
  * trust boundary cannot drift apart.
@@ -26,7 +36,7 @@ export const createTicketTool = z.object({
   status: z.string().optional(),
   assignee: z.string().optional().describe('Username or name'),
   labels: z.array(z.string()).optional(),
-  dueInDays: z.number().int().min(0).max(365).optional(),
+  dueInDays: z.number().int().optional(),
   parentKey: z.string().optional().describe('Parent key, e.g. RC-4'),
 })
 
@@ -60,7 +70,7 @@ export const searchTicketsTool = z.object({
   assignee: z.string().optional().describe('Username, name, or "me"'),
   overdueOnly: z.boolean().optional(),
   unassignedOnly: z.boolean().optional(),
-  limit: z.number().int().min(1).max(50).optional(),
+  limit: z.number().int().optional(),
 })
 
 export const updateTicketTool = z.object({
@@ -68,7 +78,7 @@ export const updateTicketTool = z.object({
   status: z.string().optional(),
   priority: z.string().optional(),
   assignee: z.string().optional().describe('Name, or "none" to unassign'),
-  dueInDays: z.number().int().min(0).max(365).optional(),
+  dueInDays: z.number().int().optional(),
   addLabels: z.array(z.string()).optional(),
   title: z.string().min(3).max(200).optional(),
 })

@@ -10,6 +10,7 @@
  *     npm run verify
  */
 import { getToolDefinitions, TOOL_SCHEMAS, isToolName } from '@/features/ai/tools'
+import { clamp } from '@/features/ai/executor'
 import { rollupProgress, assertValidParent, parseTicketKey, buildTicketKey } from '@/core/domain/ticket-rules'
 import { previewSchedule, nextOccurrence, firstOccurrence } from '@/core/domain/recurrence'
 import { canInProject, roleHas } from '@/core/domain/rbac'
@@ -73,8 +74,19 @@ const hugeBulk = TOOL_SCHEMAS.bulk_create_tickets.safeParse({
 })
 check('caps bulk create at 30 children', !hugeBulk.success)
 
-const badDays = TOOL_SCHEMAS.update_ticket.safeParse({ ticketKey: 'A-1', dueInDays: 99999 })
-check('rejects an out-of-range due offset', !badDays.success)
+// Numeric bounds are deliberately ABSENT from the model-facing schema: Groq
+// validates it server-side and rejects the whole request with a 400, so a
+// model emitting `limit: 0` would break the turn outright. Out-of-range values
+// are accepted and then clamped, which is what must be asserted.
+const wideDays = TOOL_SCHEMAS.update_ticket.safeParse({ ticketKey: 'A-1', dueInDays: 99999 })
+check('accepts an out-of-range due offset (clamped later)', wideDays.success)
+
+check('clamp bounds a too-large value', clamp(99999, 0, 365, 7) === 365)
+check('clamp bounds a negative value', clamp(-5, 0, 365, 7) === 0)
+check('clamp falls back when undefined', clamp(undefined, 1, 50, 15) === 15)
+check('clamp rejects NaN via fallback', clamp(Number.NaN, 1, 50, 15) === 15)
+check('clamp truncates a float', clamp(12.9, 1, 50, 15) === 12)
+check('clamp passes a valid value through', clamp(20, 1, 50, 15) === 20)
 
 console.log('\n── Progress rollup ──')
 const allDone = rollupProgress([{ statusCategory: 'DONE' }, { statusCategory: 'DONE' }])
