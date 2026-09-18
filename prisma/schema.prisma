@@ -442,6 +442,9 @@ model ProjectSettings {
   nextTicketNumber Int     @default(1)
   color            String  @default("indigo")
   icon             String  @default("folder-kanban")
+  /// Optional logo, referenced by URL. Consistent with the platform storing
+  /// links rather than uploads; falls back to the colour swatch when unset.
+  logoUrl          String?
 
   /// Roll a parent's status up automatically from its children's progress.
   autoStatusRollup Boolean @default(true)

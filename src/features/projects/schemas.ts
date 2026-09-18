@@ -49,6 +49,18 @@ export const projectSettingsSchema = z.object({
   projectId: z.string().min(1),
   color: z.string().min(1),
   icon: z.string().min(1),
+  /**
+   * Only http(s) is accepted. A data: or javascript: URL here would be
+   * rendered straight into an <img> on every page the project appears on.
+   */
+  logoUrl: z
+    .string()
+    .trim()
+    .max(2000)
+    .url('Enter a full image URL, including https://')
+    .refine((v) => /^https?:\/\//i.test(v), 'The URL must start with http:// or https://')
+    .optional()
+    .or(z.literal('')),
   autoStatusRollup: z.boolean(),
   allowSubtasks: z.boolean(),
   requireDueDate: z.boolean(),

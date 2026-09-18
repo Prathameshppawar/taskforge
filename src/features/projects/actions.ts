@@ -257,6 +257,7 @@ export async function updateProjectSettingsAction(
         data: {
           color: data.color,
           icon: data.icon,
+          logoUrl: data.logoUrl || null,
           autoStatusRollup: data.autoStatusRollup,
           allowSubtasks: data.allowSubtasks,
           requireDueDate: data.requireDueDate,

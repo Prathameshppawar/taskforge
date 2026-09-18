@@ -18,7 +18,7 @@ import {
 import type { RoleKey } from '@prisma/client'
 
 import { cn } from '@/lib/utils'
-import { colorClasses } from '@/core/domain/defaults'
+import { ProjectLogo } from '@/components/shared/project-logo'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,6 +33,7 @@ export interface SidebarProject {
   name: string
   code: string
   color: string
+  logoUrl?: string | null
 }
 
 interface NavItem {
@@ -137,12 +138,11 @@ export function AppSidebar({
                               : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground',
                           )}
                         >
-                          <span
-                            className={cn(
-                              'size-2 shrink-0 rounded-[3px]',
-                              colorClasses(project.color).dot,
-                            )}
-                            aria-hidden
+                          <ProjectLogo
+                            name={project.name}
+                            color={project.color}
+                            logoUrl={project.logoUrl}
+                            size="xs"
                           />
                           <span className="truncate">{project.name}</span>
                           <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/70">

@@ -7,8 +7,7 @@ import { ProjectTabs } from '@/features/projects/components/project-tabs'
 import { PROJECT_STATUS_LABELS } from '@/features/projects/components/project-card'
 import { UserAvatar } from '@/components/shared/user-avatar'
 import { Badge } from '@/components/ui/badge'
-import { colorClasses } from '@/core/domain/defaults'
-import { cn } from '@/lib/utils'
+import { ProjectLogo } from '@/components/shared/project-logo'
 
 export default async function ProjectLayout({
   children,
@@ -32,9 +31,11 @@ export default async function ProjectLayout({
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b">
         <div className="flex flex-wrap items-center gap-3 px-4 pt-4 pb-3 sm:px-6">
-          <span
-            className={cn('size-9 shrink-0 rounded-lg', colorClasses(color).dot)}
-            aria-hidden
+          <ProjectLogo
+            name={project.name}
+            color={color}
+            logoUrl={project.settings?.logoUrl}
+            size="lg"
           />
 
           <div className="min-w-0 flex-1">

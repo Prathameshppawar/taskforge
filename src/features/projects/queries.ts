@@ -14,7 +14,7 @@ export const getSidebarProjects = cache(async (actor: Actor) => {
       id: true,
       name: true,
       code: true,
-      settings: { select: { color: true } },
+      settings: { select: { color: true, logoUrl: true } },
     },
     orderBy: [{ updatedAt: 'desc' }],
     take: 30,
@@ -25,6 +25,7 @@ export const getSidebarProjects = cache(async (actor: Actor) => {
     name: project.name,
     code: project.code,
     color: project.settings?.color ?? 'indigo',
+    logoUrl: project.settings?.logoUrl ?? null,
   }))
 })
 
@@ -60,7 +61,7 @@ export async function listProjects(
       isArchived: true,
       updatedAt: true,
       owner: { select: { id: true, name: true, avatarColor: true } },
-      settings: { select: { color: true, icon: true } },
+      settings: { select: { color: true, icon: true, logoUrl: true } },
       _count: { select: { tickets: true, members: true } },
     },
     orderBy: [{ isArchived: 'asc' }, { updatedAt: 'desc' }],

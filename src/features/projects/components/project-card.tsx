@@ -3,7 +3,7 @@ import { Archive, CalendarDays, Ticket, Users } from 'lucide-react'
 import type { ProjectStatus } from '@prisma/client'
 
 import { cn } from '@/lib/utils'
-import { colorClasses } from '@/core/domain/defaults'
+import { ProjectLogo } from '@/components/shared/project-logo'
 import { Badge } from '@/components/ui/badge'
 import { UserAvatar } from '@/components/shared/user-avatar'
 import type { ProjectListItem } from '../queries'
@@ -38,9 +38,11 @@ export function ProjectCard({ project }: { project: ProjectListItem }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span
-            className={cn('size-8 shrink-0 rounded-lg', colorClasses(color).dot)}
-            aria-hidden
+          <ProjectLogo
+            name={project.name}
+            color={color}
+            logoUrl={project.settings?.logoUrl}
+            size="md"
           />
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold group-hover:underline">

@@ -31,6 +31,7 @@ import {
 import { DatePicker } from '@/components/shared/date-picker'
 import { UserPicker, type PickableUser } from '@/components/shared/user-picker'
 import { ColorPicker } from '@/components/shared/color-picker'
+import { ProjectLogo } from '@/components/shared/project-logo'
 import {
   archiveProjectAction,
   updateProjectAction,
@@ -61,6 +62,7 @@ export function ProjectSettingsForm({
       requireDueDate: boolean
       isPrivate: boolean
       defaultAssigneeId: string | null
+      logoUrl: string | null
     } | null
   }
   members: PickableUser[]
@@ -88,6 +90,7 @@ export function ProjectSettingsForm({
     requireDueDate: project.settings?.requireDueDate ?? false,
     isPrivate: project.settings?.isPrivate ?? false,
     defaultAssigneeId: project.settings?.defaultAssigneeId ?? null,
+    logoUrl: project.settings?.logoUrl ?? '',
   })
 
   function saveDetails() {
@@ -285,7 +288,34 @@ export function ProjectSettingsForm({
         </div>
 
         <div className="space-y-2">
+          <Label htmlFor="logo-url">Logo URL</Label>
+          <div className="flex items-center gap-3">
+            <ProjectLogo
+              name={project.name}
+              color={settings.color}
+              logoUrl={settings.logoUrl || null}
+              size="lg"
+            />
+            <Input
+              id="logo-url"
+              value={settings.logoUrl}
+              onChange={(event) => setSettings({ ...settings, logoUrl: event.target.value })}
+              onBlur={() => saveSettings(settings)}
+              placeholder="https://example.com/logo.png"
+              disabled={!canEdit || isPending}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Paste a link to an image. TaskForge stores the link, never the file.
+            Leave it empty to use the colour below instead.
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <Label>Project colour</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Used wherever no logo is set, and if the logo fails to load.
+          </p>
           <ColorPicker
             value={settings.color}
             onChange={(color) => saveSettings({ ...settings, color })}

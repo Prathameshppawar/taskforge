@@ -24,7 +24,7 @@ import { ActivityFeed } from '@/features/activity/components/activity-feed'
 import { PageHeader, EmptyState } from '@/components/shared/page-header'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { colorClasses } from '@/core/domain/defaults'
+import { ProjectLogo } from '@/components/shared/project-logo'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Dashboard' }
@@ -143,9 +143,11 @@ export default async function DashboardPage() {
                   className="rounded-xl border bg-card p-3 transition-all hover:border-foreground/20 hover:shadow-sm"
                 >
                   <div className="flex items-center gap-2">
-                    <span
-                      className={cn('size-2.5 rounded-full', colorClasses(project.color).dot)}
-                      aria-hidden
+                    <ProjectLogo
+                      name={project.name}
+                      color={project.color}
+                      logoUrl={project.logoUrl}
+                      size="sm"
                     />
                     <span className="truncate text-sm font-medium">{project.name}</span>
                     <span className="ml-auto font-mono text-[10px] text-muted-foreground">
