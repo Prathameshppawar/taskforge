@@ -191,6 +191,35 @@ time only** and is not reachable at runtime. It is fixed only in Next 16, which
 would be a breaking change from the App Router version this project targets.
 Revisit at the next major upgrade.
 
+## Git identity and blocked deployments
+
+Vercel refuses to build a commit whose author email it cannot match to a GitHub
+account with access to the repository. The deployment is marked **Blocked** with
+"the commit email … could not be matched to a GitHub account".
+
+This bites when a machine has several GitHub identities — a work account and a
+personal one — and the repository belongs to the personal one while git is
+configured with the work email.
+
+Set the identity per repository rather than globally:
+
+```bash
+# inside the repo
+git config user.name  "<your-github-username>"
+git config user.email "<id>+<username>@users.noreply.github.com"
+```
+
+GitHub's `users.noreply` address is always associated with the account and
+keeps a real address out of the history. Find yours with:
+
+```bash
+gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"'
+```
+
+A blocked deployment cannot be un-blocked by redeploying the same commit — the
+commit itself carries the offending email. Push a new commit with the corrected
+author, or rewrite the author of the existing one.
+
 ## Troubleshooting
 
 | Symptom | Cause |
