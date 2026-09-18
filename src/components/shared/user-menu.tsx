@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { LogOut, Settings, User as UserIcon } from 'lucide-react'
+import { KeyRound, LogOut, Settings, User as UserIcon } from 'lucide-react'
 import type { RoleKey } from '@prisma/client'
 
 import {
@@ -58,6 +58,11 @@ export function UserMenu({
         <DropdownMenuItem asChild>
           <Link href="/settings/security">
             <Settings className="size-4" /> Change password
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/tokens">
+            <KeyRound className="size-4" /> Access tokens
           </Link>
         </DropdownMenuItem>
 

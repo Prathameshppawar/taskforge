@@ -22,22 +22,42 @@ export interface Actor {
 }
 
 /**
- * Current actor, or null when signed out.
+ * Current actor, or null when unauthenticated.
  *
- * Wrapped in React's `cache` so multiple guards in one render pass share a
- * single session read rather than repeating it per component.
+ * Resolves a browser session first, then falls back to an `Authorization:
+ * Bearer` personal access token. Putting the fallback *here* rather than in
+ * each caller is what makes the entire Server Action surface usable by
+ * non-browser clients — the MCP server, scripts, CI — with no other change.
+ * Every guard, permission check and audit entry downstream is identical
+ * regardless of how the actor was identified, so a token can never take a path
+ * a browser session could not.
+ *
+ * Wrapped in React's `cache` so multiple guards in one pass share one read.
  */
 export const getCurrentUser = cache(async (): Promise<Actor | null> => {
   const session = await auth()
-  if (!session?.user?.id) return null
 
-  return {
-    id: session.user.id,
-    username: session.user.username,
-    name: session.user.name ?? session.user.username,
-    role: session.user.role,
-    avatarColor: session.user.avatarColor,
-    mustChangePassword: session.user.mustChangePassword,
+  if (session?.user?.id) {
+    return {
+      id: session.user.id,
+      username: session.user.username,
+      name: session.user.name ?? session.user.username,
+      role: session.user.role,
+      avatarColor: session.user.avatarColor,
+      mustChangePassword: session.user.mustChangePassword,
+    }
+  }
+
+  // Token auth is header-based, so it is not subject to CSRF the way a cookie
+  // would be. Reading headers can throw outside a request scope (e.g. during
+  // static analysis at build time); treat that as "no actor".
+  try {
+    const { headers } = await import('next/headers')
+    const headerList = await headers()
+    const { authenticateToken } = await import('@/features/tokens/service')
+    return await authenticateToken(headerList.get('authorization'))
+  } catch {
+    return null
   }
 })
 

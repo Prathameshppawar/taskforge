@@ -206,11 +206,20 @@ async function bulkCreate(args: BulkArgs, ctx: ExecutionContext): Promise<ToolRe
 type SearchArgs = ReturnType<(typeof TOOL_SCHEMAS)['search_tickets']['parse']>
 
 async function searchTickets(args: SearchArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  /*
+   * Scope to the open project when the caller did not name one.
+   *
+   * Previously the open project was used only to resolve status and label
+   * NAMES, so "show blocked tickets" while looking at one project returned
+   * blocked tickets from every project the user could see. That is not what
+   * anyone means by the question — and over MCP, where the project is supplied
+   * as context, it silently widened the search past the requested scope.
+   */
   const projectId = args.projectCode
     ? (await resolveProject(ctx.actor, args.projectCode, undefined)).id
-    : undefined
+    : ctx.currentProjectId
 
-  const scopeId = projectId ?? ctx.currentProjectId
+  const scopeId = projectId
 
   const [status, priority, type, label, assignee] = scopeId
     ? await Promise.all([

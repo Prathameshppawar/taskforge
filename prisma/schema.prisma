@@ -222,6 +222,7 @@ model User {
   resources           TicketResource[]
   savedFilters        SavedFilter[]
   sessions            UserSession[]
+  accessTokens        AccessToken[]
   createdTemplates    ProjectTemplate[]
   recurringTickets    RecurringTicket[] @relation("RecurringCreatedBy")
   recurringAssignee   RecurringTicket[] @relation("RecurringAssignee")
@@ -233,6 +234,36 @@ model User {
   @@index([isActive])
   @@index([name])
   @@map("users")
+}
+
+/// Personal access token for non-browser clients (the MCP server, scripts, CI).
+///
+/// Only the hash is stored — the plaintext is shown once at creation and is
+/// unrecoverable afterwards, so a database leak does not yield usable tokens.
+/// A token is strictly an alias for its user: it carries no permissions of its
+/// own, so every request it makes is bounded by that user's role exactly as a
+/// browser session would be.
+model AccessToken {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Human label, e.g. "Claude Desktop".
+  name       String
+  /// SHA-256 of the token. Never the token itself.
+  tokenHash  String  @unique
+  /// First 8 characters, shown in the UI so a token can be identified.
+  prefix     String
+
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("access_tokens")
 }
 
 /// Login audit trail. Sessions themselves are stateless JWTs (required by the

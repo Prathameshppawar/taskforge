@@ -24,7 +24,12 @@ export default auth((request) => {
   const session = request.auth
 
   // Auth.js and the cron endpoint authenticate themselves.
-  if (pathname.startsWith('/api/auth') || pathname.startsWith('/api/cron')) {
+  if (
+    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/cron') ||
+    // Bearer-token authenticated; a redirect to /login would be nonsense here.
+    pathname.startsWith('/api/mcp')
+  ) {
     return NextResponse.next()
   }
 
