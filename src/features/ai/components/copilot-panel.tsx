@@ -7,10 +7,11 @@ import {
   AlertTriangle,
   ArrowUp,
   Bot,
-  CircleCheck,
+  History,
   Loader2,
   Search,
   Sparkles,
+  SquarePen,
   Trash2,
   X,
 } from 'lucide-react'
@@ -38,59 +39,90 @@ const SUGGESTIONS = [
   { icon: Bot, label: 'Project health', prompt: 'How is this project performing?' },
 ]
 
-const STORAGE_KEY = 'taskforge.copilot.thread'
-const MAX_PERSISTED = 40
+const STORAGE_KEY = 'taskforge.copilot.threads'
+const MAX_THREADS = 15
+const MAX_MESSAGES_PER_THREAD = 40
+
+export interface CopilotThread {
+  id: string
+  /** Derived from the first user message, so the history list is scannable. */
+  title: string
+  messages: CopilotMessage[]
+  updatedAt: number
+}
 
 /**
- * Right-side Copilot drawer.
+ * Thread storage.
  *
- * The thread is persisted to localStorage, keyed per project, so closing the
- * drawer or reloading the page does not lose the conversation. localStorage is
- * deliberate rather than a database table: it costs nothing, needs no schema
- * change, and a Copilot thread is personal working context rather than shared
- * project data. The trade-off is that it does not follow the user to another
- * browser or device.
+ * Threads are kept per project in localStorage: it costs nothing, needs no
+ * schema change, and a Copilot thread is personal working context rather than
+ * shared project data. The trade-off is that it does not follow the user to
+ * another browser or device.
  *
- * Every access is guarded — localStorage throws in private windows and can
- * come back empty when site data is cleared.
+ * Every access is guarded — localStorage throws in private windows and returns
+ * nothing when site data has been cleared.
  */
-function threadKey(projectId?: string) {
+function storeKey(projectId?: string) {
   return `${STORAGE_KEY}.${projectId ?? 'global'}`
 }
 
-function loadThread(projectId?: string): CopilotMessage[] {
+function loadThreads(projectId?: string): CopilotThread[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = window.localStorage.getItem(threadKey(projectId))
+    const raw = window.localStorage.getItem(storeKey(projectId))
     if (!raw) return []
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as CopilotMessage[]) : []
+    if (!Array.isArray(parsed)) return []
+    return (parsed as CopilotThread[])
+      .filter((t) => t && typeof t.id === 'string' && Array.isArray(t.messages))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
   } catch {
     return []
   }
 }
 
-function saveThread(projectId: string | undefined, messages: CopilotMessage[]) {
+function saveThreads(projectId: string | undefined, threads: CopilotThread[]) {
   if (typeof window === 'undefined') return
   try {
-    // Keep only the tail: tool payloads can be large and the quota is ~5MB.
-    window.localStorage.setItem(
-      threadKey(projectId),
-      JSON.stringify(messages.slice(-MAX_PERSISTED)),
-    )
+    // Drop empty threads, cap the count, and trim each — tool payloads are
+    // large and the quota is around 5MB.
+    const trimmed = threads
+      .filter((t) => t.messages.length > 0)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_THREADS)
+      .map((t) => ({ ...t, messages: t.messages.slice(-MAX_MESSAGES_PER_THREAD) }))
+
+    window.localStorage.setItem(storeKey(projectId), JSON.stringify(trimmed))
   } catch {
-    // Quota exceeded or storage blocked — the panel still works in-memory.
+    // Quota exceeded or storage blocked — the panel still works in memory.
   }
 }
 
-function clearThread(projectId?: string) {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.removeItem(threadKey(projectId))
-  } catch {
-    // ignored
+function newThread(): CopilotThread {
+  return {
+    id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: 'New chat',
+    messages: [],
+    updatedAt: Date.now(),
   }
 }
+
+function titleFor(messages: CopilotMessage[]): string {
+  const first = messages.find((m) => m.role === 'user')
+  if (!first) return 'New chat'
+  const text = first.content.trim().replace(/\s+/g, ' ')
+  return text.length > 38 ? `${text.slice(0, 38)}…` : text
+}
+
+function relativeTime(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
 export function CopilotPanel({
   open,
   onOpenChange,
@@ -105,9 +137,53 @@ export function CopilotPanel({
   enabled: boolean
 }) {
   const router = useRouter()
-  const [messages, setMessages] = React.useState<CopilotMessage[]>([])
+  const [threads, setThreads] = React.useState<CopilotThread[]>([])
+  const [activeId, setActiveId] = React.useState<string | null>(null)
   const [input, setInput] = React.useState('')
   const [restored, setRestored] = React.useState(false)
+  const [historyOpen, setHistoryOpen] = React.useState(false)
+  const panelRef = React.useRef<HTMLElement>(null)
+
+  const active = threads.find((t) => t.id === activeId) ?? null
+  const messages = active?.messages ?? []
+
+  /** Applies a change to the active thread and keeps its title and order fresh. */
+  const updateActive = React.useCallback(
+    (next: (current: CopilotMessage[]) => CopilotMessage[]) => {
+      setThreads((current) =>
+        current.map((t) =>
+          t.id === activeId
+            ? { ...t, messages: next(t.messages), title: titleFor(next(t.messages)), updatedAt: Date.now() }
+            : t,
+        ),
+      )
+    },
+    [activeId],
+  )
+
+  function startNewChat() {
+    const fresh = newThread()
+    // Drop the current thread if it was never used, so "+" twice does not
+    // litter the history with blanks.
+    setThreads((current) => [fresh, ...current.filter((t) => t.messages.length > 0)])
+    setActiveId(fresh.id)
+    setHistoryOpen(false)
+    setTimeout(() => inputRef.current?.focus(), 60)
+  }
+
+  function deleteActive() {
+    setThreads((current) => {
+      const remaining = current.filter((t) => t.id !== activeId)
+      if (remaining.length > 0) {
+        setActiveId(remaining[0].id)
+        return remaining
+      }
+      const fresh = newThread()
+      setActiveId(fresh.id)
+      return [fresh]
+    })
+    setHistoryOpen(false)
+  }
   const [isPending, startTransition] = React.useTransition()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLTextAreaElement>(null)
@@ -122,18 +198,38 @@ export function CopilotPanel({
     if (open) setTimeout(() => inputRef.current?.focus(), 120)
   }, [open])
 
-  // Restore the thread for whichever project is open.
+  // Restore this project's threads, or begin one.
   React.useEffect(() => {
-    setMessages(loadThread(projectId))
+    const stored = loadThreads(projectId)
+    if (stored.length > 0) {
+      setThreads(stored)
+      setActiveId(stored[0].id)
+    } else {
+      const fresh = newThread()
+      setThreads([fresh])
+      setActiveId(fresh.id)
+    }
     setRestored(true)
   }, [projectId])
 
-  // Persist after every change, but not before the restore has run — that
-  // would write an empty array over a saved thread.
+  // Persist after every change, but never before the restore has run — that
+  // would write an empty list over saved threads.
   React.useEffect(() => {
     if (!restored) return
-    saveThread(projectId, messages)
-  }, [messages, projectId, restored])
+    saveThreads(projectId, threads)
+  }, [threads, projectId, restored])
+
+  // Escape closes the panel; clicking the scrim does the same.
+  React.useEffect(() => {
+    if (!open) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      if (historyOpen) { setHistoryOpen(false); return }
+      onOpenChange(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, historyOpen, onOpenChange])
 
   function send(text: string) {
     const trimmed = text.trim()
@@ -149,26 +245,21 @@ export function CopilotPanel({
       .filter((message) => !message.error)
       .map((message) => ({ role: message.role, content: message.content }))
 
-    setMessages((current) => [...current, userMessage])
+    updateActive((current) => [...current, userMessage])
     setInput('')
 
     startTransition(async () => {
       const result = await copilotAction({ message: trimmed, projectId, history })
 
       if (!result.success) {
-        setMessages((current) => [
+        updateActive((current) => [
           ...current,
-          {
-            id: `e-${Date.now()}`,
-            role: 'assistant',
-            content: result.error,
-            error: true,
-          },
+          { id: `e-${Date.now()}`, role: 'assistant', content: result.error, error: true },
         ])
         return
       }
 
-      setMessages((current) => [
+      updateActive((current) => [
         ...current,
         {
           id: `a-${Date.now()}`,
@@ -185,10 +276,16 @@ export function CopilotPanel({
 
   return (
     <>
-      {/* Scrim */}
+      {/*
+        Scrim. Present at every breakpoint — the panel behaves as a modal, so
+        clicking away from it should dismiss it on desktop too, not only on
+        mobile. Kept lighter on large screens so the board stays readable
+        behind it.
+      */}
       <div
         className={cn(
-          'fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px] transition-opacity duration-200 lg:hidden',
+          'fixed inset-0 z-40 bg-black/25 backdrop-blur-[2px] transition-opacity duration-200',
+          'lg:bg-black/10 lg:backdrop-blur-0',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={() => onOpenChange(false)}
@@ -196,6 +293,9 @@ export function CopilotPanel({
       />
 
       <aside
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
         className={cn(
           'fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l bg-background shadow-2xl',
           'transition-transform duration-300 ease-out',
@@ -216,16 +316,78 @@ export function CopilotPanel({
             )}
           </div>
 
-          {messages.length > 0 && (
+          {/* New chat */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={startNewChat}
+            disabled={messages.length === 0}
+            title="New chat"
+            aria-label="New chat"
+          >
+            <SquarePen className="size-3.5" />
+          </Button>
+
+          {/* History */}
+          <div className="relative">
             <Button
               variant="ghost"
               size="icon"
               className="size-7"
-              onClick={() => {
-                setMessages([])
-                clearThread(projectId)
-              }}
-              aria-label="Clear conversation"
+              onClick={() => setHistoryOpen((v) => !v)}
+              disabled={threads.filter((t) => t.messages.length > 0).length === 0}
+              title="Previous chats"
+              aria-label="Previous chats"
+              aria-expanded={historyOpen}
+            >
+              <History className="size-3.5" />
+            </Button>
+
+            {historyOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setHistoryOpen(false)}
+                  aria-hidden
+                />
+                <ul className="absolute right-0 z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
+                  {threads
+                    .filter((t) => t.messages.length > 0)
+                    .map((thread) => (
+                      <li key={thread.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveId(thread.id)
+                            setHistoryOpen(false)
+                          }}
+                          className={cn(
+                            'flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent',
+                            thread.id === activeId && 'bg-accent',
+                          )}
+                        >
+                          <span className="w-full truncate text-xs">{thread.title}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {thread.messages.length} messages · {relativeTime(thread.updatedAt)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              </>
+            )}
+          </div>
+
+          {/* Delete current */}
+          {messages.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 hover:text-destructive"
+              onClick={deleteActive}
+              title="Delete this chat"
+              aria-label="Delete this chat"
             >
               <Trash2 className="size-3.5" />
             </Button>
