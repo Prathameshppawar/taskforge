@@ -1,129 +1,242 @@
 <div align="center">
 
-# TaskForge
+<h1>TaskForge</h1>
 
-**An AI-first internal project & ticket management platform.**
+**An AI-first project & ticket management platform for internal teams.**
 
-Built for a single organisation, administered by one admin — not a multi-tenant SaaS.
+Linear-class ticketing where the AI Copilot isn't a chatbot bolted on the side —
+it dispatches through the *same* Server Actions as the UI, so it inherits every
+permission check and audit entry, and cannot do anything you couldn't do by hand.
 
-`Next.js 15` · `TypeScript` · `PostgreSQL / Neon` · `Prisma` · `Auth.js` · `Tailwind` · `shadcn/ui` · `Groq` / `Ollama`
+<p>
+<img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-000?logo=next.js&logoColor=white">
+<img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white">
+<img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-Neon-336791?logo=postgresql&logoColor=white">
+<img alt="Prisma" src="https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma&logoColor=white">
+<img alt="Groq" src="https://img.shields.io/badge/AI-Groq%20%7C%20Ollama-F55036">
+<img alt="Licence" src="https://img.shields.io/badge/licence-MIT-blue">
+</p>
 
 </div>
 
 ---
 
-## What it is
+## What it does
 
-TaskForge is a Linear/Jira-class ticketing system for internal teams. Work is
-organised as **Project → Parent Ticket (feature) → Child Ticket (task)**, with
-progress rolling up automatically from children to parents.
+Work is organised as **Project → Parent Ticket → Child Ticket**, with progress
+rolling up automatically. Six views over the same data, a command palette, and a
+Copilot that can break a feature into tasks in one sentence.
 
-The distinguishing piece is the **AI Copilot**: a side panel that creates tickets,
-breaks a feature into a parent plus its child tasks, searches in natural language,
-moves tickets between statuses, and summarises project health — by calling the
-exact same Server Actions the UI uses, so it inherits every permission check and
-audit-log entry.
+```
+"Create tasks for the authentication module:
+ Login API, Login UI, Password Reset API, Password Reset UI"
 
-## Feature summary
+   → find_duplicates          nothing similar exists
+   → bulk_create_tickets      AUTH-12 "Authentication Module"
+                                 ├─ AUTH-13  Login API
+                                 ├─ AUTH-14  Login UI
+                                 ├─ AUTH-15  Password Reset API
+                                 └─ AUTH-16  Password Reset UI
+```
 
-| Area | Capabilities |
+That exchange is real output, not a mock-up.
+
+---
+
+## The interesting part
+
+Most "AI-powered" apps give the model its own database access and hope the
+prompt keeps it in line. This one doesn't.
+
+```
+         model emits a typed tool call
+                     │
+                     ▼
+        Zod validates it  ──────────►  malformed → error back to the model
+                     │
+                     ▼
+     the SAME Server Action the UI calls
+                     │
+       ┌─────────────┼─────────────┐
+       ▼             ▼             ▼
+  RBAC check    transaction    audit entry
+```
+
+Three consequences fall out of that for free:
+
+- **It cannot exceed your permissions.** The guard runs regardless of caller.
+- **Everything it does is audited**, in the same transaction as the change —
+  the timeline can never drift from the data.
+- **There is no delete tool.** "Remove everything" is not a request it can carry
+  out, by construction rather than by prompt.
+
+The Zod schema is also the source of the JSON Schema sent to the model, so the
+model-facing contract and the server-side trust boundary cannot drift apart.
+
+> **Known gap, stated honestly:** writes execute immediately — there is no
+> propose-then-confirm step yet. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Features
+
+| | |
 |---|---|
-| **Auth** | Username + password (bcrypt), admin-provisioned accounts, admin password reset, activation/deactivation, JWT sessions with server-side invalidation, protected routes, role guards |
-| **Roles** | Admin · Project Manager · User, plus per-project Manager/Member/Viewer scope |
-| **Projects** | Name, code, description, status, dates, owner, members, labels, per-project settings, archive |
-| **Templates** | Admin-authored blueprints carrying statuses, priorities, types, labels and a default parent/child ticket scaffold. "Create from Template" at project creation. |
-| **Tickets** | Two-level hierarchy, unlimited children, progress rollup, parent status automation, tree view, sequential per-project keys (`AUTH-14`) |
-| **Config** | Statuses, priorities and ticket types are project-scoped and fully admin-configurable |
-| **Labels** | Project-specific, colour-coded, with "import from another project" |
-| **Resources** | External links only (GitHub, SharePoint, Figma, Build, Docs, API Spec, Other) — no file storage |
-| **Collaboration** | Threaded comments, edit/delete own, @mentions |
-| **Audit** | Unified append-only timeline across tickets, projects, members and comments |
-| **Views** | Table (TanStack), Kanban (dnd-kit), Calendar, Timeline, My Tickets, Dashboard |
-| **Filters** | Project, assignee, status, priority, type, labels, date range, parent — savable as named filter sets |
-| **Command palette** | `⌘K` / `Ctrl+K` — create, search, navigate, assign, transition |
-| **AI Copilot** | Create · bulk-create parent+children · search · update · project insights · duplicate detection |
-| **Automation** | Recurring tickets (daily → yearly) with auto-generation |
-| **Analytics** | Completion %, trend, priority distribution, tickets by label, overdue, team workload |
+| **Views** | Kanban (dnd-kit) · Table (TanStack) · Calendar · Timeline · Tree · Dashboards (Recharts) |
+| **Hierarchy** | Two-level, enforced in the domain layer. Progress rollup, automatic parent status |
+| **Tickets** | Per-project keys (`AUTH-14`), inline editing, bulk actions, external resource links |
+| **Copilot** | Create · break down · search · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) |
+| **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
+| **Palette** | `⌘K` search and commands; `→` on a ticket for inline actions |
+| **Automation** | Recurring tickets, daily to yearly, generated by a guarded cron |
+| **Auth** | bcrypt, admin-provisioned accounts, RBAC, server-side session revocation |
+| **Audit** | Append-only timeline across every entity |
+| **UI** | Dark/light, responsive, keyboard-driven |
 
-## Keyboard
+---
 
-| Shortcut | Action |
-|---|---|
-| `⌘K` / `Ctrl+K` | Command palette — search tickets and projects, run commands |
-| `→` on a ticket | Open its quick actions (assign, change status) |
-| `⌘J` / `Ctrl+J` | Toggle the AI Copilot |
-| `G` then `D` / `T` / `P` / `A` / `S` | Go to Dashboard · My Tickets · Projects · Activity · Settings |
-| `⌘↵` | Send a comment |
+## Engineering decisions worth defending
+
+Each of these was **measured, not assumed**.
+
+<details>
+<summary><b>A 7–10× speed-up from one line of config</b></summary>
+
+Pages took ~3s and it wasn't cold starts — the third consecutive request was
+equally slow. Vercel ran in `iad1` (Washington DC); Neon sat in
+`ap-southeast-1` (Singapore). Every query crossed the Pacific, and the dashboard
+issues nine.
+
+| Page | Before | After |
+|---|---|---|
+| Dashboard | 3.52s | **0.50s** |
+| Board | 2.58s | **0.34s** |
+| Insights | 3.13s | **0.31s** |
+
+No caching was added. Caching would have hidden the bug.
+</details>
+
+<details>
+<summary><b>Ticket numbering that survives concurrency</b></summary>
+
+Per-project keys are allocated by an atomic increment inside the caller's
+transaction. Verified rather than asserted: 25 simultaneous allocations produced
+25 unique, contiguous numbers with the counter advanced by exactly 25.
+</details>
+
+<details>
+<summary><b>Chart colour that is computed, not eyeballed</b></summary>
+
+The palette passes a validator for lightness band, chroma floor, colourblind
+separation (ΔE ≥ 8) and contrast, in **both** themes — dark steps re-stepped for
+the dark surface rather than flipped. Priority uses a single-hue *ordinal* ramp,
+because priority is ordered and categorical colour would throw that away.
+</details>
+
+<details>
+<summary><b>Rate limits treated as a design constraint</b></summary>
+
+Groq's free tier allows 8,000 tokens/min and tool definitions are re-sent every
+request. Measured at 1,498 tokens of fixed overhead — two conversations and
+you're throttled. Trimmed to 1,032, and **the test suite now fails if anyone
+pushes it back over 1,100.**
+
+Numeric bounds were also removed from the model-facing schema: Groq validates it
+server-side and rejects the whole request, so a model emitting `limit: 0` broke
+the turn. Values are clamped instead. Strictness there bought nothing — it
+turned a recoverable value into an unrecoverable failure.
+</details>
+
+<details>
+<summary><b>A schema with no JSON columns</b></summary>
+
+27 tables in 3NF. Saved-filter criteria and audit diffs are the two places a
+JSON blob is tempting; both are modelled relationally, so *"which saved filters
+reference this label?"* is a join rather than a full scan. Two denormalizations
+are deliberate and documented.
+</details>
+
+---
+
+## Architecture
+
+```
+app/              routing, layouts, pages — Server Components by default
+  ↓
+features/         vertical slices: actions · schemas · services · queries · components
+  ↓
+core/domain/      framework-free: RBAC, hierarchy rules, rollup, recurrence
+  ↑
+infrastructure/   adapters: Prisma, Auth.js, AI providers
+```
+
+Dependencies point **inward only**. `core` imports nothing from Next.js, Prisma
+or React — which is exactly why its rules are testable with no database, no
+network and no framework, in under a second.
+
+Every mutation follows one path: **guard → validate → transact → audit →
+revalidate.** The audit entry is written *inside* the same transaction as the
+change it records.
+
+---
 
 ## Quick start
 
 ```bash
-# 1. Install
-npm install
+git clone https://github.com/Prathameshppawar/taskforge.git
+cd taskforge && npm install
 
-# 2. Configure — see .env.example for what every variable means
-cp .env.example .env
-#    Fill in DATABASE_URL + DIRECT_URL from https://console.neon.tech
-#    Generate a secret:  openssl rand -base64 32   ->  AUTH_SECRET
-
-# 3. Create the schema
+cp .env.example .env     # every variable is annotated with where to get it
 npm run db:migrate
-
-# 4. Seed roles, templates and the admin account
-npm run db:seed
-
-# 5. Run
+SEED_DEMO=true npm run db:seed
 npm run dev
 ```
 
-Add `SEED_DEMO=true` before step 4 to also create a demo workspace — two
-projects built from templates, 38 tickets spread across the workflow, comments,
-audit history and recurring schedules. Useful for evaluating the app; never run
-it against production.
+The demo seed creates two projects from templates, 38 tickets across the
+workflow, comments, audit history and recurring schedules — enough to exercise
+every view immediately.
 
-### Other commands
+**The app runs fully without an AI key.** Leave `AI_PROVIDER=none` and the
+Copilot panel explains what to configure instead of erroring.
+
+---
+
+## Testing
 
 ```bash
-npm run verify      # 49 assertions over the domain — no DB, no network, <1s
-npm run typecheck   # strict TypeScript, zero errors
-npm run build       # production build
-npm run db:studio   # browse the database
+npm run verify    # 56 domain assertions — no DB, no network, <1s
+npm run smoke     # signs in for real, walks every route, greps the server log
+npm run typecheck # strict, zero errors
 ```
 
-Sign in at <http://localhost:3000> with the `ADMIN_USERNAME` / `ADMIN_PASSWORD`
-you set in `.env`.
+`smoke` exists because HTTP status alone is too weak a signal: a React
+serialization error returns **200** while logging server-side. It caught a
+Prisma `Decimal` leaking into a Client Component that a status-code sweep had
+missed.
+
+---
 
 ## Documentation
 
-| Document | Contents |
+| | |
 |---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layering, the shape of a mutation, authorization model, AI design |
-| [`docs/ER-DIAGRAM.md`](docs/ER-DIAGRAM.md) | Full entity relationship model, normalization notes, index coverage |
-| [`docs/ENVIRONMENT-SETUP.md`](docs/ENVIRONMENT-SETUP.md) | **Start here** — exactly where to obtain every environment variable |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Vercel + Neon deployment, cron setup, troubleshooting |
-| [`docs/PROJECT-STRUCTURE.md`](docs/PROJECT-STRUCTURE.md) | Folder layout, the dependency rule, where to add things |
-| [`.env.example`](.env.example) | Every environment variable, annotated with where to obtain it |
+| [Architecture](docs/ARCHITECTURE.md) | Layering, mutation flow, authorization, AI design, known gaps |
+| [ER model](docs/ER-DIAGRAM.md) | Relationships, normalization notes, index coverage |
+| [Environment setup](docs/ENVIRONMENT-SETUP.md) | Where to obtain every variable |
+| [Deployment](docs/DEPLOYMENT.md) | Vercel + Neon, cron, troubleshooting |
+| [Project structure](docs/PROJECT-STRUCTURE.md) | Folder layout and where to add things |
 
-## How it is put together
+---
 
-A few decisions worth knowing before reading the code:
+## Stack
 
-- **The domain is framework-free.** `src/core/domain` imports nothing from
-  Next.js, Prisma or React, so the hierarchy rules, progress rollup, recurrence
-  maths and permission matrix are directly testable — which is what
-  `npm run verify` exercises.
-- **Every mutation follows one path**: guard → validate → transact → audit →
-  revalidate. The audit entry is written *inside* the same transaction as the
-  change, so the timeline can never drift from the data.
-- **The AI Copilot has no privileged access.** The model emits a typed tool
-  call; it is validated with Zod and dispatched to the same Server Actions the
-  UI uses. It inherits every permission check and audit entry, and cannot do
-  anything the signed-in user could not do by hand.
-- **Filters live in the URL**, so every view is shareable and the back button
-  behaves.
-- **Chart colours are validated, not chosen by eye** — the palette passes
-  colourblind-separation and contrast checks in both light and dark.
+`Next.js 15` App Router · `TypeScript` strict · `PostgreSQL` on Neon ·
+`Prisma 6` · `Auth.js v5` · `Tailwind 4` · `shadcn/ui` · `TanStack Table` ·
+`dnd-kit` · `Recharts` · `React Hook Form` + `Zod` · `cmdk` ·
+`Groq` / `Ollama`
 
-## Licence
+---
 
-Internal project. All rights reserved.
+<div align="center">
+<sub>MIT licensed · Built as a production system, not a demo</sub>
+</div>

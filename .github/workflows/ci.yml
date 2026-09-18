@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Typecheck · Domain · Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The schema must be generated before anything can typecheck against it.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # 56 assertions over the framework-free domain: RBAC, progress rollup,
+      # the two-level hierarchy rule, recurrence arithmetic, the AI tool trust
+      # boundary and its token budget. No database, no network, under a second.
+      - name: Domain suite
+        run: npm run verify
+
+      # Deliberately runs with no environment variables. The build must not
+      # depend on them — a missing variable should fail a request with a clear
+      # message, never a deployment.
+      - name: Production build
+        run: npm run build

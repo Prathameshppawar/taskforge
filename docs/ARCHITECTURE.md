@@ -106,8 +106,15 @@ then dispatched to the very same Server Actions the UI uses. The model therefore
 inherits every permission check and audit-log write automatically — it cannot
 take an action a user could not take themselves.
 
-Destructive or bulk operations are returned to the UI as a **proposal** that the
-user confirms before execution.
+**There is no confirmation step today.** A tool call that creates or updates a
+ticket executes immediately; the mitigation is that it can only do what the
+signed-in user could do by hand, and every change lands in the activity log.
+Deletion is deliberately not exposed to the model at all — there is no delete
+tool, so "remove everything" is not a request the Copilot can carry out.
+
+`MUTATING_TOOLS` in `features/ai/tools.ts` marks the three write tools and
+exists for a propose-then-confirm flow that is **not yet wired up**. It is
+listed here as a known gap rather than described as behaviour.
 
 ## 7. Scalability notes
 
