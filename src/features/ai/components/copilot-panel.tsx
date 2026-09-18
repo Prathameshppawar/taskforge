@@ -9,8 +9,10 @@ import {
   Bot,
   History,
   Loader2,
+  Mic,
   Search,
   Sparkles,
+  Square,
   SquarePen,
   Trash2,
   X,
@@ -22,6 +24,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { copilotAction } from '../actions'
+import { useSpeechInput } from '../hooks/use-speech-input'
 import { CopilotResultCard } from './copilot-result-card'
 import { MarkdownText } from './markdown-text'
 
@@ -200,6 +203,15 @@ export function CopilotPanel({
   const [isPending, startTransition] = React.useTransition()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLTextAreaElement>(null)
+
+  // Dictation appends rather than replaces, so speaking after typing extends
+  // the message instead of discarding it.
+  const speech = useSpeechInput(
+    React.useCallback((text: string) => {
+      setInput((current) => (current ? `${current.trimEnd()} ${text}` : text))
+      inputRef.current?.focus()
+    }, []),
+  )
 
   // Keep the newest message in view as the conversation grows.
   React.useEffect(() => {
@@ -489,12 +501,19 @@ export function CopilotPanel({
               <div className="relative">
                 <Textarea
                   ref={inputRef}
-                  value={input}
+                  value={speech.interim ? `${input}${input ? ' ' : ''}${speech.interim}` : input}
                   onChange={(event) => setInput(event.target.value)}
-                  placeholder="Create a ticket, find work, or ask how things are going…"
+                  placeholder={
+                    speech.listening
+                      ? 'Listening…'
+                      : 'Create a ticket, find work, or ask how things are going…'
+                  }
                   rows={2}
                   disabled={isPending}
-                  className="resize-none pr-11"
+                  className={cn(
+                    'resize-none pr-20',
+                    speech.listening && 'ring-2 ring-primary/40',
+                  )}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !event.shiftKey) {
                       event.preventDefault()
@@ -502,6 +521,30 @@ export function CopilotPanel({
                     }
                   }}
                 />
+                {speech.supported && (
+                  <Button
+                    size="icon"
+                    variant={speech.listening ? 'default' : 'ghost'}
+                    className="absolute right-11 bottom-2 size-7"
+                    onClick={() => (speech.listening ? speech.stop() : speech.start())}
+                    disabled={isPending || speech.busy}
+                    aria-label={speech.listening ? 'Stop dictation' : 'Dictate a message'}
+                    title={
+                      speech.engine === 'native'
+                        ? 'Dictate — browser speech recognition'
+                        : 'Dictate — transcribed by Whisper'
+                    }
+                  >
+                    {speech.busy ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : speech.listening ? (
+                      <Square className="size-3 fill-current" />
+                    ) : (
+                      <Mic className="size-3.5" />
+                    )}
+                  </Button>
+                )}
+
                 <Button
                   size="icon"
                   className="absolute right-2 bottom-2 size-7"
@@ -516,8 +559,19 @@ export function CopilotPanel({
                   )}
                 </Button>
               </div>
-              <p className="mt-1.5 text-[10px] text-muted-foreground">
-                Enter to send · Shift+Enter for a new line
+              <p
+                className={cn(
+                  'mt-1.5 text-[10px]',
+                  speech.error ? 'text-destructive' : 'text-muted-foreground',
+                )}
+              >
+                {speech.error
+                  ? speech.error
+                  : speech.listening
+                    ? 'Listening — click the square to stop'
+                    : speech.busy
+                      ? 'Transcribing…'
+                      : 'Enter to send · Shift+Enter for a new line'}
               </p>
             </div>
           </>
