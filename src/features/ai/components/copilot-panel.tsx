@@ -8,9 +8,11 @@ import {
   ArrowUp,
   Bot,
   History,
+  Check,
   Loader2,
   Mic,
   Search,
+  ShieldQuestion,
   Sparkles,
   Square,
   SquarePen,
@@ -28,11 +30,21 @@ import { useSpeechInput } from '../hooks/use-speech-input'
 import { CopilotResultCard } from './copilot-result-card'
 import { MarkdownText } from './markdown-text'
 
+export interface CopilotProposal {
+  tool: string
+  arguments: Record<string, unknown>
+  label: string
+}
+
 export interface CopilotMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   toolRuns?: Array<{ name: string; result: { ok: boolean; summary: string; data?: unknown } }>
+  /** Writes the Copilot wants to make, pending approval. */
+  proposals?: CopilotProposal[]
+  /** Set once the user has approved or declined, so the prompt does not linger. */
+  resolved?: 'approved' | 'declined'
   error?: boolean
 }
 
@@ -177,6 +189,31 @@ export function CopilotPanel({
     [activeId],
   )
 
+  /**
+   * Approving re-sends the original request with approve=true.
+   *
+   * Replaying rather than executing the stored arguments keeps a single code
+   * path: the write still goes through the same guard, validation and audit it
+   * would have on the first pass, so approval cannot smuggle in a call the
+   * model never actually made.
+   */
+  function approveProposal(message: CopilotMessage) {
+    const index = messages.findIndex((m) => m.id === message.id)
+    const request = [...messages.slice(0, index)].reverse().find((m) => m.role === 'user')
+    if (!request) return
+
+    updateActive((current) =>
+      current.map((m) => (m.id === message.id ? { ...m, resolved: 'approved' } : m)),
+    )
+    send(request.content, true)
+  }
+
+  function declineProposal(message: CopilotMessage) {
+    updateActive((current) =>
+      current.map((m) => (m.id === message.id ? { ...m, resolved: 'declined' } : m)),
+    )
+  }
+
   function startNewChat() {
     const fresh = newThread()
     // Drop the current thread if it was never used, so "+" twice does not
@@ -256,7 +293,7 @@ export function CopilotPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, historyOpen, onOpenChange])
 
-  function send(text: string) {
+  function send(text: string, approve = false) {
     const trimmed = text.trim()
     if (!trimmed || isPending) return
 
@@ -274,7 +311,13 @@ export function CopilotPanel({
     setInput('')
 
     startTransition(async () => {
-      const result = await copilotAction({ message: trimmed, projectId, screen, history })
+      const result = await copilotAction({
+        message: trimmed,
+        projectId,
+        screen,
+        history,
+        approve,
+      })
 
       if (!result.success) {
         updateActive((current) => [
@@ -291,6 +334,7 @@ export function CopilotPanel({
           role: 'assistant',
           content: result.data.reply,
           toolRuns: result.data.toolRuns,
+          proposals: result.data.proposals?.length ? result.data.proposals : undefined,
         },
       ])
 
@@ -483,7 +527,12 @@ export function CopilotPanel({
                 )}
 
                 {messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    onApprove={approveProposal}
+                    onDecline={declineProposal}
+                  />
                 ))}
 
                 {isPending && (
@@ -581,7 +630,15 @@ export function CopilotPanel({
   )
 }
 
-function MessageBubble({ message }: { message: CopilotMessage }) {
+function MessageBubble({
+  message,
+  onApprove,
+  onDecline,
+}: {
+  message: CopilotMessage
+  onApprove?: (message: CopilotMessage) => void
+  onDecline?: (message: CopilotMessage) => void
+}) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -601,6 +658,42 @@ function MessageBubble({ message }: { message: CopilotMessage }) {
             <CopilotResultCard key={index} name={run.name} result={run.result} />
           ))}
         </div>
+      )}
+
+      {message.proposals && message.proposals.length > 0 && !message.resolved && (
+        <div className="rounded-lg border border-primary/40 bg-primary/5 p-2.5">
+          <p className="flex items-center gap-1.5 text-xs font-medium">
+            <ShieldQuestion className="size-3.5 text-primary" />
+            {message.proposals.length === 1
+              ? 'Approve this change?'
+              : `Approve ${message.proposals.length} changes?`}
+          </p>
+          <ul className="mt-1.5 space-y-0.5">
+            {message.proposals.map((proposal, index) => (
+              <li key={index} className="text-xs text-muted-foreground">
+                • {proposal.label}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2.5 flex gap-2">
+            <Button size="sm" className="h-7" onClick={() => onApprove?.(message)}>
+              <Check className="size-3.5" />
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7"
+              onClick={() => onDecline?.(message)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {message.resolved === 'declined' && (
+        <p className="text-[11px] text-muted-foreground italic">Cancelled — nothing was changed.</p>
       )}
 
       <div

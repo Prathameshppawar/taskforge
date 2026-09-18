@@ -106,15 +106,23 @@ then dispatched to the very same Server Actions the UI uses. The model therefore
 inherits every permission check and audit-log write automatically — it cannot
 take an action a user could not take themselves.
 
-**There is no confirmation step today.** A tool call that creates or updates a
-ticket executes immediately; the mitigation is that it can only do what the
-signed-in user could do by hand, and every change lands in the activity log.
-Deletion is deliberately not exposed to the model at all — there is no delete
-tool, so "remove everything" is not a request the Copilot can carry out.
+**Writes are proposed, not performed.** In the panel, a tool that creates or
+updates a ticket returns a *proposal*: the permission check runs, nothing is
+written, and the user sees what would happen with an Approve button. Approving
+replays the original request with `approve: true`, so the write still goes
+through the same guard, validation and audit it would have anyway — approval
+cannot smuggle in a call the model never made.
 
-`MUTATING_TOOLS` in `features/ai/tools.ts` marks the three write tools and
-exists for a propose-then-confirm flow that is **not yet wired up**. It is
-listed here as a known gap rather than described as behaviour.
+The permission check runs at proposal time deliberately: being asked to approve
+something and only then told you are not allowed is worse than being refused
+outright.
+
+Read-only tools are never gated. Deletion is not exposed to the model at all —
+there is no delete tool, so "remove everything" is not a request the Copilot can
+carry out.
+
+**Over MCP, writes execute directly.** MCP clients present their own tool-call
+approval, so proposing again would mean confirming twice for one action.
 
 ## 7. Scalability notes
 

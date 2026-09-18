@@ -251,6 +251,7 @@ export async function setUserActiveAction(input: SetUserActiveInput): Promise<Ac
         data: {
           isActive: data.isActive,
           deactivatedAt: data.isActive ? null : new Date(),
+          ...(data.isActive ? { failedLoginAttempts: 0, lockedUntil: null } : {}),
           // Bumping the version invalidates every JWT already issued to them.
           sessionVersion: data.isActive ? undefined : { increment: 1 },
         },
@@ -301,6 +302,9 @@ export async function adminResetPasswordAction(
           mustChangePassword: data.mustChangePassword,
           // Force every existing session for this user to be rejected.
           sessionVersion: { increment: 1 },
+          // A reset is also the remedy for being locked out.
+          failedLoginAttempts: 0,
+          lockedUntil: null,
         },
       })
 
@@ -385,5 +389,82 @@ export async function updateProfileAction(
 
     revalidatePath('/settings')
     return ok()
+  })
+}
+
+// -----------------------------------------------------------------------------
+// Session visibility
+// -----------------------------------------------------------------------------
+
+/**
+ * Sign-in history, for the admin.
+ *
+ * UserSession rows were written from the first commit and never read — the
+ * table was write-only, so an admin could not answer "who is signed in?".
+ */
+export async function listSessionsAction() {
+  await requireAdmin()
+
+  return prisma.userSession.findMany({
+    select: {
+      id: true,
+      ipAddress: true,
+      userAgent: true,
+      createdAt: true,
+      lastSeenAt: true,
+      revokedAt: true,
+      user: {
+        select: { id: true, name: true, username: true, avatarColor: true, isActive: true },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  })
+}
+
+/**
+ * Ends every session for a user.
+ *
+ * Bumping sessionVersion is what actually does it — the JWT carries the version
+ * and is re-checked against the database, so existing tokens stop being
+ * accepted rather than merely being marked revoked in a table nobody consults.
+ */
+export async function revokeUserSessionsAction(
+  userId: string,
+): Promise<ActionResult<{ revoked: number }>> {
+  return runAction(async () => {
+    const actor = await requireAdmin()
+
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true },
+    })
+    if (!target) throw new NotFoundError('User', userId)
+
+    const revoked = await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { sessionVersion: { increment: 1 } },
+      })
+
+      const result = await tx.userSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
+
+      await recordActivity(tx, {
+        action: 'DEACTIVATED',
+        entityType: 'USER',
+        entityId: userId,
+        entityLabel: target.name,
+        actorId: actor.id,
+        summary: `signed ${target.name} out of every device`,
+      })
+
+      return result.count
+    })
+
+    revalidatePath('/admin/sessions')
+    return ok({ revoked })
   })
 }

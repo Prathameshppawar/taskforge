@@ -7,10 +7,12 @@ import {
   Activity,
   ChevronRight,
   FolderKanban,
+  Inbox,
   KanbanSquare,
   LayoutDashboard,
   LayoutTemplate,
   ListTodo,
+  MonitorSmartphone,
   Plus,
   Settings,
   Users,
@@ -47,6 +49,7 @@ interface NavItem {
 const MAIN_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/my-tickets', label: 'My Tickets', icon: ListTodo },
+  { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/activity', label: 'Activity', icon: Activity },
 ]
@@ -54,6 +57,7 @@ const MAIN_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { href: '/admin/users', label: 'Users', icon: Users, roles: ['ADMIN'] },
   { href: '/admin/templates', label: 'Templates', icon: LayoutTemplate, roles: ['ADMIN'] },
+  { href: '/admin/sessions', label: 'Sessions', icon: MonitorSmartphone, roles: ['ADMIN'] },
 ]
 
 export function AppSidebar({

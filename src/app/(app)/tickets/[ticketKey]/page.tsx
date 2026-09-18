@@ -84,7 +84,12 @@ export default async function TicketDetailPage({
               )}
             </div>
 
-            <EditableTitle ticketId={ticket.id} value={ticket.title} canEdit={canEdit} />
+            <EditableTitle
+              ticketId={ticket.id}
+              value={ticket.title}
+              canEdit={canEdit}
+              updatedAt={ticket.updatedAt}
+            />
 
             <p className="text-xs text-muted-foreground">
               Reported by {ticket.reporter?.name ?? 'unknown'} ·{' '}
@@ -119,6 +124,7 @@ export default async function TicketDetailPage({
               ticketId={ticket.id}
               value={ticket.description}
               canEdit={canEdit}
+              updatedAt={ticket.updatedAt}
             />
           </section>
 
@@ -129,6 +135,7 @@ export default async function TicketDetailPage({
                 ticketId={ticket.id}
                 value={ticket.remarks}
                 canEdit={canEdit}
+                updatedAt={ticket.updatedAt}
                 field="remarks"
                 placeholder="Operational notes, context for whoever picks this up next…"
               />

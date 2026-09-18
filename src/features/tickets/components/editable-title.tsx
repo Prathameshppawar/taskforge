@@ -14,10 +14,13 @@ export function EditableTitle({
   ticketId,
   value,
   canEdit,
+  updatedAt,
 }: {
   ticketId: string
   value: string
   canEdit: boolean
+  /** Guards against overwriting a concurrent edit. */
+  updatedAt?: Date
 }) {
   const router = useRouter()
   const [editing, setEditing] = React.useState(false)
@@ -33,7 +36,11 @@ export function EditableTitle({
     }
 
     startTransition(async () => {
-      const result = await updateTicketAction({ id: ticketId, title: draft.trim() })
+      const result = await updateTicketAction({
+        id: ticketId,
+        title: draft.trim(),
+        expectedUpdatedAt: updatedAt,
+      })
       if (!result.success) {
         toast.error(result.error)
         setDraft(value)
@@ -106,12 +113,15 @@ export function EditableDescription({
   canEdit,
   field = 'description',
   placeholder = 'Add a description…',
+  updatedAt,
 }: {
   ticketId: string
   value: string | null
   canEdit: boolean
   field?: 'description' | 'remarks'
   placeholder?: string
+  /** Guards against overwriting a concurrent edit. */
+  updatedAt?: Date
 }) {
   const router = useRouter()
   const [editing, setEditing] = React.useState(false)
@@ -125,6 +135,7 @@ export function EditableDescription({
       const result = await updateTicketAction({
         id: ticketId,
         [field]: draft.trim() || null,
+        expectedUpdatedAt: updatedAt,
       })
       if (!result.success) {
         toast.error(result.error)

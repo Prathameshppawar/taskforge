@@ -34,6 +34,14 @@ export type CreateTicketInput = z.infer<typeof createTicketSchema>
 
 export const updateTicketSchema = z.object({
   id: z.string().min(1),
+  /**
+   * The ticket's `updatedAt` as the client last saw it.
+   *
+   * Optional, because inline controls that change exactly one field cannot
+   * clobber anything meaningful. Forms that edit prose supply it, so two people
+   * rewriting the same description are told rather than one silently winning.
+   */
+  expectedUpdatedAt: z.coerce.date().optional(),
   title: z.string().trim().min(3, 'Enter a title of at least 3 characters.').max(200).optional(),
   description: z.string().trim().max(10_000).nullable().optional(),
   remarks: z.string().trim().max(2000).nullable().optional(),

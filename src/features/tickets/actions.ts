@@ -10,6 +10,7 @@ import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/errors'
 import { buildTicketKey, isTerminal } from '@/core/domain/ticket-rules'
 import { runAction } from '@/lib/safe-action'
+import { notify, preview } from '@/features/notifications/service'
 import { calculatePosition } from '@/lib/utils'
 import {
   applyParentRollup,
@@ -405,6 +406,7 @@ export async function updateTicketAction(
         dueDate: true,
         startDate: true,
         completedAt: true,
+        updatedAt: true,
         estimateHours: true,
         storyPoints: true,
         status: { select: { name: true, category: true } },
@@ -416,6 +418,23 @@ export async function updateTicketAction(
     if (!before) throw new NotFoundError('Ticket', data.id)
 
     const { actor, access } = await requireProjectPermission(before.projectId, 'ticket:update')
+
+    /*
+     * Concurrent edit check.
+     *
+     * Without this the later write simply wins and the earlier author never
+     * learns their work was replaced. Comparing the timestamp the client last
+     * saw costs one field and turns silent data loss into a message.
+     */
+    if (
+      data.expectedUpdatedAt &&
+      before.updatedAt.getTime() !== data.expectedUpdatedAt.getTime()
+    ) {
+      return fail(
+        'Someone else changed this ticket while you were editing. Reload to see their version before saving.',
+        { code: 'CONFLICT' },
+      )
+    }
 
     // A plain USER may only edit tickets they report or are assigned to, unless
     // their role grants the broader 'ticket:update-any'.
@@ -528,6 +547,17 @@ export async function updateTicketAction(
             ? `assigned ${before.key} to ${assignee.name}`
             : `unassigned ${before.key}`,
         })
+
+        if (data.assigneeId) {
+          await notify(tx, {
+            userIds: [data.assigneeId],
+            type: 'ASSIGNED',
+            actorId: actor.id,
+            ticketId: data.id,
+            title: `${actor.name} assigned ${before.key} to you`,
+            body: before.title,
+          })
+        }
       }
 
       if (data.parentId !== undefined && data.parentId !== before.parentId) {
@@ -1007,6 +1037,40 @@ export async function createCommentAction(
           ? `replied on ${ticket.key}`
           : `commented on ${ticket.key}`,
       })
+
+      // --- tell the people who should know -------------------------------
+      if (mentioned.length > 0) {
+        await notify(tx, {
+          userIds: mentioned.map((user) => user.id),
+          type: 'MENTIONED',
+          actorId: actor.id,
+          ticketId: ticket.id,
+          commentId: created.id,
+          title: `${actor.name} mentioned you on ${ticket.key}`,
+          body: preview(data.body),
+        })
+      }
+
+      // The author of the comment being replied to, unless they were already
+      // mentioned — one notification per event, not two.
+      if (data.parentId) {
+        const parent = await tx.comment.findUnique({
+          where: { id: data.parentId },
+          select: { authorId: true },
+        })
+        const alreadyMentioned = new Set(mentioned.map((u) => u.id))
+        if (parent && !alreadyMentioned.has(parent.authorId)) {
+          await notify(tx, {
+            userIds: [parent.authorId],
+            type: 'COMMENT_REPLY',
+            actorId: actor.id,
+            ticketId: ticket.id,
+            commentId: created.id,
+            title: `${actor.name} replied to you on ${ticket.key}`,
+            body: preview(data.body),
+          })
+        }
+      }
 
       return created
     })

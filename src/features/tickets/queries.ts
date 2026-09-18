@@ -17,9 +17,11 @@ import { EMPTY_FILTERS, type TicketFilters } from '@/features/filters/types'
 export function buildTicketWhere(
   filters: TicketFilters,
   actor: Actor,
-  scope?: { projectId?: string },
+  scope?: { projectId?: string; searchIds?: string[] },
 ): Prisma.TicketWhereInput {
   const and: Prisma.TicketWhereInput[] = [ticketVisibilityFilter(actor)]
+
+  if (scope?.searchIds) and.push({ id: { in: scope.searchIds } })
 
   if (scope?.projectId) {
     and.push({ projectId: scope.projectId })
@@ -63,17 +65,12 @@ export function buildTicketWhere(
   }
   if (filters.parentsOnly) and.push({ parentId: null })
 
-  if (filters.search) {
-    const term = filters.search.trim()
-    and.push({
-      OR: [
-        { title: { contains: term, mode: 'insensitive' } },
-        { description: { contains: term, mode: 'insensitive' } },
-        { key: { contains: term, mode: 'insensitive' } },
-        { remarks: { contains: term, mode: 'insensitive' } },
-      ],
-    })
-  }
+  /*
+   * `search` is handled separately, by searchTicketIds() below — a tsvector
+   * match cannot be expressed in a Prisma where clause, and ILIKE '%term%'
+   * cannot use an index. buildTicketWhere therefore receives the already
+   * resolved id set instead.
+   */
 
   if (filters.dueFrom || filters.dueTo) {
     and.push({
@@ -187,25 +184,73 @@ function toSerializable<T extends { estimateHours: Prisma.Decimal | null }>(
   }
 }
 
+/**
+ * Resolves a free-text query to ranked ticket ids.
+ *
+ * Uses the GIN-indexed tsvector, with a trigram fallback on the human key so
+ * "ATLAS-1" still matches — tsvector tokenises a key as a single lexeme and
+ * cannot serve a partial one. Returns ids in relevance order; the caller
+ * preserves that order when the user has not chosen an explicit sort.
+ */
+async function searchTicketIds(term: string, limit: number): Promise<string[]> {
+  const query = term.trim()
+  if (!query) return []
+
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM tickets
+    WHERE "searchVector" @@ plainto_tsquery('english', ${query})
+       OR "key" ILIKE ${'%' + query + '%'}
+    ORDER BY
+      -- An exact key match is never not the intended result.
+      (CASE WHEN upper("key") = upper(${query}) THEN 1 ELSE 0 END) DESC,
+      ts_rank("searchVector", plainto_tsquery('english', ${query})) DESC,
+      "updatedAt" DESC
+    LIMIT ${limit}
+  `
+  return rows.map((row) => row.id)
+}
+
 export async function listTickets(
   actor: Actor,
   filters: TicketFilters,
   options: { projectId?: string; take?: number; skip?: number } = {},
 ) {
-  const where = buildTicketWhere(filters, actor, { projectId: options.projectId })
+  const take = options.take ?? 500
+
+  // Resolve the text query first; an empty result short-circuits the rest.
+  let searchIds: string[] | undefined
+  if (filters.search?.trim()) {
+    searchIds = await searchTicketIds(filters.search, Math.max(take, 200))
+    if (searchIds.length === 0) return { items: [], total: 0 }
+  }
+
+  const where = buildTicketWhere(filters, actor, {
+    projectId: options.projectId,
+    searchIds,
+  })
 
   const [items, total] = await Promise.all([
     prisma.ticket.findMany({
       where,
       select: TICKET_LIST_SELECT,
       orderBy: buildOrderBy(filters),
-      take: options.take ?? 500,
+      take,
       skip: options.skip ?? 0,
     }),
     prisma.ticket.count({ where }),
   ])
 
-  return { items: items.map(toSerializable), total }
+  let ordered = items
+  // Relevance only survives if the user has not asked for a different order.
+  if (searchIds && filters.sortBy === 'priority') {
+    const rank = new Map(searchIds.map((id, index) => [id, index]))
+    ordered = [...items].sort(
+      (a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9),
+    )
+  }
+
+  return { items: ordered.map(toSerializable), total }
 }
 
 /** Board data: the project's columns plus the tickets sitting in each. */
@@ -214,6 +259,10 @@ export async function getBoardData(
   projectId: string,
   filters: TicketFilters,
 ) {
+  const searchIds = filters.search?.trim()
+    ? await searchTicketIds(filters.search, 1000)
+    : undefined
+
   const [statuses, tickets] = await Promise.all([
     prisma.status.findMany({
       where: { projectId },
@@ -221,7 +270,7 @@ export async function getBoardData(
       select: { id: true, name: true, color: true, category: true, position: true },
     }),
     prisma.ticket.findMany({
-      where: buildTicketWhere(filters, actor, { projectId }),
+      where: buildTicketWhere(filters, actor, { projectId, searchIds }),
       select: TICKET_LIST_SELECT,
       /*
        * Priority leads on the board too. `position` still orders tickets of

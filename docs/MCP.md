@@ -166,7 +166,8 @@ is no entropy to stretch, and a machine client presents it on every call — a
 slow KDF would be a self-inflicted bottleneck. bcrypt remains correct for
 passwords, which are low-entropy and human-chosen.
 
-**Known gap.** Writes execute immediately; there is no propose-then-confirm
-step. An agent asked to create fifty tickets will create fifty tickets. They can
-be archived or deleted afterwards and every one is in the activity log, but
-treat a write-capable token accordingly.
+**Writes execute directly over MCP.** The in-app Copilot proposes writes and
+waits for approval, but MCP clients present their own tool-call confirmation, so
+proposing again would mean approving twice for one action. An agent asked to
+create fifty tickets will create fifty tickets — every one is audited and
+reversible, but treat a write-capable token accordingly.

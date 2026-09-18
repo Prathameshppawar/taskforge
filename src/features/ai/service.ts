@@ -14,6 +14,8 @@ const MAX_TOOL_ROUNDS = 4
 
 export interface CopilotContext {
   actor: Actor
+  /** Approve writes without asking. Set once the user has confirmed. */
+  autoApprove?: boolean
   projectId?: string
   projectName?: string
   projectCode?: string
@@ -27,6 +29,8 @@ export interface CopilotContext {
 export interface CopilotTurn {
   reply: string
   toolRuns: Array<{ name: string; result: ToolResult }>
+  /** Writes awaiting the user's approval. Empty when nothing was proposed. */
+  proposals: Array<{ tool: string; arguments: Record<string, unknown>; label: string }>
 }
 
 function buildSystemPrompt(context: CopilotContext): string {
@@ -51,6 +55,7 @@ function buildSystemPrompt(context: CopilotContext): string {
     '"move/put X to Y" or "mark X as Y" changes STATUS. Only use addLabels when the user says label or tag.',
     'Be brief and concrete. Refer to tickets by key. No markdown tables or headings — the panel is narrow.',
     'If a tool fails, say what went wrong. Never claim an action a tool did not confirm.',
+    'A tool that returns "Proposed:" has NOT run. Say what you are about to do and that it needs approval — never say it is done.',
     // Screen context last, so it reads as the immediate situation.
     ...screenLines(context),
   ].join('\n')
@@ -130,6 +135,7 @@ export async function runCopilotTurn(
       return {
         reply: response.content.trim() || 'Done.',
         toolRuns,
+        proposals: collectProposals(toolRuns),
       }
     }
 
@@ -155,6 +161,7 @@ export async function runCopilotTurn(
         result = await executeTool(call.name, call.arguments, {
           actor: context.actor,
           currentProjectId: context.projectId,
+          propose: !context.autoApprove,
         })
       } catch (error) {
         // A thrown guard (ForbiddenError, NotFoundError) is reported back to
@@ -184,5 +191,13 @@ export async function runCopilotTurn(
       lastRun?.result.summary ??
       'I could not complete that in a reasonable number of steps. Try narrowing the request.',
     toolRuns,
+    proposals: collectProposals(toolRuns),
   }
+}
+
+function collectProposals(runs: CopilotTurn['toolRuns']): CopilotTurn['proposals'] {
+  return runs
+    .map((run) => run.result.proposal)
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .map((p) => ({ tool: p.tool, arguments: p.arguments, label: p.label }))
 }

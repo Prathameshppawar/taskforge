@@ -17,6 +17,28 @@ import { verifyPassword, fakeVerify } from '@/infrastructure/auth/password'
 /** How often an active token is re-checked against the database. */
 const REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
 
+/**
+ * Brute-force protection.
+ *
+ * Attempts are counted per account rather than per IP: an internal tool sits
+ * behind NAT and a shared office address, so IP counting would lock out a whole
+ * floor because one person fat-fingered their password.
+ *
+ * The lockout is a delay, not a ban — it expires on its own, so an attacker
+ * cannot use it to deny a colleague access indefinitely.
+ */
+const MAX_ATTEMPTS = 8
+const LOCKOUT_MINUTES = 15
+
+function lockoutUntil(attempts: number): Date | null {
+  if (attempts < MAX_ATTEMPTS) return null
+  // Doubles each further failure, capped, so a persistent attacker backs off
+  // fast while a forgetful colleague waits minutes rather than hours.
+  const over = attempts - MAX_ATTEMPTS
+  const minutes = Math.min(LOCKOUT_MINUTES * 2 ** over, 60 * 4)
+  return new Date(Date.now() + minutes * 60_000)
+}
+
 const credentialsSchema = z.object({
   username: z.string().trim().min(1),
   password: z.string().min(1),
@@ -54,6 +76,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             mustChangePassword: true,
             avatarColor: true,
             sessionVersion: true,
+            failedLoginAttempts: true,
+            lockedUntil: true,
             role: { select: { key: true } },
           },
         })
@@ -65,15 +89,39 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null
         }
 
+        // Locked out — still spend the hashing time, so a locked account cannot
+        // be distinguished from a wrong password by response timing.
+        if (user.lockedUntil && user.lockedUntil > new Date()) {
+          await fakeVerify()
+          return null
+        }
+
         const valid = await verifyPassword(password, user.passwordHash)
-        if (!valid) return null
+
+        if (!valid) {
+          const attempts = user.failedLoginAttempts + 1
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              failedLoginAttempts: attempts,
+              lockedUntil: lockoutUntil(attempts),
+            },
+          })
+          return null
+        }
 
         // Deactivated accounts are rejected at the door.
         if (!user.isActive) return null
 
         await prisma.user.update({
           where: { id: user.id },
-          data: { lastLoginAt: new Date() },
+          data: {
+            lastLoginAt: new Date(),
+            // A success clears the counter; a locked-out window that has since
+            // expired should not leave the next mistake one step from relocking.
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
         })
 
         return {

@@ -16,6 +16,8 @@ import { runCopilotTurn, type CopilotTurn } from './service'
 
 export interface CopilotRequest {
   message: string
+  /** Set by the Approve button — runs the pending writes for real. */
+  approve?: boolean
   projectId?: string
   /** What the user is looking at, so "this ticket" and "these" resolve. */
   screen?: { view: string; ticketKey?: string; filters?: string }
@@ -90,6 +92,7 @@ export async function copilotAction(
           screen: input.screen
             ? { view: input.screen.view, filters: input.screen.filters, openTicket }
             : undefined,
+          autoApprove: input.approve === true,
         },
         input.history,
         message,

@@ -9,12 +9,17 @@ import {
   AppShellClient,
   ShellActions,
 } from "@/components/shared/app-shell-client";
+import { NotificationBell } from "@/features/notifications/components/notification-bell";
+import { getUnreadCount } from "@/features/notifications/queries";
 
 export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const actor = await requireUser();
-  const projects = await getSidebarProjects(actor);
+  const [projects, unread] = await Promise.all([
+    getSidebarProjects(actor),
+    getUnreadCount(actor),
+  ]);
   const aiEnabled = isAiEnabled();
 
   return (
@@ -32,6 +37,7 @@ export default async function AppLayout({
             <div className="flex-1" />
 
             <ShellActions aiEnabled={aiEnabled} />
+            <NotificationBell initialUnread={unread} />
             <ThemeToggle />
             <UserMenu
               name={actor.name}

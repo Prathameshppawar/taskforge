@@ -13,7 +13,8 @@ import {
   getTeamWorkload,
 } from '@/features/dashboard/queries'
 import { EMPTY_FILTERS } from '@/features/filters/types'
-import { TOOL_SCHEMAS, type ToolName } from './tools'
+import { MUTATING_TOOLS, TOOL_SCHEMAS, type ToolName } from './tools'
+import { requireProjectPermission } from '@/features/auth/guards'
 import {
   daysFromNow,
   resolveLabels,
@@ -39,6 +40,13 @@ export interface ToolResult {
   summary: string
   /** Structured payload rendered as a rich card in the panel. */
   data?: unknown
+  /** Set when this is a proposal awaiting approval rather than a done deed. */
+  proposal?: {
+    tool: ToolName
+    arguments: Record<string, unknown>
+    /** One line describing the effect, shown on the confirm button. */
+    label: string
+  }
 }
 
 /** Bounds the model's numbers rather than rejecting them. Exported for tests. */
@@ -51,6 +59,13 @@ export interface ExecutionContext {
   actor: Actor
   /** Project the user currently has open, used when the model omits one. */
   currentProjectId?: string
+  /**
+   * When true, mutating tools describe what they WOULD do and change nothing.
+   *
+   * The permission check still runs, so a proposal the actor is not allowed to
+   * perform is refused at proposal time rather than after they approve it.
+   */
+  propose?: boolean
 }
 
 export async function executeTool(
@@ -67,6 +82,26 @@ export async function executeTool(
     return { ok: false, summary: `Invalid arguments — ${issues}` }
   }
 
+  /*
+   * Writes are proposed, not performed, unless the caller has already approved
+   * them. The permission check still runs first — being told "approve?" and
+   * then "you are not allowed" would be worse than being refused outright.
+   */
+  if (context.propose && MUTATING_TOOLS.has(name)) {
+    const guard = await assertCanWrite(name, parsed.data as never, context)
+    if (guard) return guard
+
+    return {
+      ok: true,
+      summary: `Proposed: ${describe(name, parsed.data as never)}. Awaiting the user's approval — do not claim it is done.`,
+      proposal: {
+        tool: name,
+        arguments: rawArgs,
+        label: describe(name, parsed.data as never),
+      },
+    }
+  }
+
   switch (name) {
     case 'find_duplicates':
       return findDuplicates(parsed.data as never, context)
@@ -80,6 +115,59 @@ export async function executeTool(
       return updateTicket(parsed.data as never, context)
     case 'project_insights':
       return projectInsights(parsed.data as never, context)
+  }
+}
+
+/** Human sentence for a pending write, shown on the approval button. */
+function describe(name: ToolName, args: Record<string, unknown>): string {
+  switch (name) {
+    case 'create_ticket':
+      return `create "${args.title}"${args.assignee ? ` for ${args.assignee}` : ''}`
+    case 'bulk_create_tickets': {
+      const children = (args.children as unknown[] | undefined)?.length ?? 0
+      return `create "${args.parentTitle}" with ${children} child ${children === 1 ? 'ticket' : 'tickets'}`
+    }
+    case 'update_ticket': {
+      const bits: string[] = []
+      if (args.status) bits.push(`status → ${args.status}`)
+      if (args.priority) bits.push(`priority → ${args.priority}`)
+      if (args.assignee) bits.push(`assign to ${args.assignee}`)
+      if (args.title) bits.push('rename')
+      if (args.dueInDays != null) bits.push(`due in ${args.dueInDays} days`)
+      return `update ${args.ticketKey}: ${bits.join(', ') || 'no changes'}`
+    }
+    default:
+      return name
+  }
+}
+
+/**
+ * Runs the permission check a write would hit, without performing it.
+ * Returns a failed ToolResult when refused, or null when it would be allowed.
+ */
+async function assertCanWrite(
+  name: ToolName,
+  args: Record<string, unknown>,
+  ctx: ExecutionContext,
+): Promise<ToolResult | null> {
+  try {
+    if (name === 'update_ticket') {
+      const ticket = await resolveTicketByKey(ctx.actor, String(args.ticketKey))
+      await requireProjectPermission(ticket.projectId, 'ticket:update')
+      return null
+    }
+    const project = await resolveProject(
+      ctx.actor,
+      args.projectCode as string | undefined,
+      ctx.currentProjectId,
+    )
+    await requireProjectPermission(project.id, 'ticket:create')
+    return null
+  } catch (error) {
+    return {
+      ok: false,
+      summary: error instanceof Error ? error.message : 'You cannot do that.',
+    }
   }
 }
 
