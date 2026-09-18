@@ -9,6 +9,11 @@ it dispatches through the *same* Server Actions as the UI, so it inherits every
 permission check and audit entry, and cannot do anything you couldn't do by hand.
 
 <p>
+<a href="https://taskforge-demo.vercel.app"><b>▶ Live demo</b></a> &nbsp;·&nbsp;
+<code>demo</code> / <code>DemoPass!2026</code>
+</p>
+
+<p>
 <img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-000?logo=next.js&logoColor=white">
 <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white">
 <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-Neon-336791?logo=postgresql&logoColor=white">
@@ -207,6 +212,15 @@ revalidate.** The audit entry is written *inside* the same transaction as the
 change it records.
 
 ---
+
+## Try it
+
+**[taskforge-demo.vercel.app](https://taskforge-demo.vercel.app)** — sign in with
+`demo` / `DemoPass!2026`.
+
+Seeded with two projects, 38 tickets across the workflow, comments, audit history
+and recurring schedules. The AI Copilot is disabled on the demo (it would need a
+shared API key); everything else is live.
 
 ## Quick start
 
