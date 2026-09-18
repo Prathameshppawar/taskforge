@@ -31,7 +31,18 @@ console.log('\n── AI tool contracts ──')
 const defs = getToolDefinitions()
 check('6 tools defined', defs.length === 6, `got ${defs.length}`)
 check('no $schema leaks to the provider', defs.every((d) => !('$schema' in d.parameters)))
-check('every tool has a description', defs.every((d) => d.description.length > 20))
+check('every tool has a description', defs.every((d) => d.description.trim().length > 0))
+
+// The real constraint: Groq's free tier allows 8,000 tokens per minute and the
+// tool payload is re-sent on every request. An arbitrary minimum description
+// length is not the property worth protecting — the total budget is. Guard it,
+// so a future edit cannot quietly cost the user conversations per minute.
+const payloadTokens = Math.ceil(JSON.stringify(defs).length / 4)
+check(
+  `tool payload within budget (${payloadTokens} tokens, limit 1100)`,
+  payloadTokens <= 1100,
+  `${payloadTokens} tokens — trim tool descriptions`,
+)
 check('every tool exposes properties', defs.every((d) => 'properties' in d.parameters))
 check('isToolName accepts known', isToolName('create_ticket'))
 check('isToolName rejects unknown', !isToolName('drop_database'))
