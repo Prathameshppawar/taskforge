@@ -44,6 +44,16 @@ const STORAGE_KEY = 'taskforge.copilot.threads'
 const MAX_THREADS = 15
 const MAX_MESSAGES_PER_THREAD = 40
 
+/** What the user currently has on screen, passed to the model as context. */
+export interface CopilotScreen {
+  /** Route segment: board, table, calendar, ticket, dashboard, … */
+  view: string
+  /** Set when a ticket detail page is open. */
+  ticketKey?: string
+  /** Human summary of active filters, e.g. "status=Blocked, overdue only". */
+  filters?: string
+}
+
 export interface CopilotThread {
   id: string
   /** Derived from the first user message, so the history list is scannable. */
@@ -129,12 +139,14 @@ export function CopilotPanel({
   onOpenChange,
   projectId,
   projectName,
+  screen,
   enabled,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   projectId?: string
   projectName?: string
+  screen?: CopilotScreen
   enabled: boolean
 }) {
   const router = useRouter()
@@ -250,7 +262,7 @@ export function CopilotPanel({
     setInput('')
 
     startTransition(async () => {
-      const result = await copilotAction({ message: trimmed, projectId, history })
+      const result = await copilotAction({ message: trimmed, projectId, screen, history })
 
       if (!result.success) {
         updateActive((current) => [

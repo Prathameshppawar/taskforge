@@ -3,7 +3,11 @@
 import { revalidatePath } from 'next/cache'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { requireActor, requirePermission } from '@/features/auth/guards'
+import {
+  requireActor,
+  requirePermission,
+  ticketVisibilityFilter,
+} from '@/features/auth/guards'
 import { isAiEnabled } from '@/lib/env'
 import { AiProviderError } from '@/infrastructure/ai'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
@@ -13,6 +17,8 @@ import { runCopilotTurn, type CopilotTurn } from './service'
 export interface CopilotRequest {
   message: string
   projectId?: string
+  /** What the user is looking at, so "this ticket" and "these" resolve. */
+  screen?: { view: string; ticketKey?: string; filters?: string }
   history: Array<{ role: 'user' | 'assistant'; content: string }>
 }
 
@@ -59,12 +65,31 @@ export async function copilotAction(
     }
 
     try {
+      // Resolve the open ticket's title so the model can refer to it by name
+      // rather than only by key — and only if the actor may actually see it.
+      let openTicket: { key: string; title: string; status: string } | undefined
+      if (input.screen?.ticketKey) {
+        const found = await prisma.ticket.findFirst({
+          where: {
+            key: input.screen.ticketKey.toUpperCase(),
+            ...ticketVisibilityFilter(actor),
+          },
+          select: { key: true, title: true, status: { select: { name: true } } },
+        })
+        if (found) {
+          openTicket = { key: found.key, title: found.title, status: found.status.name }
+        }
+      }
+
       const turn = await runCopilotTurn(
         {
           actor,
           projectId: projectName ? input.projectId : undefined,
           projectName,
           projectCode,
+          screen: input.screen
+            ? { view: input.screen.view, filters: input.screen.filters, openTicket }
+            : undefined,
         },
         input.history,
         message,

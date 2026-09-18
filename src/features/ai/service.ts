@@ -17,6 +17,11 @@ export interface CopilotContext {
   projectId?: string
   projectName?: string
   projectCode?: string
+  screen?: {
+    view: string
+    filters?: string
+    openTicket?: { key: string; title: string; status: string }
+  }
 }
 
 export interface CopilotTurn {
@@ -41,9 +46,42 @@ function buildSystemPrompt(context: CopilotContext): string {
     'Use tools for real data — never invent keys, statuses, names or counts.',
     'Call find_duplicates before creating a ticket; if close matches exist, show them and ask.',
     'For several related tasks, use bulk_create_tickets (one parent + children), not separate tickets.',
+    // A project can have a status and a label of the same name — "Testing" is
+    // both in some workspaces — so state which one a move refers to.
+    '"move/put X to Y" or "mark X as Y" changes STATUS. Only use addLabels when the user says label or tag.',
     'Be brief and concrete. Refer to tickets by key. No markdown tables or headings — the panel is narrow.',
     'If a tool fails, say what went wrong. Never claim an action a tool did not confirm.',
+    // Screen context last, so it reads as the immediate situation.
+    ...screenLines(context),
   ].join('\n')
+}
+
+/**
+ * Describes what the user is looking at.
+ *
+ * This is what makes "assign this to me" or "how many of these are blocked"
+ * answerable — without it the model has no referent for "this" and has to ask.
+ * Kept to a couple of lines because it is re-sent on every request.
+ */
+function screenLines(context: CopilotContext): string[] {
+  const screen = context.screen
+  if (!screen) return []
+
+  const lines: string[] = []
+
+  if (screen.openTicket) {
+    lines.push(
+      `On screen: ticket ${screen.openTicket.key} "${screen.openTicket.title}" (${screen.openTicket.status}). "this ticket" means ${screen.openTicket.key}.`,
+    )
+  } else {
+    lines.push(`On screen: the ${screen.view} view.`)
+  }
+
+  if (screen.filters) {
+    lines.push(`Active filters: ${screen.filters}. "these"/"shown" means tickets matching them.`)
+  }
+
+  return lines
 }
 
 /** Retries once on a rate limit, since the free tier throttles per minute. */

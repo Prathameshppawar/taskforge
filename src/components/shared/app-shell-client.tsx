@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import type { RoleKey } from '@prisma/client'
 import { Command, Sparkles } from 'lucide-react'
 
@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { CommandPalette } from '@/features/command/components/command-palette'
 import { CopilotPanel } from '@/features/ai/components/copilot-panel'
 import { roleHas } from '@/core/domain/rbac'
+import type { CopilotScreen } from '@/features/ai/components/copilot-panel'
 
 interface ShellContextValue {
   openPalette: () => void
@@ -42,6 +43,7 @@ export function AppShellClient({
 }) {
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   const [paletteOpen, setPaletteOpen] = React.useState(false)
 
@@ -87,6 +89,38 @@ export function AppShellClient({
     const id = match?.[1]
     return id && id !== 'new' ? id : undefined
   }, [pathname])
+
+  /*
+   * What the user is actually looking at.
+   *
+   * Without this the Copilot knows only which project is open, so "assign this
+   * to me" or "how many are there" have no referent — the model cannot see the
+   * screen the question is about. Passing the route, the open ticket and any
+   * active filters makes those questions answerable.
+   */
+  const screen = React.useMemo<CopilotScreen>(() => {
+    const ticket = /^\/tickets\/([^/]+)/.exec(pathname)?.[1]
+    const view = /^\/projects\/[^/]+\/([^/]+)/.exec(pathname)?.[1]
+
+    const filters: string[] = []
+    const label = (key: string, name: string) => {
+      const value = searchParams.get(key)
+      if (value) filters.push(`${name}=${value.split(',').length > 2 ? `${value.split(',').length} selected` : value}`)
+    }
+    label('q', 'search')
+    label('status', 'status')
+    label('priority', 'priority')
+    label('type', 'type')
+    label('label', 'label')
+    label('assignee', 'assignee')
+    if (searchParams.get('overdue') === '1') filters.push('overdue only')
+
+    return {
+      ticketKey: ticket ? ticket.toUpperCase() : undefined,
+      view: ticket ? 'ticket' : (view ?? (pathname.split('/')[1] || 'dashboard')),
+      filters: filters.length ? filters.join(', ') : undefined,
+    }
+  }, [pathname, searchParams])
 
   React.useEffect(() => {
     // `g` followed by a letter is a navigation chord, in the style of Linear
@@ -191,6 +225,7 @@ export function AppShellClient({
         open={copilotOpen}
         onOpenChange={setCopilotOpen}
         projectId={projectId}
+        screen={screen}
         enabled={aiEnabled}
       />
     </ShellContext.Provider>
