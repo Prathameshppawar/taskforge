@@ -108,7 +108,13 @@ function buildOrderBy(filters: TicketFilters): Prisma.TicketOrderByWithRelationI
 
   switch (filters.sortBy) {
     case 'priority':
-      return [{ priority: { level: dir } }, { updatedAt: 'desc' }]
+      // Within a priority, the nearest deadline leads; tickets with no due
+      // date sort last rather than jumping to the top.
+      return [
+        { priority: { level: dir } },
+        { dueDate: { sort: 'asc', nulls: 'last' } },
+        { updatedAt: 'desc' },
+      ]
     case 'status':
       return [{ status: { position: dir } }, { position: 'asc' }]
     case 'dueDate':
@@ -217,7 +223,16 @@ export async function getBoardData(
     prisma.ticket.findMany({
       where: buildTicketWhere(filters, actor, { projectId }),
       select: TICKET_LIST_SELECT,
-      orderBy: [{ position: 'asc' }, { number: 'asc' }],
+      /*
+       * Priority leads on the board too. `position` still orders tickets of
+       * equal priority, so dragging to reorder within a priority works as
+       * before — but a Blocker can no longer be dragged below a Low.
+       */
+      orderBy: [
+        { priority: { level: 'desc' } },
+        { position: 'asc' },
+        { number: 'asc' },
+      ],
       take: 1000,
     }),
   ])
@@ -258,7 +273,7 @@ export const getTicketByKey = cache(async (actor: Actor, key: string) => {
           type: { select: { id: true, name: true, color: true } },
           assignee: { select: { id: true, name: true, avatarColor: true } },
         },
-        orderBy: { number: 'asc' },
+        orderBy: [{ priority: { level: 'desc' } }, { number: 'asc' }],
       },
       resources: {
         select: {
@@ -316,7 +331,7 @@ export async function getTicketTree(actor: Actor, projectId: string) {
       assignee: { select: { id: true, name: true, avatarColor: true } },
       labels: { select: { label: { select: { id: true, name: true, color: true } } } },
     },
-    orderBy: { number: 'asc' },
+    orderBy: [{ priority: { level: 'desc' } }, { number: 'asc' }],
   })
 
   const childrenByParent = new Map<string, typeof tickets>()

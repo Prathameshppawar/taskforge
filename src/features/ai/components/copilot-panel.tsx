@@ -23,6 +23,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { copilotAction } from '../actions'
 import { CopilotResultCard } from './copilot-result-card'
+import { MarkdownText } from './markdown-text'
 
 export interface CopilotMessage {
   id: string
@@ -547,14 +548,10 @@ function MessageBubble({ message }: { message: CopilotMessage }) {
         ) : (
           <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
         )}
-        <p
-          className={cn(
-            'min-w-0 text-sm leading-relaxed whitespace-pre-wrap',
-            message.error && 'text-destructive',
-          )}
-        >
-          {message.content}
-        </p>
+        <MarkdownText
+          content={message.content}
+          className={cn('min-w-0', message.error && 'text-destructive')}
+        />
       </div>
     </div>
   )

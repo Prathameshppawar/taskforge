@@ -33,9 +33,13 @@ export const ticketFiltersSchema = z.object({
   /** Exclude child tickets — useful for a feature-level roadmap. */
   parentsOnly: z.boolean().default(false),
   includeArchived: z.boolean().default(false),
+  /**
+   * Highest priority first is the default across every view. Anything else
+   * buries the work that matters under whatever was touched most recently.
+   */
   sortBy: z
     .enum(['updatedAt', 'createdAt', 'dueDate', 'priority', 'status', 'title', 'key'])
-    .default('updatedAt'),
+    .default('priority'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 })
 
@@ -106,7 +110,7 @@ export function filtersToSearchParams(filters: TicketFilters): URLSearchParams {
   if (filters.unassignedOnly) params.set('unassigned', '1')
   if (filters.parentsOnly) params.set('parentsOnly', '1')
   if (filters.includeArchived) params.set('archived', '1')
-  if (filters.sortBy !== 'updatedAt') params.set('sortBy', filters.sortBy)
+  if (filters.sortBy !== 'priority') params.set('sortBy', filters.sortBy)
   if (filters.sortDir !== 'desc') params.set('sortDir', filters.sortDir)
 
   return params

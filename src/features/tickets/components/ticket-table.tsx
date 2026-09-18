@@ -85,7 +85,12 @@ export function TicketTable({
   showProjectColumn?: boolean
 }) {
   const router = useRouter()
-  const [sorting, setSorting] = React.useState<SortingState>([])
+  // The server already returns rows priority-first; seeding the table's own
+  // sort state to match keeps the header indicator honest and survives the
+  // user clicking another column and back.
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: 'priority', desc: true },
+  ])
   const [grouping, setGrouping] = React.useState<GroupingState>([])
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({
@@ -193,7 +198,7 @@ export function TicketTable({
       },
       {
         id: 'priority',
-        accessorFn: (row) => row.priority.name,
+        accessorFn: (row) => row.priority.level,
         sortingFn: (a, b) => a.original.priority.level - b.original.priority.level,
         header: 'Priority',
         size: 130,
