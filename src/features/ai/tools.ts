@@ -104,7 +104,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     'Create a parent ticket plus child tasks. Use when breaking work down or given several related tasks.',
   search_tickets: 'Find tickets by filter. Use for "show blocked", "my critical bugs".',
   update_ticket: 'Change a ticket: status, assignee, priority, due date, title.',
-  project_insights: 'Project health: completion, overdue, workload, status spread.',
+  project_insights:
+    'Everything about a project: description, dates, owner, team, labels, types, plus completion, overdue and workload. Use for "what is this project", "when is it due", "who is on it".',
   find_duplicates: 'Check for similar existing tickets before creating one.',
 }
 

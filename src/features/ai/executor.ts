@@ -350,38 +350,123 @@ async function projectInsights(args: InsightArgs, ctx: ExecutionContext): Promis
   const project = await resolveProject(ctx.actor, args.projectCode, ctx.currentProjectId)
   const scope = { projectId: project.id }
 
-  const [stats, completion, statuses, workload] = await Promise.all([
+  /*
+   * Deliberately returns the descriptive context alongside the metrics. Someone
+   * new to a project asks "what is this and when is it due?" long before they
+   * ask about throughput, and answering that from numbers alone is useless.
+   */
+  const [detail, stats, completion, statuses, workload] = await Promise.all([
+    prisma.project.findUnique({
+      where: { id: project.id },
+      select: {
+        description: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        createdAt: true,
+        owner: { select: { name: true, username: true } },
+        members: {
+          select: {
+            role: true,
+            user: { select: { name: true, username: true, jobTitle: true } },
+          },
+          orderBy: { joinedAt: 'asc' },
+        },
+        labels: { select: { name: true }, orderBy: { name: 'asc' } },
+        priorities: { select: { name: true }, orderBy: { level: 'desc' } },
+        ticketTypes: { select: { name: true }, orderBy: { position: 'asc' } },
+      },
+    }),
     getStatCounts(ctx.actor, scope),
     getCompletionRate(ctx.actor, scope),
     getStatusDistribution(ctx.actor, scope),
     getTeamWorkload(ctx.actor, scope),
   ])
 
-  const workloadLines = workload
-    .slice(0, 8)
-    .map(
-      (row) =>
-        `${row.name}: ${row.total} assigned (${row.inProgress} in progress, ${row.blocked} blocked, ${row.overdue} overdue)`,
-    )
-    .join('\n')
+  const fmt = (d: Date | null | undefined) =>
+    d ? d.toISOString().slice(0, 10) : null
 
-  const summary = [
-    `Project: ${project.name} (${project.code})`,
-    `Completion: ${completion.percent}% — ${completion.completed} of ${completion.countable} tickets done.`,
-    `Open: ${stats.open}, In progress: ${stats.inProgress}, Blocked: ${stats.blocked}, Done: ${stats.done}.`,
-    `Overdue: ${stats.overdue}. Unassigned: ${stats.unassigned}.`,
-    `Status spread: ${statuses.map((s) => `${s.name} ${s.count}`).join(', ')}.`,
-    workloadLines ? `Workload:\n${workloadLines}` : 'No tickets are assigned.',
-  ].join('\n')
+  const daysLeft = detail?.endDate
+    ? Math.ceil((detail.endDate.getTime() - Date.now()) / 86_400_000)
+    : null
+
+  const lines: string[] = [
+    `Project: ${project.name} (${project.code}) — status ${detail?.status ?? 'unknown'}`,
+  ]
+
+  lines.push(
+    detail?.description
+      ? `About: ${detail.description}`
+      : 'About: no description has been set.',
+  )
+
+  // Dates
+  const dateBits: string[] = []
+  if (detail?.startDate) dateBits.push(`started ${fmt(detail.startDate)}`)
+  if (detail?.endDate) {
+    dateBits.push(
+      daysLeft !== null && daysLeft >= 0
+        ? `target end ${fmt(detail.endDate)} (${daysLeft} days away)`
+        : `target end ${fmt(detail.endDate)} (${Math.abs(daysLeft ?? 0)} days overdue)`,
+    )
+  }
+  lines.push(dateBits.length ? `Dates: ${dateBits.join(', ')}.` : 'Dates: none set.')
+
+  // Team
+  if (detail?.members.length) {
+    const team = detail.members
+      .map((m) => `${m.user.name}${m.user.jobTitle ? ` (${m.user.jobTitle})` : ''} — ${m.role.toLowerCase()}`)
+      .join('; ')
+    lines.push(`Owner: ${detail.owner.name}. Team (${detail.members.length}): ${team}`)
+  } else {
+    lines.push(`Owner: ${detail?.owner.name ?? 'unknown'}. No other members yet.`)
+  }
+
+  // Configuration the user can reference when asking for tickets
+  if (detail?.labels.length) {
+    lines.push(`Labels available: ${detail.labels.map((l) => l.name).join(', ')}.`)
+  }
+  if (detail?.ticketTypes.length) {
+    lines.push(`Ticket types: ${detail.ticketTypes.map((t) => t.name).join(', ')}.`)
+  }
+  if (detail?.priorities.length) {
+    lines.push(`Priorities (high to low): ${detail.priorities.map((p) => p.name).join(', ')}.`)
+  }
+
+  // Health
+  if (stats.total === 0) {
+    lines.push('Tickets: none yet — the project is set up but no work has been logged.')
+  } else {
+    lines.push(
+      `Progress: ${completion.percent}% — ${completion.completed} of ${completion.countable} done.`,
+      `Open ${stats.open}, in progress ${stats.inProgress}, blocked ${stats.blocked}, done ${stats.done}. Overdue ${stats.overdue}, unassigned ${stats.unassigned}.`,
+      `Status spread: ${statuses.map((s) => `${s.name} ${s.count}`).join(', ')}.`,
+    )
+
+    if (workload.length) {
+      lines.push(
+        `Workload: ${workload
+          .slice(0, 8)
+          .map((r) => `${r.name} ${r.total} (${r.blocked} blocked, ${r.overdue} overdue)`)
+          .join('; ')}.`,
+      )
+    }
+  }
 
   return {
     ok: true,
-    summary,
+    summary: lines.join('\n'),
     data: {
       kind: 'insights',
       projectName: project.name,
       projectCode: project.code,
       projectId: project.id,
+      description: detail?.description ?? null,
+      startDate: fmt(detail?.startDate),
+      endDate: fmt(detail?.endDate),
+      daysLeft,
+      owner: detail?.owner.name ?? null,
+      memberCount: detail?.members.length ?? 0,
       percent: completion.percent,
       stats,
       workload: workload.slice(0, 8),
