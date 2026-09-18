@@ -82,7 +82,12 @@ export const config = {
   matcher: [
     /*
      * Everything except Next.js internals and static assets.
+     *
+     * The metadata routes (icon, apple-icon, manifest) are generated and have
+     * no file extension, so the extension test below does not catch them. They
+     * must be excluded explicitly or the browser asks for a favicon and is
+     * redirected to the sign-in page — which renders as a missing icon.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

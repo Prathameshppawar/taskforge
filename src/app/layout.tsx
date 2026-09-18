@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   },
   description: 'AI-first internal project and ticket management platform.',
   robots: { index: false, follow: false },
+  applicationName: APP_NAME,
+  manifest: '/manifest.webmanifest',
 }
 
 export const viewport: Viewport = {
