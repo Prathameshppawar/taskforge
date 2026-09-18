@@ -171,8 +171,30 @@ export async function seedDemo(prisma: PrismaClient, adminId: string) {
   console.log('  ✓ 2 recurring schedules')
 
   // --- saved filter ----------------------------------------------------------
-  await prisma.savedFilter.create({
-    data: {
+  // Upsert, not create: SavedFilter is unique on (ownerId, name), so a second
+  // run of the demo seed would otherwise fail with P2002 after having already
+  // recreated the projects — leaving the workspace half-seeded.
+  await prisma.savedFilter.upsert({
+    where: { ownerId_name: { ownerId: adminId, name: 'My Critical Bugs' } },
+    update: {
+      isShared: true,
+      isPinned: true,
+      viewType: 'TABLE',
+      sortBy: 'dueDate',
+      sortDir: 'asc',
+      criteria: {
+        deleteMany: {},
+        createMany: {
+          data: [
+            { field: 'ASSIGNEE', operator: 'EQUALS', value: '@me', position: 0 },
+            { field: 'TYPE', operator: 'EQUALS', value: 'Bug', position: 1 },
+            { field: 'PRIORITY', operator: 'IN', value: 'Critical', position: 2 },
+            { field: 'PRIORITY', operator: 'IN', value: 'Blocker', position: 3 },
+          ],
+        },
+      },
+    },
+    create: {
       name: 'My Critical Bugs',
       ownerId: adminId,
       isShared: true,

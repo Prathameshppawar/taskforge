@@ -117,7 +117,7 @@ export function TicketTrendChart({ data }: { data: TrendPoint[] }) {
       description={`Last ${data.length} days · ${totalCreated} created, ${totalCompleted} completed`}
     >
       <ResponsiveContainer width="100%" height={220}>
-        <AreaChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
           <defs>
             <linearGradient id="fillCreated" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="var(--color-chart-1)" stopOpacity={0.28} />
@@ -136,7 +136,7 @@ export function TicketTrendChart({ data }: { data: TrendPoint[] }) {
             tickFormatter={(value) => formatDay(value)}
             minTickGap={28}
           />
-          <YAxis {...AXIS_PROPS} allowDecimals={false} width={36} />
+          <YAxis {...AXIS_PROPS} allowDecimals={false} width={44} />
           <Tooltip
             content={<TooltipBox formatter={formatDay} />}
             cursor={{ stroke: 'var(--color-muted-foreground)', strokeOpacity: 0.3 }}
@@ -202,10 +202,10 @@ export function PriorityChart({ data }: { data: DistributionSlice[] }) {
   return (
     <ChartFrame title="Priority distribution" description="Ordered low to high severity">
       <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+        <BarChart data={data} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-chart-grid)" vertical={false} />
           <XAxis dataKey="name" {...AXIS_PROPS} />
-          <YAxis {...AXIS_PROPS} allowDecimals={false} width={36} />
+          <YAxis {...AXIS_PROPS} allowDecimals={false} width={44} />
           <Tooltip
             content={<TooltipBox />}
             cursor={{ fill: 'var(--color-muted)', fillOpacity: 0.4 }}
@@ -278,7 +278,7 @@ export function StatusChart({ data }: { data: DistributionSlice[] }) {
   return (
     <ChartFrame title="Tickets by status" description="In workflow order">
       <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+        <BarChart data={data} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-chart-grid)" vertical={false} />
           <XAxis
             dataKey="name"
@@ -288,7 +288,7 @@ export function StatusChart({ data }: { data: DistributionSlice[] }) {
             textAnchor="end"
             height={62}
           />
-          <YAxis {...AXIS_PROPS} allowDecimals={false} width={36} />
+          <YAxis {...AXIS_PROPS} allowDecimals={false} width={44} />
           <Tooltip
             content={<TooltipBox />}
             cursor={{ fill: 'var(--color-muted)', fillOpacity: 0.4 }}

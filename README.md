@@ -19,6 +19,10 @@ permission check and audit entry, and cannot do anything you couldn't do by hand
 
 </div>
 
+<div align="center">
+<img src="docs/images/board.png" alt="Kanban board with drag-and-drop, priority bars, labels and overdue highlighting" width="100%">
+</div>
+
 ---
 
 ## What it does
@@ -75,6 +79,11 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 
 > **Known gap, stated honestly:** writes execute immediately — there is no
 > propose-then-confirm step yet. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+<div align="center">
+<img src="docs/images/copilot.png" alt="The Copilot answering a natural-language query with a structured result card" width="100%">
+<sub><i>Real output. The model called <code>search_tickets</code>; the card above the prose is the record of what actually ran.</i></sub>
+</div>
 
 ---
 
@@ -155,6 +164,25 @@ JSON blob is tempting; both are modelled relationally, so *"which saved filters
 reference this label?"* is a join rather than a full scan. Two denormalizations
 are deliberate and documented.
 </details>
+
+---
+
+## Screens
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/insights.png" alt="Project insights dashboard"><br><sub><b>Insights</b> — completion, trend, priority and status distribution, team workload</sub></td>
+<td width="50%"><img src="docs/images/table.png" alt="Table view"><br><sub><b>Table</b> — TanStack: sorting, grouping, column visibility, inline editing, bulk actions</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/timeline.png" alt="Timeline view"><br><sub><b>Timeline</b> — roadmap with a today marker; undated tickets listed rather than dropped</sub></td>
+<td><img src="docs/images/tree.png" alt="Tree view"><br><sub><b>Tree</b> — parent features with rollup progress from their children</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/command-palette.png" alt="Command palette"><br><sub><b>⌘K palette</b> — server-side search; <code>→</code> on a ticket for inline actions</sub></td>
+<td><img src="docs/images/dashboard-light.png" alt="Dashboard in light theme"><br><sub><b>Light theme</b> — a selected palette, not an inverted one</sub></td>
+</tr>
+</table>
 
 ---
 
