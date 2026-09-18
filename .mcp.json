@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "taskforge": {
+      "command": "npx",
+      "args": ["-y", "tsx", "mcp/server.ts"],
+      "env": {
+        "TASKFORGE_URL": "${TASKFORGE_URL}",
+        "TASKFORGE_TOKEN": "${TASKFORGE_TOKEN}",
+        "TASKFORGE_PROJECT": "${TASKFORGE_PROJECT:-}"
+      }
+    }
+  }
+}

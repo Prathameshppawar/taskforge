@@ -38,6 +38,10 @@ yarn-error.log*
 .env.production.local
 !.env.example
 
+# MCP — the committed .mcp.json uses ${VAR} expansion and holds no secret.
+# Any local override must never be committed.
+.mcp.local.json
+
 # vercel
 .vercel
 

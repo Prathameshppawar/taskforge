@@ -60,13 +60,30 @@ is stored, so a database leak yields nothing usable.
 }
 ```
 
-**Claude Code** — from the repository:
+**Claude Code** — the repository ships a `.mcp.json`, so exporting the
+variables is enough:
 
 ```bash
-claude mcp add taskforge -- npx tsx mcp/server.ts
+export TASKFORGE_URL=https://your-app.vercel.app
+export TASKFORGE_TOKEN=tf_...
+export TASKFORGE_PROJECT=RC        # optional default project
 ```
 
-with the same three variables in your environment.
+That file uses `${VAR}` expansion deliberately: it is committed, and a literal
+token in a committed file is a leaked token.
+
+To register it with the credential kept out of the repository entirely, use
+local scope instead — this writes to `~/.claude.json`, not the project:
+
+```bash
+claude mcp add taskforge --scope local \
+  --env TASKFORGE_URL=https://your-app.vercel.app \
+  --env TASKFORGE_TOKEN=tf_... \
+  --env TASKFORGE_PROJECT=RC \
+  -- npx tsx /absolute/path/to/taskforge/mcp/server.ts
+```
+
+Verify with `claude mcp list` — it should report `✔ Connected`.
 
 | Variable | Required | Purpose |
 |---|---|---|
