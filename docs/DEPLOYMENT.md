@@ -7,18 +7,37 @@ section is Vercel-specific.
 
 ## 1. Create the database (Neon)
 
-1. Sign in at <https://console.neon.tech> and create a project.
-2. Open **Connection Details** and copy **both** connection strings:
+### Easiest — the Vercel integration (sets the variables for you)
 
-| Variable | Which string | Why |
+Vercel → **Storage** → find **Neon** → **Install** → pick region and plan →
+**Connect Project** → tick Development, Preview and Production.
+
+It provisions the database and writes `DATABASE_URL` (pooled) and
+`DATABASE_URL_UNPOOLED` (direct) into the project. `prisma.config.ts` accepts
+`DATABASE_URL_UNPOOLED` in place of `DIRECT_URL`, so there is nothing to rename.
+
+### Or by hand
+
+1. <https://console.neon.tech> → sign in → **Create a project**.
+2. Click **Connect** in the console nav. The **“Connect to your database”**
+   modal opens.
+3. Choose **Branch**, **Compute**, **Database**, **Role**. The snippet dropdown
+   should read **Connection string** (it defaults to that; switch it if it shows
+   `psql`).
+4. The **Connection pooling** toggle is **on by default**. Copy the string in
+   both positions:
+
+| Toggle | Hostname | Variable |
 |---|---|---|
-| `DATABASE_URL` | **Pooled** — host contains `-pooler` | Used at runtime. Serverless functions open many short-lived connections; the pooler is what keeps you under Neon's limit. |
-| `DIRECT_URL` | **Direct** — no `-pooler` | Used by `prisma migrate` only. Migrations take advisory locks, which cannot travel through PgBouncer in transaction mode. |
+| **ON** | contains `-pooler` | `DATABASE_URL` — used by the app at runtime |
+| **OFF** | no `-pooler` | `DIRECT_URL` — used by `prisma migrate` only |
 
 Both must end with `?sslmode=require`.
 
-> Getting these the wrong way round is the single most common setup failure.
-> Symptom: the app runs but `prisma migrate deploy` hangs or errors.
+> Why two: the pooled host runs PgBouncer, which keeps serverless functions
+> under Neon's connection limit. Migrations take advisory locks that do not
+> survive transaction pooling, so they need the direct host. Getting these the
+> wrong way round makes `prisma migrate` sit and do nothing.
 
 ## 2. Generate secrets
 
@@ -81,7 +100,16 @@ automatically, but **migrations are deliberately not run during the build** — 
 build that silently mutates the schema is a bad idea when several deploys can
 run concurrently.
 
+The build does **not** need any environment variable: it is verified to succeed
+with none set. A missing variable therefore cannot break the deploy, only a
+request — and the error names the variable. This means you can deploy first and
+add variables after, though adding them first saves a redeploy.
+
 Run them once from your machine, pointed at production:
+
+Inline variables take precedence over your local `.env`, so these commands
+target production even though `.env` points somewhere else — verified, not
+assumed.
 
 ```bash
 # Use the PRODUCTION values here, not your local ones
