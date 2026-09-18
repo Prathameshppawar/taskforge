@@ -12,7 +12,14 @@ function ScrollArea({
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn("relative", className)}
+      /*
+       * `overflow-hidden` is not decoration. Radix does not set it on Root, and
+       * without it Root is sized by its content rather than by its container:
+       * the Viewport's `size-full` then resolves against that inflated height,
+       * so nothing ever scrolls and the overflow escapes to the page. In the
+       * sidebar that made the whole document scroll, carrying the board with it.
+       */
+      className={cn("relative overflow-hidden", className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport

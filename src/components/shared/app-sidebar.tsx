@@ -87,7 +87,13 @@ export function AppSidebar({
         <span className="truncate text-sm font-semibold tracking-tight">{APP_NAME}</span>
       </div>
 
-      <ScrollArea className="flex-1">
+      {/*
+        min-h-0 is load-bearing: a flex item defaults to min-height:auto, so
+        without it this grows to fit the project list instead of scrolling, the
+        sidebar becomes taller than the viewport, and the whole PAGE scrolls —
+        carrying the board content with it.
+      */}
+      <ScrollArea className="min-h-0 flex-1">
         <nav className="space-y-6 p-3" aria-label="Main">
           <ul className="space-y-0.5">
             {MAIN_NAV.map((item) => (

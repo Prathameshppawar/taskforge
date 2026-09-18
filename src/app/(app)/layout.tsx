@@ -47,7 +47,17 @@ export default async function AppLayout({
             />
           </header>
 
-          <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+          {/*
+            `relative` is load-bearing. Tailwind's `sr-only` is `position:
+            absolute`, so a screen-reader label with no positioned ancestor
+            resolves against the <body> and escapes every `overflow:hidden`
+            above it — inflating the document and scrolling the whole page
+            instead of just this pane. Positioning the scroll container makes
+            it the containing block, so strays are clipped here.
+          */}
+          <main className="relative min-h-0 flex-1 overflow-y-auto">
+            {children}
+          </main>
         </div>
       </div>
     </AppShellClient>
