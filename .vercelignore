@@ -1,0 +1,18 @@
+# Never upload local environment files to a Vercel build.
+#
+# `vercel deploy` uploads the working directory, and .gitignore does not gate
+# that upload. Without this, a local .env is bundled into the deployment and
+# Next.js loads it on the server — so AUTH_URL=http://localhost:3000 wins over
+# the platform's own configuration, Auth.js decides the connection is insecure,
+# issues a non-Secure session cookie, and middleware then rejects every request.
+#
+# Environment configuration belongs in the Vercel project, never in the upload.
+.env
+.env.*
+!.env.example
+
+# Local-only artifacts
+.next
+node_modules
+.git
+scripts/_tmp-*
