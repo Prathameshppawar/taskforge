@@ -84,7 +84,7 @@ Every variable is documented inline in [`.env.example`](../.env.example).
 |---|---|
 | `AI_PROVIDER` | `groq`, `ollama`, or `none` |
 | `GROQ_API_KEY` | From <https://console.groq.com/keys> |
-| `GROQ_MODEL` | Default `llama-3.3-70b-versatile` |
+| `GROQ_MODEL` | Default `openai/gpt-oss-120b` |
 
 Leave `AI_PROVIDER=none` and the Copilot panel explains what to configure
 instead of failing — the rest of the platform is unaffected.

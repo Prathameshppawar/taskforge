@@ -126,7 +126,7 @@ To enable it:
    ```bash
    AI_PROVIDER="groq"
    GROQ_API_KEY="gsk_..."
-   GROQ_MODEL="llama-3.3-70b-versatile"
+   GROQ_MODEL="openai/gpt-oss-120b"
    ```
 
 Groq's free tier is rate-limited but generous; this app makes one request per

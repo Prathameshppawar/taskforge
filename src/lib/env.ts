@@ -20,7 +20,7 @@ const serverSchema = z.object({
 
   AI_PROVIDER: z.enum(['groq', 'ollama', 'none']).default('none'),
   GROQ_API_KEY: z.string().optional(),
-  GROQ_MODEL: z.string().default('llama-3.3-70b-versatile'),
+  GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
   OLLAMA_BASE_URL: z.string().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('llama3.1'),
   AI_MAX_TOKENS: z.coerce.number().int().positive().default(2048),
