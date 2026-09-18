@@ -50,11 +50,28 @@ export interface AiProvider {
   chat(request: AiChatRequest): Promise<AiChatResponse>
 }
 
-/** Raised when the provider is unreachable or misconfigured. */
+export type AiFailureKind =
+  | 'rate_limited'
+  | 'unauthorized'
+  | 'model_not_found'
+  | 'unreachable'
+  | 'unknown'
+
+/**
+ * Raised when a provider call fails.
+ *
+ * `kind` matters: a rate limit and a bad API key need completely different
+ * advice, and telling someone to check their key when they have simply sent
+ * too many tokens this minute sends them hunting for a problem that is not
+ * there.
+ */
 export class AiProviderError extends Error {
   constructor(
     message: string,
     readonly provider: string,
+    readonly kind: AiFailureKind = 'unknown',
+    /** Seconds until the caller may retry — only set for rate limits. */
+    readonly retryAfterSeconds?: number,
     readonly cause?: unknown,
   ) {
     super(message)

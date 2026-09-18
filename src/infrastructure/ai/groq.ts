@@ -23,7 +23,7 @@ export class GroqProvider implements AiProvider {
   constructor() {
     const config = env()
     if (!config.GROQ_API_KEY) {
-      throw new AiProviderError('GROQ_API_KEY is not set.', 'groq')
+      throw new AiProviderError('GROQ_API_KEY is not set.', 'groq', 'unauthorized')
     }
 
     this.model = config.GROQ_MODEL
@@ -98,13 +98,69 @@ export class GroqProvider implements AiProvider {
       }
     } catch (error) {
       if (error instanceof AiProviderError) throw error
-      throw new AiProviderError(
-        'The AI provider could not be reached. Check GROQ_API_KEY and the model name.',
-        'groq',
-        error,
-      )
+      throw classifyGroqError(error, this.model)
     }
   }
+}
+
+/**
+ * Turns a provider failure into something actionable.
+ *
+ * Groq's free tier allows 8,000 tokens per minute, which a couple of
+ * tool-calling turns can reach. That is by far the most common failure, and it
+ * is temporary — so it must not be reported as a credential problem.
+ */
+function classifyGroqError(error: unknown, model: string): AiProviderError {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status: unknown }).status)
+      : undefined
+
+  const raw =
+    typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message: unknown }).message)
+      : ''
+
+  if (status === 429) {
+    // Groq reports the wait in the message, e.g. "Please try again in 7.2s".
+    const match = /try again in ([\d.]+)s/i.exec(raw)
+    const wait = match ? Math.ceil(Number(match[1])) : 30
+    return new AiProviderError(
+      `Rate limit reached — Groq's free tier allows 8,000 tokens per minute. Try again in about ${wait} second${wait === 1 ? '' : 's'}.`,
+      'groq',
+      'rate_limited',
+      wait,
+      error,
+    )
+  }
+
+  if (status === 401 || status === 403) {
+    return new AiProviderError(
+      'Groq rejected the API key. Check GROQ_API_KEY.',
+      'groq',
+      'unauthorized',
+      undefined,
+      error,
+    )
+  }
+
+  if (status === 404 || /model/i.test(raw) && /not (found|exist)|decommission/i.test(raw)) {
+    return new AiProviderError(
+      `The model "${model}" is not available. Groq retires models periodically — list the current ones at https://api.groq.com/openai/v1/models and update GROQ_MODEL.`,
+      'groq',
+      'model_not_found',
+      undefined,
+      error,
+    )
+  }
+
+  return new AiProviderError(
+    raw ? `Groq request failed: ${raw.slice(0, 160)}` : 'Groq could not be reached.',
+    'groq',
+    'unreachable',
+    undefined,
+    error,
+  )
 }
 
 /**

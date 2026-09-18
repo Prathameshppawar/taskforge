@@ -75,6 +75,8 @@ export class OllamaProvider implements AiProvider {
       throw new AiProviderError(
         `Could not reach Ollama at ${this.baseUrl}. Is it running? (ollama serve)`,
         'ollama',
+        'unreachable',
+        undefined,
         error,
       )
     }
@@ -86,6 +88,7 @@ export class OllamaProvider implements AiProvider {
           ? `The model "${this.model}" is not installed. Run: ollama pull ${this.model}`
           : `Ollama returned ${response.status}. ${detail.slice(0, 200)}`,
         'ollama',
+        response.status === 404 ? 'model_not_found' : 'unreachable',
       )
     }
 

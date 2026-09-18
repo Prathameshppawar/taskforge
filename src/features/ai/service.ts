@@ -1,4 +1,4 @@
-import { getAiProvider, type AiMessage } from '@/infrastructure/ai'
+import { AiProviderError, getAiProvider, type AiMessage } from '@/infrastructure/ai'
 import type { Actor } from '@/features/auth/guards'
 import { executeTool, type ToolResult } from './executor'
 import { getToolDefinitions, isToolName } from './tools'
@@ -27,28 +27,44 @@ export interface CopilotTurn {
 function buildSystemPrompt(context: CopilotContext): string {
   const today = new Date().toISOString().slice(0, 10)
 
+  /*
+   * Kept deliberately short. This is re-sent on every request, and the free
+   * Groq tier allows 8,000 tokens per minute — a verbose prompt directly
+   * reduces how many messages the user gets before being throttled.
+   */
   return [
-    'You are the TaskForge Copilot, an assistant inside an internal project and ticket management platform.',
-    '',
-    `Today is ${today}. The signed-in user is ${context.actor.name} (@${context.actor.username}), role ${context.actor.role}.`,
+    'You are the TaskForge Copilot in a ticket management app.',
+    `Today ${today}. User: ${context.actor.name} (@${context.actor.username}), ${context.actor.role}.`,
     context.projectId
-      ? `They currently have the project "${context.projectName}" (${context.projectCode}) open. When they do not name a project, assume this one.`
-      : 'No project is currently open, so the user must name a project for anything project-specific.',
-    '',
-    'How to behave:',
-    '- Use the tools for anything involving real data. Never invent ticket keys, statuses, names or counts.',
-    '- Before creating a ticket, call find_duplicates first. If close matches exist, show them and ask whether to continue instead of creating straight away.',
-    '- When the user describes several related tasks, or asks to break work down, use bulk_create_tickets to make one parent feature with its child tasks — do not create a flat list of unrelated tickets.',
-    '- For questions about what exists ("show blocked tickets", "my critical bugs"), use search_tickets.',
-    '- For "how is the project doing", use project_insights and interpret the numbers: say what stands out, not just the figures.',
-    '',
-    'How to write:',
-    '- Be brief and concrete. A sentence or two is usually right.',
-    '- Refer to tickets by key, e.g. ATLAS-14.',
-    '- Do not use markdown tables or headings; the panel is narrow. Short lines and plain prose only.',
-    '- If a tool fails, say plainly what went wrong and what the user could try instead.',
-    '- Never claim to have done something a tool did not confirm.',
+      ? `Open project: ${context.projectName} (${context.projectCode}). Assume it when none is named.`
+      : 'No project open; the user must name one.',
+    'Use tools for real data — never invent keys, statuses, names or counts.',
+    'Call find_duplicates before creating a ticket; if close matches exist, show them and ask.',
+    'For several related tasks, use bulk_create_tickets (one parent + children), not separate tickets.',
+    'Be brief and concrete. Refer to tickets by key. No markdown tables or headings — the panel is narrow.',
+    'If a tool fails, say what went wrong. Never claim an action a tool did not confirm.',
   ].join('\n')
+}
+
+/** Retries once on a rate limit, since the free tier throttles per minute. */
+async function chatWithRetry(
+  provider: ReturnType<typeof getAiProvider>,
+  request: Parameters<ReturnType<typeof getAiProvider>['chat']>[0],
+) {
+  try {
+    return await provider.chat(request)
+  } catch (error) {
+    const isRateLimit =
+      error instanceof AiProviderError && error.kind === 'rate_limited'
+
+    // Only wait if the window is short enough that the user is still there.
+    if (!isRateLimit || (error.retryAfterSeconds ?? 99) > 12) throw error
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, ((error as AiProviderError).retryAfterSeconds ?? 5) * 1000 + 500),
+    )
+    return provider.chat(request)
+  }
 }
 
 export async function runCopilotTurn(
@@ -70,7 +86,7 @@ export async function runCopilotTurn(
   const toolRuns: CopilotTurn['toolRuns'] = []
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await provider.chat({ messages, tools })
+    const response = await chatWithRetry(provider, { messages, tools })
 
     if (response.toolCalls.length === 0) {
       return {

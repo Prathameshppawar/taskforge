@@ -38,13 +38,59 @@ const SUGGESTIONS = [
   { icon: Bot, label: 'Project health', prompt: 'How is this project performing?' },
 ]
 
+const STORAGE_KEY = 'taskforge.copilot.thread'
+const MAX_PERSISTED = 40
+
 /**
  * Right-side Copilot drawer.
  *
- * Conversation state is local to the panel — it is a task assistant, not a
- * durable chat log, so nothing is persisted and closing the drawer keeps the
- * thread only for the current page session.
+ * The thread is persisted to localStorage, keyed per project, so closing the
+ * drawer or reloading the page does not lose the conversation. localStorage is
+ * deliberate rather than a database table: it costs nothing, needs no schema
+ * change, and a Copilot thread is personal working context rather than shared
+ * project data. The trade-off is that it does not follow the user to another
+ * browser or device.
+ *
+ * Every access is guarded — localStorage throws in private windows and can
+ * come back empty when site data is cleared.
  */
+function threadKey(projectId?: string) {
+  return `${STORAGE_KEY}.${projectId ?? 'global'}`
+}
+
+function loadThread(projectId?: string): CopilotMessage[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(threadKey(projectId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as CopilotMessage[]) : []
+  } catch {
+    return []
+  }
+}
+
+function saveThread(projectId: string | undefined, messages: CopilotMessage[]) {
+  if (typeof window === 'undefined') return
+  try {
+    // Keep only the tail: tool payloads can be large and the quota is ~5MB.
+    window.localStorage.setItem(
+      threadKey(projectId),
+      JSON.stringify(messages.slice(-MAX_PERSISTED)),
+    )
+  } catch {
+    // Quota exceeded or storage blocked — the panel still works in-memory.
+  }
+}
+
+function clearThread(projectId?: string) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(threadKey(projectId))
+  } catch {
+    // ignored
+  }
+}
 export function CopilotPanel({
   open,
   onOpenChange,
@@ -61,6 +107,7 @@ export function CopilotPanel({
   const router = useRouter()
   const [messages, setMessages] = React.useState<CopilotMessage[]>([])
   const [input, setInput] = React.useState('')
+  const [restored, setRestored] = React.useState(false)
   const [isPending, startTransition] = React.useTransition()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLTextAreaElement>(null)
@@ -74,6 +121,19 @@ export function CopilotPanel({
   React.useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 120)
   }, [open])
+
+  // Restore the thread for whichever project is open.
+  React.useEffect(() => {
+    setMessages(loadThread(projectId))
+    setRestored(true)
+  }, [projectId])
+
+  // Persist after every change, but not before the restore has run — that
+  // would write an empty array over a saved thread.
+  React.useEffect(() => {
+    if (!restored) return
+    saveThread(projectId, messages)
+  }, [messages, projectId, restored])
 
   function send(text: string) {
     const trimmed = text.trim()
@@ -161,7 +221,10 @@ export function CopilotPanel({
               variant="ghost"
               size="icon"
               className="size-7"
-              onClick={() => setMessages([])}
+              onClick={() => {
+                setMessages([])
+                clearThread(projectId)
+              }}
               aria-label="Clear conversation"
             >
               <Trash2 className="size-3.5" />

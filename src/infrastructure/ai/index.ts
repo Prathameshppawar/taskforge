@@ -20,6 +20,7 @@ export function getAiProvider(): AiProvider {
     throw new AiProviderError(
       'The AI Copilot is not configured. Set AI_PROVIDER and the matching credentials.',
       'none',
+      'unauthorized',
     )
   }
 
