@@ -40,6 +40,18 @@ export default auth((request) => {
   if (!session?.user) {
     if (isPublic) return NextResponse.next()
 
+    /*
+     * An API route must answer with JSON, not a redirect. Sending 307 to /login
+     * makes fetch follow it and receive an HTML page where it expected JSON,
+     * which surfaces as a parse error rather than "you are not signed in".
+     */
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'Unauthorized. Sign in, or send Authorization: Bearer <token>.' },
+        { status: 401 },
+      )
+    }
+
     const loginUrl = new URL('/login', nextUrl.origin)
     // Preserve where they were heading so login can return them there.
     if (pathname !== '/') loginUrl.searchParams.set('callbackUrl', pathname + nextUrl.search)
