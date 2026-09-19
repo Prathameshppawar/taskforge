@@ -66,21 +66,31 @@ test.afterAll(async () => {
 
 test('a delegated administrator sees only the roles they may act on', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/admin/roles')
+  await page.goto('/settings/roles')
   await page.waitForLoadState('networkidle')
 
-  // Admin ranks above them, so its controls must be inert.
-  const adminRow = page.locator('li').filter({ hasText: 'ADMIN' }).first()
-  await expect(adminRow.getByRole('button', { name: 'Edit' })).toBeDisabled()
+  // Admin is the recovery role: openable, but only to look at.
+  const adminRow = page.locator('li').filter({ hasText: 'recovery role' }).first()
+  await expect(adminRow.getByRole('button', { name: 'View' })).toBeVisible()
+  await expect(adminRow.getByRole('button', { name: 'Edit' })).toHaveCount(0)
 
-  // A built-in role is never editable, whatever the viewer's rank.
+  // Built-in roles can be reconfigured but never removed, so the delete control
+  // stays inert even for someone who outranks them.
   const userRow = page.locator('li').filter({ hasText: 'Works on tickets' }).first()
-  await expect(userRow.getByRole('button', { name: 'Edit' })).toBeDisabled()
+  await expect(userRow.locator('button').last()).toBeDisabled()
+
+  // And opening Admin offers nothing to save.
+  await adminRow.getByRole('button', { name: 'View' }).click()
+  await expect(page.getByRole('button', { name: 'Save changes' })).toHaveCount(0)
+  // `.first()` because the dialog's own dismiss icon is also named "Close".
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: 'Close' }).first(),
+  ).toBeVisible()
 })
 
 test('the role editor offers only permissions the author holds', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/admin/roles')
+  await page.goto('/settings/roles')
   await page.getByRole('button', { name: 'New role' }).click()
 
   // Held — so grantable.
@@ -98,7 +108,7 @@ test('the role editor offers only permissions the author holds', async ({ page }
 
 test('the server refuses a role ranked at or above its author', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/admin/roles')
+  await page.goto('/settings/roles')
   await page.getByRole('button', { name: 'New role' }).click()
 
   const key = `E2E_ESCALATE_${SUFFIX.toUpperCase()}`
@@ -126,7 +136,7 @@ test('the server refuses a role ranked at or above its author', async ({ page })
 
 test('a delegated administrator is not offered roles at or above their own', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/admin/users')
+  await page.goto('/settings/people')
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: /Add|New/ }).first().click()

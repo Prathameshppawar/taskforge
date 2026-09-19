@@ -18,6 +18,7 @@ import {
   hasPermission,
   isPermission,
   outranks,
+  strongestProjectRole,
   PERMISSIONS,
   PERMISSION_GROUPS,
   SYSTEM_ROLES,
@@ -251,6 +252,21 @@ check('access-all does not invent capabilities',
     { permissions: ['project:access-all', 'project:view'], memberRole: null, isOwner: false },
     'project:delete',
   ))
+
+console.log('\n── RBAC: access from teams ──')
+// Access can arrive directly and through any number of attached teams, so the
+// routes must be reconciled the same way every time.
+check('no routes means no access', strongestProjectRole([]) === null)
+check('a single route is used as-is', strongestProjectRole(['VIEWER']) === 'VIEWER')
+check('the strongest route wins', strongestProjectRole(['VIEWER', 'MANAGER']) === 'MANAGER')
+check('order does not matter', strongestProjectRole(['MANAGER', 'VIEWER']) === 'MANAGER')
+// The rule that matters: joining a second, weaker team must never take away
+// access somebody already had.
+check(
+  'a weaker team cannot downgrade existing access',
+  strongestProjectRole(['MANAGER', 'VIEWER', 'MEMBER']) === 'MANAGER',
+)
+check('member beats viewer', strongestProjectRole(['VIEWER', 'MEMBER']) === 'MEMBER')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

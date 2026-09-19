@@ -142,3 +142,11 @@ export const deleteConfigSchema = z.object({
   replacementId: z.string().min(1),
 })
 export type DeleteConfigInput = z.infer<typeof deleteConfigSchema>
+
+/** Attaching a team to a project, with the role its members inherit. */
+export const projectTeamSchema = z.object({
+  projectId: z.string().min(1),
+  teamId: z.string().min(1),
+  role: z.enum(['MANAGER', 'MEMBER', 'VIEWER']).default('MEMBER'),
+})
+export type ProjectTeamInput = z.infer<typeof projectTeamSchema>

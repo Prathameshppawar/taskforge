@@ -63,76 +63,96 @@ CREATE INDEX "roles_level_idx" ON "roles"("level");
 -- 6. Data migration: reproduce the previous hardcoded matrix exactly, so every
 --    existing account keeps precisely the access it had before this ran.
 -- Admin: 32 permissions
-INSERT INTO "role_permissions" ("roleId", "permission") VALUES
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'user:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'user:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'user:deactivate'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'user:reset-password'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'user:view'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'template:manage'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'audit:view-all'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'role:manage'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'team:manage'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'team:manage-members'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:archive'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:delete'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:manage-members'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:manage-config'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:view'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:view-all'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'project:access-all'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'label:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'label:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'label:delete'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'ticket:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'ticket:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'ticket:update-any'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'ticket:delete'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'ticket:assign'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'ticket:transition'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'comment:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'comment:delete-any'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'recurring:manage'),
-  ((SELECT id FROM "roles" WHERE "key" = 'ADMIN'), 'ai:use')
+INSERT INTO "role_permissions" ("roleId", "permission")
+SELECT r.id, p.permission
+FROM "roles" r
+CROSS JOIN (VALUES
+    ('user:create'),
+    ('user:update'),
+    ('user:deactivate'),
+    ('user:reset-password'),
+    ('user:view'),
+    ('template:manage'),
+    ('audit:view-all'),
+    ('role:manage'),
+    ('team:manage'),
+    ('team:manage-members'),
+    ('project:create'),
+    ('project:update'),
+    ('project:archive'),
+    ('project:delete'),
+    ('project:manage-members'),
+    ('project:manage-config'),
+    ('project:view'),
+    ('project:view-all'),
+    ('project:access-all'),
+    ('label:create'),
+    ('label:update'),
+    ('label:delete'),
+    ('ticket:create'),
+    ('ticket:update'),
+    ('ticket:update-any'),
+    ('ticket:delete'),
+    ('ticket:assign'),
+    ('ticket:transition'),
+    ('comment:create'),
+    ('comment:delete-any'),
+    ('recurring:manage'),
+    ('ai:use')
+) AS p(permission)
+WHERE r."key" = 'ADMIN'
 ON CONFLICT DO NOTHING;
 
 -- Project Manager: 22 permissions
-INSERT INTO "role_permissions" ("roleId", "permission") VALUES
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'project:view'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'ticket:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'ticket:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'ticket:transition'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'comment:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'ai:use'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'user:view'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'project:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'project:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'project:archive'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'project:manage-members'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'project:manage-config'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'label:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'label:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'label:delete'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'ticket:update-any'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'ticket:delete'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'ticket:assign'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'comment:delete-any'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'recurring:manage'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'team:manage-members'),
-  ((SELECT id FROM "roles" WHERE "key" = 'PROJECT_MANAGER'), 'project:view-all')
+INSERT INTO "role_permissions" ("roleId", "permission")
+SELECT r.id, p.permission
+FROM "roles" r
+CROSS JOIN (VALUES
+    ('project:view'),
+    ('ticket:create'),
+    ('ticket:update'),
+    ('ticket:transition'),
+    ('comment:create'),
+    ('ai:use'),
+    ('user:view'),
+    ('project:create'),
+    ('project:update'),
+    ('project:archive'),
+    ('project:manage-members'),
+    ('project:manage-config'),
+    ('label:create'),
+    ('label:update'),
+    ('label:delete'),
+    ('ticket:update-any'),
+    ('ticket:delete'),
+    ('ticket:assign'),
+    ('comment:delete-any'),
+    ('recurring:manage'),
+    ('team:manage-members'),
+    ('project:view-all')
+) AS p(permission)
+WHERE r."key" = 'PROJECT_MANAGER'
 ON CONFLICT DO NOTHING;
 
 -- User: 6 permissions
-INSERT INTO "role_permissions" ("roleId", "permission") VALUES
-  ((SELECT id FROM "roles" WHERE "key" = 'USER'), 'project:view'),
-  ((SELECT id FROM "roles" WHERE "key" = 'USER'), 'ticket:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'USER'), 'ticket:update'),
-  ((SELECT id FROM "roles" WHERE "key" = 'USER'), 'ticket:transition'),
-  ((SELECT id FROM "roles" WHERE "key" = 'USER'), 'comment:create'),
-  ((SELECT id FROM "roles" WHERE "key" = 'USER'), 'ai:use')
+INSERT INTO "role_permissions" ("roleId", "permission")
+SELECT r.id, p.permission
+FROM "roles" r
+CROSS JOIN (VALUES
+    ('project:view'),
+    ('ticket:create'),
+    ('ticket:update'),
+    ('ticket:transition'),
+    ('comment:create'),
+    ('ai:use')
+) AS p(permission)
+WHERE r."key" = 'USER'
 ON CONFLICT DO NOTHING;
+
+-- A fresh database has no roles yet — migrations run before any seed — so each
+-- statement above is an INSERT ... SELECT rather than VALUES with a subquery.
+-- The subquery form yields a NULL roleId and violates NOT NULL; this form simply
+-- inserts nothing, leaving the seed to create the roles and their permissions.
 
 -- levels
 UPDATE "roles" SET "level" = 0, "isSystem" = true WHERE "key" = 'ADMIN';

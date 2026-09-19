@@ -10,14 +10,9 @@ import {
   Inbox,
   KanbanSquare,
   LayoutDashboard,
-  LayoutTemplate,
   ListTodo,
-  MonitorSmartphone,
-  ShieldCheck,
-  UsersRound,
   Plus,
   Settings,
-  Users,
 } from 'lucide-react'
 import type { Permission } from '@/core/domain/rbac'
 
@@ -60,30 +55,11 @@ const MAIN_NAV: NavItem[] = [
   { href: '/activity', label: 'Activity', icon: Activity },
 ]
 
-const ADMIN_NAV: NavItem[] = [
-  { href: '/admin/users', label: 'People', icon: Users, anyOf: ['user:view'] },
-  { href: '/admin/roles', label: 'Roles', icon: ShieldCheck, anyOf: ['role:manage'] },
-  {
-    href: '/admin/teams',
-    label: 'Teams',
-    icon: UsersRound,
-    anyOf: ['team:manage', 'team:manage-members'],
-  },
-  {
-    href: '/admin/templates',
-    label: 'Templates',
-    icon: LayoutTemplate,
-    anyOf: ['template:manage'],
-  },
-  { href: '/admin/sessions', label: 'Sessions', icon: MonitorSmartphone, anyOf: ['user:view'] },
-]
 
 export function AppSidebar({
-  permissions,
   projects,
   onNavigate,
 }: {
-  permissions: Permission[]
   projects: SidebarProject[]
   onNavigate?: () => void
 }) {
@@ -93,11 +69,6 @@ export function AppSidebar({
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`)
 
-  const allows = (item: NavItem) =>
-    !item.anyOf || item.anyOf.some((permission) => permissions.includes(permission))
-
-  const adminNav = ADMIN_NAV.filter(allows)
-  const canSeeAdmin = adminNav.length > 0
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -189,21 +160,6 @@ export function AppSidebar({
             </CollapsibleContent>
           </Collapsible>
 
-          {/* Administration */}
-          {canSeeAdmin && (
-            <div>
-              <p className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-                Administration
-              </p>
-              <ul className="space-y-0.5">
-                {adminNav.map((item) => (
-                  <li key={item.href}>
-                    <NavLink item={item} active={isActive(item.href)} onNavigate={onNavigate} />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </nav>
       </ScrollArea>
 

@@ -55,8 +55,21 @@ export async function assertCanActOnUser(actor: Actor, userId: string) {
   return target
 }
 
-/** An existing role may only be edited or deleted by someone ranked above it. */
-export async function assertCanEditRole(actor: Actor, roleId: string) {
+/**
+ * The one role that is never editable.
+ *
+ * Every other safeguard here assumes something can still undo a mistake. Admin
+ * is that something: strip its permissions and the workspace has no way back
+ * short of database access. Project Manager and User carry no such guarantee,
+ * so they are ordinary editable roles that merely cannot be deleted or re-keyed.
+ */
+const LOCKED_ROLE_KEY = 'ADMIN'
+
+export function isLockedRole(key: string): boolean {
+  return key === LOCKED_ROLE_KEY
+}
+
+async function loadRole(roleId: string) {
   const role = await prisma.role.findUnique({
     where: { id: roleId },
     select: {
@@ -70,16 +83,43 @@ export async function assertCanEditRole(actor: Actor, roleId: string) {
   })
 
   if (!role) throw new NotFoundError('Role', roleId)
+  return role
+}
 
-  if (role.isSystem) {
+/** An existing role may only be edited by someone ranked above it. */
+export async function assertCanEditRole(actor: Actor, roleId: string) {
+  const role = await loadRole(roleId)
+
+  if (isLockedRole(role.key)) {
     throw new BusinessRuleError(
-      `"${role.name}" is a built-in role and cannot be changed. Create a custom role instead.`,
+      'Admin is the workspace recovery role and cannot be changed. Create a custom role instead.',
     )
   }
 
   if (!outranks(actor.level, role.level)) {
     throw new ForbiddenError(
       `"${role.name}" ranks at or above your own role, so you cannot change it.`,
+    )
+  }
+
+  return role
+}
+
+/**
+ * Deletion is stricter than editing: a built-in role is referenced by the seed
+ * and by the migration that created it, so removing one leaves the workspace in
+ * a state a fresh deploy would try to recreate.
+ */
+export async function assertCanDeleteRole(actor: Actor, roleId: string) {
+  const role = await loadRole(roleId)
+
+  if (role.isSystem) {
+    throw new BusinessRuleError(`"${role.name}" is a built-in role and cannot be deleted.`)
+  }
+
+  if (!outranks(actor.level, role.level)) {
+    throw new ForbiddenError(
+      `"${role.name}" ranks at or above your own role, so you cannot delete it.`,
     )
   }
 

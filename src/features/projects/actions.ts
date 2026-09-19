@@ -15,6 +15,8 @@ import { runAction } from '@/lib/safe-action'
 import { instantiateTemplate } from './service'
 import {
   addMemberSchema,
+  projectTeamSchema,
+  type ProjectTeamInput,
   archiveProjectSchema,
   createProjectSchema,
   projectSettingsSchema,
@@ -444,6 +446,88 @@ export async function removeMemberAction(
 }
 
 /** Directory of active users for member pickers. */
+/**
+ * Attaching a team is the intended way to staff a project: everyone in it gains
+ * the role, and a later change to the team reaches every project it is on at
+ * once. Individual members remain possible for genuine exceptions.
+ */
+export async function attachTeamAction(input: ProjectTeamInput): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const data = projectTeamSchema.parse(input)
+    const { actor } = await requireProjectPermission(data.projectId, 'project:manage-members')
+
+    const team = await prisma.team.findUnique({
+      where: { id: data.teamId },
+      select: { id: true, name: true, _count: { select: { members: true } } },
+    })
+    if (!team) throw new NotFoundError('Team', data.teamId)
+
+    await prisma.$transaction(async (tx) => {
+      await tx.projectTeam.upsert({
+        where: { projectId_teamId: { projectId: data.projectId, teamId: data.teamId } },
+        update: { role: data.role },
+        create: {
+          projectId: data.projectId,
+          teamId: data.teamId,
+          role: data.role,
+          addedById: actor.id,
+        },
+      })
+
+      await recordActivity(tx, {
+        action: 'MEMBER_ADDED',
+        entityType: 'TEAM',
+        entityId: team.id,
+        entityLabel: team.name,
+        projectId: data.projectId,
+        actorId: actor.id,
+        newValue: data.role,
+        summary: `attached team ${team.name} (${team._count.members} ${
+          team._count.members === 1 ? 'person' : 'people'
+        }) as ${data.role.toLowerCase()}`,
+      })
+    })
+
+    revalidatePath(`/projects/${data.projectId}/members`)
+    return ok(undefined)
+  })
+}
+
+export async function detachTeamAction(
+  input: Pick<ProjectTeamInput, 'projectId' | 'teamId'>,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const data = projectTeamSchema
+      .pick({ projectId: true, teamId: true })
+      .parse(input)
+    const { actor } = await requireProjectPermission(data.projectId, 'project:manage-members')
+
+    const team = await prisma.team.findUnique({
+      where: { id: data.teamId },
+      select: { name: true },
+    })
+
+    await prisma.$transaction(async (tx) => {
+      await tx.projectTeam.deleteMany({
+        where: { projectId: data.projectId, teamId: data.teamId },
+      })
+
+      await recordActivity(tx, {
+        action: 'MEMBER_REMOVED',
+        entityType: 'TEAM',
+        entityId: data.teamId,
+        entityLabel: team?.name ?? 'Team',
+        projectId: data.projectId,
+        actorId: actor.id,
+        summary: `detached team ${team?.name ?? ''}`.trim(),
+      })
+    })
+
+    revalidatePath(`/projects/${data.projectId}/members`)
+    return ok(undefined)
+  })
+}
+
 export async function searchAssignableUsers(query: string) {
   await requireActor()
 

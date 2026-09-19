@@ -352,6 +352,30 @@ export function canInProject(ctx: ProjectAccessContext, permission: Permission):
   return true
 }
 
+/**
+ * Access to a project can arrive by more than one route — directly, or through
+ * any number of attached teams — so the routes have to be reconciled.
+ *
+ * The strongest wins. Taking the weakest would mean adding somebody to a second
+ * team could silently *remove* the access they already had, and taking "the
+ * first found" would make their permissions depend on row order.
+ */
+const PROJECT_ROLE_RANK: Record<ProjectMemberRole, number> = {
+  MANAGER: 3,
+  MEMBER: 2,
+  VIEWER: 1,
+}
+
+export function strongestProjectRole(
+  roles: readonly ProjectMemberRole[],
+): ProjectMemberRole | null {
+  let best: ProjectMemberRole | null = null
+  for (const role of roles) {
+    if (!best || PROJECT_ROLE_RANK[role] > PROJECT_ROLE_RANK[best]) best = role
+  }
+  return best
+}
+
 export const PROJECT_ROLE_LABELS: Record<ProjectMemberRole, string> = {
   MANAGER: 'Manager',
   MEMBER: 'Member',

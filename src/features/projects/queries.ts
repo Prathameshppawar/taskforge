@@ -105,6 +105,38 @@ export const getProjectDetail = cache(async (projectId: string) => {
         },
         orderBy: { joinedAt: 'asc' },
       },
+      // Attached teams, with the people they bring. Everyone here has access to
+      // the project even without a ProjectMember row of their own.
+      teams: {
+        select: {
+          role: true,
+          createdAt: true,
+          team: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              members: {
+                select: {
+                  isManager: true,
+                  user: {
+                    select: {
+                      id: true,
+                      name: true,
+                      username: true,
+                      avatarColor: true,
+                      jobTitle: true,
+                      isActive: true,
+                    },
+                  },
+                },
+                orderBy: [{ isManager: 'desc' }, { user: { name: 'asc' } }],
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
       statuses: {
         select: {
           id: true,

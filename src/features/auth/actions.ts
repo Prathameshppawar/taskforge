@@ -143,7 +143,7 @@ export async function createUserAction(input: CreateUserInput): Promise<ActionRe
       return created
     })
 
-    revalidatePath('/admin/users')
+    revalidatePath('/settings/people')
     return ok({ id: user.id })
   })
 }
@@ -218,7 +218,7 @@ export async function updateUserAction(input: UpdateUserInput): Promise<ActionRe
       }
     })
 
-    revalidatePath('/admin/users')
+    revalidatePath('/settings/people')
     return ok()
   })
 }
@@ -278,7 +278,7 @@ export async function setUserActiveAction(input: SetUserActiveInput): Promise<Ac
       })
     })
 
-    revalidatePath('/admin/users')
+    revalidatePath('/settings/people')
     return ok()
   })
 }
@@ -331,7 +331,7 @@ export async function adminResetPasswordAction(
       })
     })
 
-    revalidatePath('/admin/users')
+    revalidatePath('/settings/people')
     return ok()
   })
 }
@@ -474,7 +474,7 @@ export async function revokeUserSessionsAction(
       return result.count
     })
 
-    revalidatePath('/admin/sessions')
+    revalidatePath('/settings/sessions')
     return ok({ revoked })
   })
 }

@@ -27,12 +27,12 @@ export default async function AppLayout({
       <div className="flex h-dvh overflow-hidden">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 border-r lg:block">
-          <AppSidebar permissions={actor.permissions} projects={projects} />
+          <AppSidebar projects={projects} />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
-            <MobileNav permissions={actor.permissions} projects={projects} />
+            <MobileNav projects={projects} />
 
             <div className="flex-1" />
 

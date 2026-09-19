@@ -214,7 +214,8 @@ model Team {
   name        String  @unique
   description String?
 
-  members TeamMember[]
+  members  TeamMember[]
+  projects ProjectTeam[]
 
   createdById String?
   createdBy   User?   @relation("TeamCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -223,6 +224,31 @@ model Team {
   updatedAt DateTime @updatedAt
 
   @@map("teams")
+}
+
+/// A team's access to a project.
+///
+/// Attaching a team is the intended way to staff a project: everyone in it gains
+/// the given project role, and a change of team membership takes effect
+/// everywhere at once. Direct ProjectMember rows still exist for exceptions —
+/// a contractor on one project, or the owner — and the two are unioned, with the
+/// strongest role winning.
+model ProjectTeam {
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  teamId    String
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  role ProjectMemberRole @default(MEMBER)
+
+  addedById String?
+  addedBy   User?   @relation("ProjectTeamAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@id([projectId, teamId])
+  @@index([teamId])
+  @@map("project_teams")
 }
 
 model TeamMember {
@@ -275,7 +301,8 @@ model User {
   createdUsers User[]  @relation("UserCreatedBy")
 
   teamMemberships TeamMember[]
-  createdTeams    Team[]       @relation("TeamCreatedBy")
+  attachedTeams   ProjectTeam[] @relation("ProjectTeamAddedBy")
+  createdTeams    Team[]        @relation("TeamCreatedBy")
 
   // --- reverse relations -----------------------------------------------------
   ownedProjects       Project[]         @relation("ProjectOwner")
@@ -548,6 +575,7 @@ model Project {
 
   settings         ProjectSettings?
   members          ProjectMember[]
+  teams            ProjectTeam[]
   labels           Label[]
   statuses         Status[]
   priorities       Priority[]

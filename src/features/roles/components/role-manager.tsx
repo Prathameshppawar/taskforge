@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, Plus, ShieldCheck, Trash2, Pencil, Users } from 'lucide-react'
+import { Eye, Lock, Plus, ShieldCheck, Trash2, Pencil, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { cn } from '@/lib/utils'
@@ -38,6 +38,8 @@ export interface ManagedRole {
   description: string | null
   level: number
   isSystem: boolean
+  /** Admin only: the recovery role, viewable but never editable. */
+  isLocked: boolean
   permissions: string[]
   userCount: number
 }
@@ -61,8 +63,9 @@ export function RoleManager({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Built-in roles are fixed. Custom roles you create can hold any permission you
-          hold yourself, at any rank below your own.
+          Admin is the recovery role and cannot be changed — everything else is
+          yours to configure. A role can hold any permission you hold yourself, at
+          any rank below your own.
         </p>
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus className="size-4" />
@@ -72,7 +75,9 @@ export function RoleManager({
 
       <ul className="space-y-2">
         {roles.map((role) => {
-          const editable = !role.isSystem && role.level > actorLevel
+          const outranked = role.level > actorLevel
+          const editable = !role.isLocked && outranked
+          const deletable = !role.isSystem && outranked
 
           return (
             <li
@@ -88,12 +93,16 @@ export function RoleManager({
                   <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
                     {role.key}
                   </span>
-                  {role.isSystem && (
+                  {role.isLocked ? (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                       <Lock className="size-2.5" />
+                      recovery role
+                    </span>
+                  ) : role.isSystem ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                       built-in
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 {role.description && (
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -112,28 +121,42 @@ export function RoleManager({
               </div>
 
               <div className="flex shrink-0 gap-1">
+                {/*
+                  A locked or outranked role still opens — read-only. A button
+                  that is visibly present but does nothing reads as broken, and
+                  seeing what a role grants is useful even when changing it is
+                  not allowed.
+                */}
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7"
-                  disabled={!editable}
-                  title={
-                    role.isSystem
-                      ? 'Built-in roles cannot be changed'
-                      : role.level <= actorLevel
-                        ? 'This role ranks at or above your own'
-                        : undefined
-                  }
                   onClick={() => setEditing(role)}
                 >
-                  <Pencil className="size-3.5" />
-                  Edit
+                  {editable ? (
+                    <>
+                      <Pencil className="size-3.5" />
+                      Edit
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="size-3.5" />
+                      View
+                    </>
+                  )}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 text-destructive"
-                  disabled={!editable}
+                  disabled={!deletable}
+                  title={
+                    role.isSystem
+                      ? 'Built-in roles cannot be deleted'
+                      : !outranked
+                        ? 'This role ranks at or above your own'
+                        : undefined
+                  }
                   onClick={() => setDeleting(role)}
                 >
                   <Trash2 className="size-3.5" />
@@ -146,6 +169,9 @@ export function RoleManager({
 
       <RoleDialog
         role={editing}
+        readOnly={
+          editing !== null && (editing.isLocked || editing.level <= actorLevel)
+        }
         open={creating || editing !== null}
         actorLevel={actorLevel}
         actorPermissions={actorPermissions}
@@ -164,12 +190,15 @@ export function RoleManager({
 
 function RoleDialog({
   role,
+  readOnly,
   open,
   actorLevel,
   actorPermissions,
   onOpenChange,
 }: {
   role: ManagedRole | null
+  /** Shown but not changeable — the recovery role, or one that outranks you. */
+  readOnly: boolean
   open: boolean
   actorLevel: number
   actorPermissions: Permission[]
@@ -245,10 +274,15 @@ function RoleDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle>{role ? `Edit ${role.name}` : 'New role'}</DialogTitle>
+          <DialogTitle>
+            {role ? `${readOnly ? '' : 'Edit '}${role.name}` : 'New role'}
+          </DialogTitle>
           <DialogDescription>
-            A role is a named set of permissions and a rank. People can only be given
-            roles that rank below their grantor.
+            {readOnly
+              ? role?.isLocked
+                ? 'Admin is the workspace recovery role. Its permissions are fixed so there is always a way to undo a misconfiguration.'
+                : 'This role ranks at or above your own, so you can see what it grants but not change it.'
+              : 'A role is a named set of permissions and a rank. People can only be given roles that rank below their grantor.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -258,6 +292,7 @@ function RoleDialog({
               <Labelled label="Name" error={errors.name}>
                 <Input
                   value={form.name}
+                  disabled={readOnly}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
                   placeholder="Team Lead"
                 />
@@ -270,7 +305,7 @@ function RoleDialog({
               >
                 <Input
                   value={form.key}
-                  disabled={role !== null}
+                  disabled={role !== null || readOnly}
                   onChange={(event) =>
                     setForm({ ...form, key: event.target.value.toUpperCase() })
                   }
@@ -283,6 +318,7 @@ function RoleDialog({
             <Labelled label="Description" error={errors.description}>
               <Input
                 value={form.description}
+                disabled={readOnly}
                 onChange={(event) => setForm({ ...form, description: event.target.value })}
                 placeholder="Runs a delivery team and its people"
               />
@@ -296,6 +332,7 @@ function RoleDialog({
               <Input
                 type="number"
                 min={actorLevel + 1}
+                disabled={readOnly}
                 value={form.level}
                 onChange={(event) => setForm({ ...form, level: event.target.value })}
                 className="w-32"
@@ -326,12 +363,13 @@ function RoleDialog({
                           key={permission.key}
                           className={cn(
                             'flex cursor-pointer items-start gap-2.5 px-3 py-2',
-                            !grantable && 'cursor-not-allowed opacity-50',
+                            (readOnly || !grantable) && 'cursor-not-allowed',
+                            !grantable && !readOnly && 'opacity-50',
                           )}
                         >
                           <Checkbox
                             checked={checked}
-                            disabled={!grantable}
+                            disabled={readOnly || !grantable}
                             onCheckedChange={(value) => toggle(permission.key, value === true)}
                             className="mt-0.5"
                           />
@@ -342,7 +380,7 @@ function RoleDialog({
                                 {permission.note}
                               </span>
                             )}
-                            {!grantable && (
+                            {!grantable && !readOnly && (
                               <span className="block text-[11px] text-muted-foreground italic">
                                 You do not hold this permission, so you cannot grant it.
                               </span>
@@ -363,11 +401,13 @@ function RoleDialog({
 
         <DialogFooter className="border-t px-5 py-3">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Cancel
+            {readOnly ? 'Close' : 'Cancel'}
           </Button>
-          <Button onClick={submit} disabled={isPending}>
-            {isPending ? 'Saving…' : role ? 'Save changes' : 'Create role'}
-          </Button>
+          {!readOnly && (
+            <Button onClick={submit} disabled={isPending}>
+              {isPending ? 'Saving…' : role ? 'Save changes' : 'Create role'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

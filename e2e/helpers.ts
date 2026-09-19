@@ -36,6 +36,12 @@ export function allPages(projectId: string): Array<{ name: string; path: string 
     ...['board', 'table', 'tree', 'calendar', 'timeline', 'insights', 'labels', 'members'].map(
       (view) => ({ name: view, path: `/projects/${projectId}/${view}` }),
     ),
+    // The settings area has its own nested layout with a second scroll
+    // container, which is exactly the shape that produced the last three
+    // containment bugs.
+    ...['', '/security', '/tokens', '/people', '/roles', '/teams', '/sessions'].map(
+      (module) => ({ name: `settings${module || '/profile'}`, path: `/settings${module}` }),
+    ),
   ]
 }
 

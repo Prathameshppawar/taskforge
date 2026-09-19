@@ -28,12 +28,9 @@ async function seedRoles() {
   for (const role of SYSTEM_ROLES) {
     const row = await prisma.role.upsert({
       where: { key: role.key },
-      update: {
-        name: role.name,
-        description: role.description,
-        level: role.level,
-        isSystem: true,
-      },
+      // Only `isSystem` is re-asserted: the name, description and rank of an
+      // editable built-in role belong to whoever changed them.
+      update: { isSystem: true },
       create: {
         key: role.key,
         name: role.name,
@@ -43,16 +40,29 @@ async function seedRoles() {
       },
     })
 
-    // Re-assert the system roles' permissions on every seed. They are not
-    // administrator-editable, so drift here means a bug or a tampered row —
-    // either way the definition in code wins.
-    await prisma.rolePermission.deleteMany({
-      where: { roleId: row.id, permission: { notIn: [...role.permissions] } },
-    })
-    await prisma.rolePermission.createMany({
-      data: role.permissions.map((permission) => ({ roleId: row.id, permission })),
-      skipDuplicates: true,
-    })
+    /*
+     * Admin's permissions are re-asserted on every seed, because it is the
+     * recovery role and must always hold everything — drift there means the
+     * workspace could become unadministrable.
+     *
+     * The other built-in roles are editable, so their permissions are only
+     * seeded when the role is new. Re-applying them on every deploy would
+     * silently undo an administrator's customisation, which is a far worse
+     * surprise than a role that has drifted from its default on purpose.
+     */
+    if (role.key === 'ADMIN') {
+      await prisma.rolePermission.deleteMany({
+        where: { roleId: row.id, permission: { notIn: [...role.permissions] } },
+      })
+    }
+
+    const alreadyGranted = await prisma.rolePermission.count({ where: { roleId: row.id } })
+    if (role.key === 'ADMIN' || alreadyGranted === 0) {
+      await prisma.rolePermission.createMany({
+        data: role.permissions.map((permission) => ({ roleId: row.id, permission })),
+        skipDuplicates: true,
+      })
+    }
   }
   console.log(`  ✓ ${SYSTEM_ROLES.length} system roles with their permissions`)
 }

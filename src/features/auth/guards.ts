@@ -7,6 +7,7 @@ import {
   canInProject,
   hasPermission,
   isPermission,
+  strongestProjectRole,
   type Permission,
   type ProjectAccessContext,
 } from '@/core/domain/rbac'
@@ -162,6 +163,13 @@ export const getProjectAccess = cache(
           select: { role: true },
           take: 1,
         },
+        // Access also arrives through any team attached to this project that the
+        // actor belongs to. Resolved here rather than at each call site, so
+        // nothing downstream has to know membership has two shapes.
+        teams: {
+          where: { team: { members: { some: { userId: actor.id } } } },
+          select: { role: true },
+        },
       },
     })
 
@@ -169,7 +177,10 @@ export const getProjectAccess = cache(
 
     return {
       permissions: actor.permissions,
-      memberRole: project.members[0]?.role ?? null,
+      memberRole: strongestProjectRole([
+        ...project.members.map((member) => member.role),
+        ...project.teams.map((team) => team.role),
+      ]),
       isOwner: project.ownerId === actor.id,
     }
   },
@@ -238,6 +249,7 @@ export function projectVisibilityFilter(actor: Actor) {
     OR: [
       { ownerId: actor.id },
       { members: { some: { userId: actor.id } } },
+      { teams: { some: { team: { members: { some: { userId: actor.id } } } } } },
     ],
   }
 }
@@ -250,6 +262,7 @@ export function ticketVisibilityFilter(actor: Actor) {
       OR: [
         { ownerId: actor.id },
         { members: { some: { userId: actor.id } } },
+        { teams: { some: { team: { members: { some: { userId: actor.id } } } } } },
       ],
     },
   }

@@ -11,6 +11,7 @@ import { BusinessRuleError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
 import { isPermission, ADMIN_LEVEL } from '@/core/domain/rbac'
 import {
+  assertCanDeleteRole,
   assertCanEditRole,
   assertKeyAvailable,
   assertPermissionsWithinGrant,
@@ -99,8 +100,8 @@ export async function createRoleAction(
       return created
     })
 
-    revalidatePath('/admin/roles')
-    revalidatePath('/admin/users')
+    revalidatePath('/settings/roles')
+    revalidatePath('/settings/people')
     return ok({ id: role.id })
   })
 }
@@ -149,8 +150,8 @@ export async function updateRoleAction(input: UpdateRoleInput): Promise<ActionRe
       })
     })
 
-    revalidatePath('/admin/roles')
-    revalidatePath('/admin/users')
+    revalidatePath('/settings/roles')
+    revalidatePath('/settings/people')
     return ok(undefined)
   })
 }
@@ -158,7 +159,7 @@ export async function updateRoleAction(input: UpdateRoleInput): Promise<ActionRe
 export async function deleteRoleAction(roleId: string): Promise<ActionResult<void>> {
   return runAction(async () => {
     const actor = await requirePermission('role:manage')
-    const role = await assertCanEditRole(actor, roleId)
+    const role = await assertCanDeleteRole(actor, roleId)
 
     // The FK is Restrict, so the database would refuse anyway — but a foreign
     // key violation is not an explanation, and the person needs to know which
@@ -181,7 +182,7 @@ export async function deleteRoleAction(roleId: string): Promise<ActionResult<voi
       })
     })
 
-    revalidatePath('/admin/roles')
+    revalidatePath('/settings/roles')
     return ok(undefined)
   })
 }
