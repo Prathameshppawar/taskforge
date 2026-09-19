@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import {
   AlertTriangle,
   ArrowUp,
@@ -173,7 +172,10 @@ export function CopilotPanel({
   const panelRef = React.useRef<HTMLElement>(null)
 
   const active = threads.find((t) => t.id === activeId) ?? null
-  const messages = active?.messages ?? []
+  // Memoised because the `?? []` fallback would otherwise be a new array on
+  // every render, re-running the scroll-to-bottom effect continuously whenever
+  // no thread is active.
+  const messages = React.useMemo(() => active?.messages ?? [], [active])
 
   /** Applies a change to the active thread and keeps its title and order fresh. */
   const updateActive = React.useCallback(

@@ -99,6 +99,9 @@ export class OllamaProvider implements AiProvider {
           function?: { name?: string; arguments?: unknown }
         }>
       }
+      /** Ollama's own names for the token counts. */
+      prompt_eval_count?: number
+      eval_count?: number
     }
 
     const toolCalls: AiToolCall[] = []
@@ -113,9 +116,17 @@ export class OllamaProvider implements AiProvider {
       })
     }
 
+    // Ollama names these differently from the OpenAI-compatible providers.
+    const promptTokens = payload.prompt_eval_count ?? 0
+    const completionTokens = payload.eval_count ?? 0
+
     return {
       content: payload.message?.content ?? '',
       toolCalls,
+      usage:
+        promptTokens || completionTokens
+          ? { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens }
+          : undefined,
     }
   }
 }

@@ -18,7 +18,6 @@ import {
   Sparkles,
   Sun,
   Ticket,
-  UserCog,
   UserX,
 } from 'lucide-react'
 import { toast } from 'sonner'

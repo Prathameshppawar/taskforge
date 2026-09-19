@@ -39,13 +39,18 @@ interface ChildTicket {
 export function ChildTicketList({
   parentId,
   parentKey,
-  children,
+  childTickets,
   canEdit,
   isChild,
 }: {
   parentId: string
   parentKey: string
-  children: ChildTicket[]
+  /**
+   * Named `childTickets` rather than `children`: React reserves `children` for
+   * nested JSX, so using it for domain data makes the component look like it
+   * accepts a slot it does not.
+   */
+  childTickets: ChildTicket[]
   canEdit: boolean
   isChild: boolean
 }) {
@@ -53,7 +58,7 @@ export function ChildTicketList({
 
   // A child ticket cannot itself have children — the hierarchy stops at two
   // levels — so the section is hidden entirely rather than shown empty.
-  if (isChild && children.length === 0) return null
+  if (isChild && childTickets.length === 0) return null
 
   return (
     <section className="space-y-2">
@@ -61,9 +66,9 @@ export function ChildTicketList({
         <h2 className="flex items-center gap-2 text-sm font-semibold">
           <GitBranch className="size-4" />
           Child tickets
-          {children.length > 0 && (
+          {childTickets.length > 0 && (
             <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
-              {children.length}
+              {childTickets.length}
             </span>
           )}
         </h2>
@@ -74,7 +79,7 @@ export function ChildTicketList({
         )}
       </div>
 
-      {children.length === 0 ? (
+      {childTickets.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {canEdit
             ? 'Split this feature into implementation tasks.'
@@ -82,7 +87,7 @@ export function ChildTicketList({
         </p>
       ) : (
         <ul className="divide-y rounded-lg border">
-          {children.map((child) => (
+          {childTickets.map((child) => (
             <li
               key={child.id}
               className="flex flex-wrap items-center gap-2 px-3 py-2 hover:bg-accent/40"

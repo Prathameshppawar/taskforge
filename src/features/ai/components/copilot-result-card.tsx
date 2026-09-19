@@ -29,9 +29,9 @@ interface ToolResultShape {
 }
 
 export function CopilotResultCard({
-  name,
   result,
 }: {
+  /** Accepted so callers can pass it uniformly; the card renders the result. */
   name: string
   result: ToolResultShape
 }) {

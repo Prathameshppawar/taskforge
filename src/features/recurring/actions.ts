@@ -192,7 +192,9 @@ export async function runRecurringNowAction(
   scheduleId: string,
 ): Promise<ActionResult<{ ticketKey: string | null }>> {
   return runAction(async () => {
-    const actor = await requireActor()
+    // Called for its guard, not its value: it throws when the caller is not
+    // signed in, which is the only reason it is here.
+    await requireActor()
 
     const schedule = await prisma.recurringTicket.findUnique({
       where: { id: scheduleId },

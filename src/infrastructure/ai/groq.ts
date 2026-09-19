@@ -92,9 +92,18 @@ export class GroqProvider implements AiProvider {
         })
       }
 
+      const usage = completion.usage
+        ? {
+            promptTokens: completion.usage.prompt_tokens ?? 0,
+            completionTokens: completion.usage.completion_tokens ?? 0,
+            totalTokens: completion.usage.total_tokens ?? 0,
+          }
+        : undefined
+
       return {
         content: choice?.message?.content ?? '',
         toolCalls,
+        usage,
       }
     } catch (error) {
       if (error instanceof AiProviderError) throw error

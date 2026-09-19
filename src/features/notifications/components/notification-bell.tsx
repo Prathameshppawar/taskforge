@@ -4,7 +4,15 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
-import { AtSign, Bell, CheckCheck, MessageSquare, UserPlus } from 'lucide-react'
+import {
+  AtSign,
+  Bell,
+  CheckCheck,
+  MessageSquare,
+  UserPlus,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -17,6 +25,7 @@ import {
   markNotificationReadAction,
 } from '../actions'
 import type { NotificationItem } from '../queries'
+import { useNotificationSound } from './use-notification-sound'
 
 const ICONS = {
   MENTIONED: AtSign,
@@ -42,11 +51,33 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
   const [items, setItems] = React.useState<NotificationItem[]>([])
   const [loading, setLoading] = React.useState(false)
 
+  const { enabled: soundOn, toggle: toggleSound, play } = useNotificationSound()
+
+  // The chime is held in a ref so that muting it does not re-create the poll
+  // interval — that would reset the timer on every toggle.
+  const playRef = React.useRef(play)
+  React.useEffect(() => {
+    playRef.current = play
+  }, [play])
+
+  /**
+   * The last count we showed. A chime means *new work arrived*, so it fires
+   * only when the count rises. Reading a notification in another tab lowers it,
+   * and marking all read zeroes it; neither should make a sound.
+   */
+  const lastUnread = React.useRef(initialUnread)
+
+  const applyUnread = React.useCallback((next: number) => {
+    lastUnread.current = next
+    setUnread(next)
+  }, [])
+
   const refresh = React.useCallback(async () => {
     const result = await fetchNotificationsAction()
     setItems(result.items)
-    setUnread(result.unread)
-  }, [])
+    // Opening the panel is a deliberate act — never chime for what it finds.
+    applyUnread(result.unread)
+  }, [applyUnread])
 
   React.useEffect(() => {
     let cancelled = false
@@ -54,7 +85,11 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
     async function poll() {
       if (document.visibilityState !== 'visible' || cancelled) return
       const result = await fetchNotificationsAction().catch(() => null)
-      if (result && !cancelled) setUnread(result.unread)
+      if (!result || cancelled) return
+
+      if (result.unread > lastUnread.current) playRef.current()
+      lastUnread.current = result.unread
+      setUnread(result.unread)
     }
 
     const timer = setInterval(poll, POLL_MS)
@@ -93,6 +128,20 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
       <PopoverContent align="end" className="w-80 p-0">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <span className="text-sm font-medium">Notifications</span>
+
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground"
+              onClick={toggleSound}
+              aria-pressed={soundOn}
+              aria-label={soundOn ? 'Mute notification sound' : 'Unmute notification sound'}
+              title={soundOn ? 'Sound on' : 'Sound off'}
+            >
+              {soundOn ? <Volume2 className="size-3.5" /> : <VolumeX className="size-3.5" />}
+            </Button>
+
           {unread > 0 && (
             <Button
               variant="ghost"
@@ -108,6 +157,7 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
               Mark all read
             </Button>
           )}
+          </div>
         </div>
 
         <ScrollArea className="max-h-96">
@@ -131,7 +181,11 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
                         setOpen(false)
                         if (!item.readAt) {
                           await markNotificationReadAction(item.id)
-                          setUnread((n) => Math.max(0, n - 1))
+                          setUnread((n) => {
+                            const next = Math.max(0, n - 1)
+                            lastUnread.current = next
+                            return next
+                          })
                         }
                       }}
                       className={cn(

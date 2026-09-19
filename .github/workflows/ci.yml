@@ -8,7 +8,7 @@ on:
 
 jobs:
   verify:
-    name: Typecheck · Domain · Build
+    name: Lint · Typecheck · Domain · Build
     runs-on: ubuntu-latest
 
     steps:
@@ -26,6 +26,9 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Lint
+        run: npm run lint
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -40,3 +43,81 @@ jobs:
       # message, never a deployment.
       - name: Production build
         run: npm run build
+
+  e2e:
+    name: Browser suite
+    runs-on: ubuntu-latest
+
+    # A real Postgres rather than a mock: the schema uses a generated tsvector
+    # column and pg_trgm, so anything less would not run the migrations at all.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: taskforge_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/taskforge_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/taskforge_test
+      AUTH_SECRET: ci-only-secret-not-used-anywhere-else
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      # The suite signs in constantly; the default cost would dominate its runtime.
+      BCRYPT_ROUNDS: 4
+      AI_PROVIDER: none
+      E2E_USERNAME: admin
+      E2E_PASSWORD: ChangeMe!2024
+      # Load-bearing: the seed sets `mustChangePassword` on the admin unless
+      # ADMIN_PASSWORD is supplied, which would park every sign-in on the
+      # change-password screen and fail the whole suite.
+      ADMIN_PASSWORD: ChangeMe!2024
+      ADMIN_USERNAME: admin
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_NAME: CI Admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed
+        run: npm run db:seed
+
+      # Chrome specifically — the config pins the channel so local runs need no
+      # browser download, and CI must match what developers actually run.
+      - name: Install Chrome
+        run: npx playwright install --with-deps chrome
+
+      - name: Build
+        run: npm run build
+
+      # 11 tests: page-level scroll containment across five viewports from phone
+      # to desktop, the forced password-change gate, and the notification chime.
+      - name: Browser suite
+        run: npm run e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

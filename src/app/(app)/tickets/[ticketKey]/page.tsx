@@ -145,7 +145,7 @@ export default async function TicketDetailPage({
           <ChildTicketList
             parentId={ticket.id}
             parentKey={ticket.key}
-            children={ticket.children}
+            childTickets={ticket.children}
             canEdit={canEdit && !ticket.parentId}
             isChild={Boolean(ticket.parentId)}
           />

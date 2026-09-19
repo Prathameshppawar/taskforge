@@ -39,9 +39,24 @@ export interface AiChatRequest {
   maxTokens?: number
 }
 
+/**
+ * What the request cost.
+ *
+ * Reported by the provider rather than estimated locally: a token count is a
+ * property of the model's tokeniser, and guessing it from character counts is
+ * wrong by enough to make a spend forecast useless. Optional because not every
+ * provider returns one.
+ */
+export interface AiUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
 export interface AiChatResponse {
   content: string
   toolCalls: AiToolCall[]
+  usage?: AiUsage
 }
 
 export interface AiProvider {

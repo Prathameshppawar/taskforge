@@ -33,7 +33,12 @@ export interface CopilotTurn {
   proposals: Array<{ tool: string; arguments: Record<string, unknown>; label: string }>
 }
 
-function buildSystemPrompt(context: CopilotContext): string {
+/**
+ * Exported so the eval suite grades the prompt the app actually ships. A copy
+ * kept in the test fixtures would drift, and an eval that passes against a
+ * prompt nobody uses is worse than no eval at all.
+ */
+export function buildSystemPrompt(context: CopilotContext): string {
   const today = new Date().toISOString().slice(0, 10)
 
   /*

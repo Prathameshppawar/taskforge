@@ -195,14 +195,16 @@ export function AppShellClient({
       window.removeEventListener('keydown', onKeyDown)
       clearTimeout(gotoTimer)
     }
-  }, [router])
+    // `setCopilotOpen` is memoised with an empty dependency list, so listing it
+    // here documents the dependency without re-binding the listener.
+  }, [router, setCopilotOpen])
 
   const value = React.useMemo<ShellContextValue>(
     () => ({
       openPalette: () => setPaletteOpen(true),
       openCopilot: () => setCopilotOpen(true),
     }),
-    [],
+    [setCopilotOpen],
   )
 
   return (

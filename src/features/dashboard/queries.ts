@@ -285,69 +285,117 @@ export interface WorkloadRow {
   overdue: number
 }
 
-/** Per-assignee workload, split by status category. */
+/**
+ * Per-assignee workload, split by status category.
+ *
+ * Aggregated in the database, not in memory. The obvious implementation —
+ * select every assigned ticket and bucket it in JS — measured 137ms against
+ * 26,042 tickets while every other query on this dashboard sat under 5ms,
+ * because its cost scales with ticket count rather than team size.
+ *
+ * Grouping by (assignee, status) instead returns one row per pair: roughly
+ * `people x statuses`, a few hundred rows for a 50-person workspace, no matter
+ * how many tickets exist. The status category is resolved in a second lookup
+ * rather than a join, matching `getStatCounts` above — which keeps the
+ * visibility filter in Prisma, where a hand-written SQL predicate could
+ * silently drift from the RBAC rules it is meant to enforce.
+ */
 export async function getTeamWorkload(
   actor: Actor,
   scope: Scope = {},
 ): Promise<WorkloadRow[]> {
-  const tickets = await prisma.ticket.findMany({
-    where: { ...scopeWhere(actor, scope), assigneeId: { not: null } },
-    select: {
-      assigneeId: true,
-      dueDate: true,
-      assignee: { select: { id: true, name: true, avatarColor: true } },
-      status: { select: { category: true } },
-    },
-  })
+  const base = { ...scopeWhere(actor, scope), assigneeId: { not: null } }
 
-  const rows = new Map<string, WorkloadRow>()
-  const now = Date.now()
+  const [byStatus, overdueCounts] = await Promise.all([
+    prisma.ticket.groupBy({
+      by: ['assigneeId', 'statusId'],
+      where: base,
+      _count: { _all: true },
+    }),
+    // Overdue cannot be derived from the grouping above — it depends on the
+    // due date, not the status — so it is its own aggregate.
+    prisma.ticket.groupBy({
+      by: ['assigneeId'],
+      where: {
+        ...base,
+        dueDate: { lt: new Date() },
+        status: { category: { notIn: ['DONE', 'CANCELLED'] } },
+      },
+      _count: { _all: true },
+    }),
+  ])
 
-  for (const ticket of tickets) {
-    if (!ticket.assignee) continue
+  if (byStatus.length === 0) return []
 
-    let row = rows.get(ticket.assignee.id)
-    if (!row) {
-      row = {
-        userId: ticket.assignee.id,
-        name: ticket.assignee.name,
-        avatarColor: ticket.assignee.avatarColor,
+  const statusIds = [...new Set(byStatus.map((row) => row.statusId))]
+  const userIds = [
+    ...new Set(
+      byStatus
+        .map((row) => row.assigneeId)
+        .filter((id): id is string => id !== null),
+    ),
+  ]
+
+  const [statuses, users] = await Promise.all([
+    prisma.status.findMany({
+      where: { id: { in: statusIds } },
+      select: { id: true, category: true },
+    }),
+    prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, avatarColor: true },
+    }),
+  ])
+
+  const categoryById = new Map(statuses.map((s) => [s.id, s.category]))
+  const overdueByUser = new Map(
+    overdueCounts
+      .filter((row) => row.assigneeId !== null)
+      .map((row) => [row.assigneeId as string, row._count._all]),
+  )
+
+  const rows = new Map<string, WorkloadRow>(
+    users.map((user) => [
+      user.id,
+      {
+        userId: user.id,
+        name: user.name,
+        avatarColor: user.avatarColor,
         open: 0,
         inProgress: 0,
         blocked: 0,
         done: 0,
         total: 0,
-        overdue: 0,
-      }
-      rows.set(ticket.assignee.id, row)
-    }
+        overdue: overdueByUser.get(user.id) ?? 0,
+      },
+    ]),
+  )
 
-    row.total++
+  for (const group of byStatus) {
+    if (!group.assigneeId) continue
+    const row = rows.get(group.assigneeId)
+    if (!row) continue
 
-    switch (ticket.status.category) {
+    const count = group._count._all
+    // Cancelled tickets count toward the total, as they did when this was
+    // bucketed in memory, but belong to no column.
+    row.total += count
+
+    switch (categoryById.get(group.statusId)) {
       case 'DONE':
-        row.done++
+        row.done += count
         break
       case 'BLOCKED':
-        row.blocked++
+        row.blocked += count
         break
       case 'IN_PROGRESS':
       case 'REVIEW':
-        row.inProgress++
+        row.inProgress += count
         break
       case 'CANCELLED':
         break
       default:
-        row.open++
-    }
-
-    if (
-      ticket.dueDate &&
-      ticket.dueDate.getTime() < now &&
-      ticket.status.category !== 'DONE' &&
-      ticket.status.category !== 'CANCELLED'
-    ) {
-      row.overdue++
+        row.open += count
     }
   }
 
