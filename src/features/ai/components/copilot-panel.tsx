@@ -27,6 +27,7 @@ import { Separator } from '@/components/ui/separator'
 import { copilotAction } from '../actions'
 import { useSpeechInput } from '../hooks/use-speech-input'
 import { CopilotResultCard } from './copilot-result-card'
+import { CopilotProposalCard } from './copilot-proposal-card'
 import { MarkdownText } from './markdown-text'
 
 export interface CopilotProposal {
@@ -663,24 +664,33 @@ function MessageBubble({
       )}
 
       {message.proposals && message.proposals.length > 0 && !message.resolved && (
-        <div className="rounded-lg border border-primary/40 bg-primary/5 p-2.5">
-          <p className="flex items-center gap-1.5 text-xs font-medium">
-            <ShieldQuestion className="size-3.5 text-primary" />
-            {message.proposals.length === 1
-              ? 'Approve this change?'
-              : `Approve ${message.proposals.length} changes?`}
-          </p>
-          <ul className="mt-1.5 space-y-0.5">
+        <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-2.5">
+          <div className="flex items-start gap-1.5">
+            <ShieldQuestion className="mt-px size-3.5 shrink-0 text-primary" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium">
+                {message.proposals.length === 1
+                  ? 'Approve this change?'
+                  : `Approve ${message.proposals.length} changes?`}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Nothing has been written yet.
+              </p>
+            </div>
+          </div>
+
+          {/* The detail is the point: an approval nobody can inspect is a
+              rubber stamp, which defeats the propose-then-confirm step. */}
+          <div className="space-y-1.5">
             {message.proposals.map((proposal, index) => (
-              <li key={index} className="text-xs text-muted-foreground">
-                • {proposal.label}
-              </li>
+              <CopilotProposalCard key={index} proposal={proposal} />
             ))}
-          </ul>
-          <div className="mt-2.5 flex gap-2">
+          </div>
+
+          <div className="flex gap-2 pt-0.5">
             <Button size="sm" className="h-7" onClick={() => onApprove?.(message)}>
               <Check className="size-3.5" />
-              Approve
+              {message.proposals.length === 1 ? 'Approve' : `Approve all ${message.proposals.length}`}
             </Button>
             <Button
               size="sm"

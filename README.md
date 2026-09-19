@@ -421,23 +421,23 @@ them up:
 
 | | |
 |---|---|
-| Tokens per user request | **1,383** (≈1,260 in, ≈123 out) |
+| Tokens per user request | **1,407** (≈1,280 in, ≈127 out) |
 | Provider calls per request | 1.23 — most requests need one round, some two |
-| Cost per request at list price | **$0.00026** ($0.15/M in, $0.60/M out) |
+| Cost per request at list price | **$0.00027** ($0.15/M in, $0.60/M out) |
 
 Which sets out exactly what the free tier affords, workspace-wide:
 
 | Free-tier limit | Works out as |
 |---|---|
 | 8,000 tokens/minute | ~5 Copilot requests per minute |
-| 200,000 tokens/day | **~145 requests per day, for the whole workspace** |
+| 200,000 tokens/day | **~142 requests per day, for the whole workspace** |
 
 For a 50-person team that is about **three Copilot messages per person per
 day** — fine for a trial, not enough for daily use. Paid is the fix, and it is
 close to free: at moderate use (10 messages per person per day, 50 people, 21
 working days) that is **≈$2.80 a month**. Heavy use — 30 a day each — is **≈$8**.
 Groq also prices cached input at half rate, and the system prompt plus tool
-schemas are byte-identical on every request, so roughly 1,100 of those 1,260
+schemas are byte-identical on every request, so roughly 1,100 of those 1,280
 input tokens are cacheable.
 
 Or run it for nothing: `AI_PROVIDER=ollama` points the same tool-calling loop at

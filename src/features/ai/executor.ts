@@ -89,14 +89,18 @@ export async function executeTool(
    */
   if (context.propose && MUTATING_TOOLS.has(name)) {
     const guard = await assertCanWrite(name, parsed.data as never, context)
-    if (guard) return guard
+    if (!guard.allowed) return guard.result
 
     return {
       ok: true,
       summary: `Proposed: ${describe(name, parsed.data as never)}. Awaiting the user's approval — do not claim it is done.`,
       proposal: {
         tool: name,
-        arguments: rawArgs,
+        // The resolved project wins over whatever the model supplied: it is
+        // what the write will actually use.
+        arguments: guard.projectCode
+          ? { ...rawArgs, projectCode: guard.projectCode }
+          : rawArgs,
         label: describe(name, parsed.data as never),
       },
     }
@@ -143,18 +147,27 @@ function describe(name: ToolName, args: Record<string, unknown>): string {
 
 /**
  * Runs the permission check a write would hit, without performing it.
- * Returns a failed ToolResult when refused, or null when it would be allowed.
+ *
+ * Also hands back the project the write resolved to. The model may omit the
+ * project entirely — "create a ticket" while a board is open is the common
+ * case — so this is the only place that knows where the ticket will actually
+ * land, and the approval card should show that rather than leave it implied.
  */
+type WriteGuard =
+  | { allowed: false; result: ToolResult }
+  | { allowed: true; projectCode?: string }
+
 async function assertCanWrite(
   name: ToolName,
   args: Record<string, unknown>,
   ctx: ExecutionContext,
-): Promise<ToolResult | null> {
+): Promise<WriteGuard> {
   try {
     if (name === 'update_ticket') {
       const ticket = await resolveTicketByKey(ctx.actor, String(args.ticketKey))
       await requireProjectPermission(ticket.projectId, 'ticket:update')
-      return null
+      // The ticket key already carries the project prefix, so the card has it.
+      return { allowed: true }
     }
     const project = await resolveProject(
       ctx.actor,
@@ -162,11 +175,14 @@ async function assertCanWrite(
       ctx.currentProjectId,
     )
     await requireProjectPermission(project.id, 'ticket:create')
-    return null
+    return { allowed: true, projectCode: project.code }
   } catch (error) {
     return {
-      ok: false,
-      summary: error instanceof Error ? error.message : 'You cannot do that.',
+      allowed: false,
+      result: {
+        ok: false,
+        summary: error instanceof Error ? error.message : 'You cannot do that.',
+      },
     }
   }
 }
