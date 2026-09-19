@@ -7,7 +7,6 @@ import { ProfileForm } from '@/features/auth/components/profile-form'
 import { PageHeader } from '@/components/shared/page-header'
 import { UserAvatar } from '@/components/shared/user-avatar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ROLE_LABELS } from '@/core/domain/rbac'
 
 export const metadata: Metadata = { title: 'Settings' }
 
@@ -24,7 +23,7 @@ export default async function SettingsPage() {
       avatarColor: true,
       createdAt: true,
       lastLoginAt: true,
-      role: { select: { key: true } },
+      role: { select: { key: true, name: true } },
     },
   })
 
@@ -49,7 +48,7 @@ export default async function SettingsPage() {
                 <p className="font-medium">@{user.username}</p>
                 <p className="truncate text-muted-foreground">{user.email}</p>
                 <p className="text-xs text-muted-foreground">
-                  {ROLE_LABELS[user.role.key]}
+                  {user.role.name}
                   {user.lastLoginAt &&
                     ` · Last signed in ${user.lastLoginAt.toLocaleDateString()}`}
                 </p>

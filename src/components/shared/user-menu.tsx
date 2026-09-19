@@ -3,7 +3,6 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { KeyRound, LogOut, Settings, User as UserIcon } from 'lucide-react'
-import type { RoleKey } from '@prisma/client'
 
 import {
   DropdownMenu,
@@ -14,18 +13,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { UserAvatar } from '@/components/shared/user-avatar'
-import { ROLE_LABELS } from '@/core/domain/rbac'
 import { logoutAction } from '@/features/auth/actions'
 
 export function UserMenu({
   name,
   username,
-  role,
+  roleName,
   avatarColor,
 }: {
   name: string
   username: string
-  role: RoleKey
+  roleName: string
   avatarColor: string
 }) {
   const [isPending, startTransition] = React.useTransition()
@@ -43,7 +41,7 @@ export function UserMenu({
             <span className="truncate text-sm font-medium">{name}</span>
             <span className="truncate text-xs text-muted-foreground">@{username}</span>
             <span className="mt-1 w-fit rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {ROLE_LABELS[role]}
+              {roleName}
             </span>
           </div>
         </DropdownMenuLabel>

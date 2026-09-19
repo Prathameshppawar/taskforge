@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { requireActor } from '@/features/auth/guards'
+import { requireActor, can } from '@/features/auth/guards'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { ForbiddenError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
@@ -72,7 +72,7 @@ export async function deleteFilterAction(filterId: string): Promise<ActionResult
 
     // Shared filters are still owned by one person; only they (or an admin) may
     // remove them.
-    if (filter.ownerId !== actor.id && actor.role !== 'ADMIN') {
+    if (filter.ownerId !== actor.id && !can(actor, 'project:access-all')) {
       throw new ForbiddenError('You can only delete your own saved filters.')
     }
 

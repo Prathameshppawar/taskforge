@@ -14,6 +14,7 @@ import {
   MUTATING_TOOLS,
 } from '@/features/ai/tools'
 import type { Actor } from '@/features/auth/guards'
+import { ADMIN_LEVEL, PERMISSIONS } from '@/core/domain/rbac'
 import { CASES, type EvalCase, type Group } from './cases'
 
 /**
@@ -52,7 +53,10 @@ const ACTOR: Actor = {
   id: 'eval-actor',
   username: 'prathamesh',
   name: 'Prathamesh Pawar',
-  role: 'ADMIN',
+  roleKey: 'ADMIN',
+  roleName: 'Admin',
+  level: ADMIN_LEVEL,
+  permissions: [...PERMISSIONS],
   avatarColor: 'blue',
   mustChangePassword: false,
 }

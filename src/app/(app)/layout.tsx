@@ -23,16 +23,16 @@ export default async function AppLayout({
   const aiEnabled = isAiEnabled();
 
   return (
-    <AppShellClient role={actor.role} aiEnabled={aiEnabled}>
+    <AppShellClient permissions={actor.permissions} aiEnabled={aiEnabled}>
       <div className="flex h-dvh overflow-hidden">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 border-r lg:block">
-          <AppSidebar role={actor.role} projects={projects} />
+          <AppSidebar permissions={actor.permissions} projects={projects} />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
-            <MobileNav role={actor.role} projects={projects} />
+            <MobileNav permissions={actor.permissions} projects={projects} />
 
             <div className="flex-1" />
 
@@ -42,7 +42,7 @@ export default async function AppLayout({
             <UserMenu
               name={actor.name}
               username={actor.username}
-              role={actor.role}
+              roleName={actor.roleName}
               avatarColor={actor.avatarColor}
             />
           </header>

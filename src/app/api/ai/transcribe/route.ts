@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { getCurrentUser } from '@/features/auth/guards'
-import { roleHas } from '@/core/domain/rbac'
+import { getCurrentUser, can } from '@/features/auth/guards'
 import { env, isAiEnabled } from '@/lib/env'
 
 /**
@@ -27,7 +26,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
   }
   // Dictation is part of the Copilot, so it carries the same permission.
-  if (!roleHas(actor.role, 'ai:use')) {
+  if (!can(actor, 'ai:use')) {
     return NextResponse.json({ error: 'Not permitted.' }, { status: 403 })
   }
 

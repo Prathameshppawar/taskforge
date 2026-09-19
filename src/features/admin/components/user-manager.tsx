@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import type { RoleKey } from '@prisma/client'
 import {
   KeyRound,
   Loader2,
@@ -15,7 +14,6 @@ import {
 import { toast } from 'sonner'
 
 import { cn } from '@/lib/utils'
-import { ROLE_LABELS } from '@/core/domain/rbac'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -70,23 +68,37 @@ export interface ManagedUser {
   mustChangePassword: boolean
   lastLoginAt: Date | null
   createdAt: Date
-  role: RoleKey
+  role: { key: string; name: string; level: number }
   projectCount: number
   assignedCount: number
+}
+
+/** A role the signed-in administrator is permitted to hand out. */
+export interface AssignableRole {
+  key: string
+  name: string
+  description: string | null
+  level: number
 }
 
 export function UserManager({
   users,
   currentUserId,
+  assignableRoles,
 }: {
   users: ManagedUser[]
   currentUserId: string
+  /**
+   * Only roles ranked below the signed-in user. Filtered on the server as well
+   * — this list shapes the form, it does not enforce anything.
+   */
+  assignableRoles: AssignableRole[]
 }) {
   const [creating, setCreating] = React.useState(false)
   const [editing, setEditing] = React.useState<ManagedUser | null>(null)
   const [resetting, setResetting] = React.useState<ManagedUser | null>(null)
 
-  const activeAdmins = users.filter((user) => user.role === 'ADMIN' && user.isActive).length
+  const activeAdmins = users.filter((user) => user.role.key === 'ADMIN' && user.isActive).length
 
   return (
     <div className="space-y-4">
@@ -148,10 +160,8 @@ export function UserManager({
 
                 <TableCell className="py-2">
                   <span className="inline-flex items-center gap-1 text-xs">
-                    {user.role === 'ADMIN' && (
-                      <ShieldCheck className="size-3 text-primary" />
-                    )}
-                    {ROLE_LABELS[user.role]}
+                    {user.role.level === 0 && <ShieldCheck className="size-3 text-primary" />}
+                    {user.role.name}
                   </span>
                 </TableCell>
 
@@ -181,6 +191,7 @@ export function UserManager({
 
       <UserDialog
         user={editing}
+        assignableRoles={assignableRoles}
         open={creating || editing !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -266,10 +277,12 @@ function UserActions({
 
 function UserDialog({
   user,
+  assignableRoles,
   open,
   onOpenChange,
 }: {
   user: ManagedUser | null
+  assignableRoles: AssignableRole[]
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -283,7 +296,7 @@ function UserDialog({
     name: '',
     jobTitle: '',
     password: '',
-    roleKey: 'USER' as RoleKey,
+    roleKey: 'USER',
     mustChangePassword: true,
   })
 
@@ -296,7 +309,7 @@ function UserDialog({
       name: user?.name ?? '',
       jobTitle: user?.jobTitle ?? '',
       password: '',
-      roleKey: user?.role ?? 'USER',
+      roleKey: user?.role.key ?? 'USER',
       mustChangePassword: true,
     })
   }, [open, user])
@@ -393,17 +406,18 @@ function UserDialog({
           <Field label="Role" error={errors.roleKey}>
             <Select
               value={form.roleKey}
-              onValueChange={(value) => setForm({ ...form, roleKey: value as RoleKey })}
+              onValueChange={(value) => setForm({ ...form, roleKey: value })}
             >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Choose a role" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="USER">User — works on assigned tickets</SelectItem>
-                <SelectItem value="PROJECT_MANAGER">
-                  Project Manager — runs projects
-                </SelectItem>
-                <SelectItem value="ADMIN">Admin — full platform control</SelectItem>
+                {assignableRoles.map((role) => (
+                  <SelectItem key={role.key} value={role.key}>
+                    {role.name}
+                    {role.description ? ` — ${role.description}` : ''}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </Field>

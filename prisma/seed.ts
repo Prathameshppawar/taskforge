@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import { PrismaClient, type RoleKey } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 import {
@@ -8,6 +8,7 @@ import {
   DEFAULT_TICKET_TYPES,
 } from '../src/core/domain/defaults'
 import { TEMPLATE_SEEDS, type TemplateTicketSeed } from './seed-templates'
+import { SYSTEM_ROLES } from '../src/core/domain/rbac'
 
 const prisma = new PrismaClient()
 
@@ -19,36 +20,41 @@ const prisma = new PrismaClient()
  * password is never overwritten). Demo data is opt-in via SEED_DEMO=true.
  */
 
-const ROLES: Array<{ key: RoleKey; name: string; description: string }> = [
-  {
-    key: 'ADMIN',
-    name: 'Admin',
-    description:
-      'Full platform control: user management, templates, every project and all configuration.',
-  },
-  {
-    key: 'PROJECT_MANAGER',
-    name: 'Project Manager',
-    description:
-      'Creates and runs projects, manages members, labels and workflow configuration.',
-  },
-  {
-    key: 'USER',
-    name: 'User',
-    description:
-      'Works on tickets in the projects they belong to, and comments on them.',
-  },
-]
-
+/**
+ * The three roles every workspace starts with, defined once in the domain so the
+ * seed, the migration and the runtime cannot disagree about what an Admin is.
+ */
 async function seedRoles() {
-  for (const role of ROLES) {
-    await prisma.role.upsert({
+  for (const role of SYSTEM_ROLES) {
+    const row = await prisma.role.upsert({
       where: { key: role.key },
-      update: { name: role.name, description: role.description },
-      create: { key: role.key, name: role.name, description: role.description, isSystem: true },
+      update: {
+        name: role.name,
+        description: role.description,
+        level: role.level,
+        isSystem: true,
+      },
+      create: {
+        key: role.key,
+        name: role.name,
+        description: role.description,
+        level: role.level,
+        isSystem: true,
+      },
+    })
+
+    // Re-assert the system roles' permissions on every seed. They are not
+    // administrator-editable, so drift here means a bug or a tampered row —
+    // either way the definition in code wins.
+    await prisma.rolePermission.deleteMany({
+      where: { roleId: row.id, permission: { notIn: [...role.permissions] } },
+    })
+    await prisma.rolePermission.createMany({
+      data: role.permissions.map((permission) => ({ roleId: row.id, permission })),
+      skipDuplicates: true,
     })
   }
-  console.log(`  ✓ ${ROLES.length} roles`)
+  console.log(`  ✓ ${SYSTEM_ROLES.length} system roles with their permissions`)
 }
 
 async function seedAdmin(): Promise<string> {

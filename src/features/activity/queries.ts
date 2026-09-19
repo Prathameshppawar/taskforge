@@ -1,4 +1,5 @@
 import { prisma } from '@/infrastructure/db/prisma'
+import { can } from '@/features/auth/guards'
 import { projectVisibilityFilter, type Actor } from '@/features/auth/guards'
 
 const ACTIVITY_SELECT = {
@@ -36,7 +37,7 @@ export async function getProjectActivity(projectId: string, take = 100) {
 export async function getWorkspaceActivity(actor: Actor, take = 100) {
   return prisma.activityLog.findMany({
     where:
-      actor.role === 'ADMIN'
+      can(actor, 'audit:view-all')
         ? {}
         : {
             OR: [

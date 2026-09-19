@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { requireActor } from '@/features/auth/guards'
+import { requireActor, can } from '@/features/auth/guards'
 import { recordActivity } from '@/features/activity/service'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { ForbiddenError, NotFoundError } from '@/core/domain/errors'
@@ -64,7 +64,7 @@ export async function revokeTokenAction(tokenId: string): Promise<ActionResult<v
       select: { id: true, name: true, userId: true },
     })
     if (!token) throw new NotFoundError('Access token', tokenId)
-    if (token.userId !== actor.id && actor.role !== 'ADMIN') {
+    if (token.userId !== actor.id && !can(actor, 'user:update')) {
       throw new ForbiddenError('You can only revoke your own tokens.')
     }
 

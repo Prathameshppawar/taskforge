@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { formatDistanceToNow } from 'date-fns'
 import { MonitorSmartphone } from 'lucide-react'
 
-import { requireAdminPage } from '@/features/auth/guards'
+import { requirePermissionPage } from '@/features/auth/guards'
 import { listSessionsAction } from '@/features/auth/actions'
 import { SessionTable } from '@/features/admin/components/session-table'
 import { PageHeader, EmptyState } from '@/components/shared/page-header'
@@ -10,7 +10,7 @@ import { PageHeader, EmptyState } from '@/components/shared/page-header'
 export const metadata: Metadata = { title: 'Sessions' }
 
 export default async function SessionsPage() {
-  await requireAdminPage()
+  await requirePermissionPage('user:view')
   const sessions = await listSessionsAction()
   const active = sessions.filter((s) => !s.revokedAt)
 

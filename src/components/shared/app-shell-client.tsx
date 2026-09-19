@@ -2,14 +2,13 @@
 
 import * as React from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import type { RoleKey } from '@prisma/client'
+import type { Permission } from '@/core/domain/rbac'
 import { Command, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CommandPalette } from '@/features/command/components/command-palette'
 import { CopilotPanel } from '@/features/ai/components/copilot-panel'
-import { roleHas } from '@/core/domain/rbac'
 import type { CopilotScreen } from '@/features/ai/components/copilot-panel'
 
 interface ShellContextValue {
@@ -33,11 +32,11 @@ export function useAppShell(): ShellContextValue {
  * mounting its own copy.
  */
 export function AppShellClient({
-  role,
+  permissions,
   aiEnabled,
   children,
 }: {
-  role: RoleKey
+  permissions: Permission[]
   aiEnabled: boolean
   children: React.ReactNode
 }) {
@@ -214,7 +213,7 @@ export function AppShellClient({
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
-        canCreateProject={roleHas(role, 'project:create')}
+        canCreateProject={permissions.includes('project:create')}
         onCreateTicket={() => {
           // Ticket creation needs a project context, so send the user to one.
           if (projectId) router.push(`/projects/${projectId}/board?new=1`)

@@ -48,7 +48,7 @@ export function buildSystemPrompt(context: CopilotContext): string {
    */
   return [
     'You are the TaskForge Copilot in a ticket management app.',
-    `Today ${today}. User: ${context.actor.name} (@${context.actor.username}), ${context.actor.role}.`,
+    `Today ${today}. User: ${context.actor.name} (@${context.actor.username}), ${context.actor.roleName}.`,
     context.projectId
       ? `Open project: ${context.projectName} (${context.projectCode}). Assume it when none is named.`
       : 'No project open; the user must name one.',

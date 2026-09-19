@@ -7,7 +7,8 @@ import { signIn, signOut } from '@/auth'
 import { prisma } from '@/infrastructure/db/prisma'
 import { hashPassword, verifyPassword } from '@/infrastructure/auth/password'
 import { recordActivity } from '@/features/activity/service'
-import { requireActor, requireAdmin } from '@/features/auth/guards'
+import { requireActor, requirePermission } from '@/features/auth/guards'
+import { assertCanActOnUser, assertCanGrantRole } from '@/features/roles/service'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
@@ -91,7 +92,7 @@ export async function logoutAction(): Promise<void> {
 
 export async function createUserAction(input: CreateUserInput): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
-    const actor = await requireAdmin()
+    const actor = await requirePermission('user:create')
     const data = createUserSchema.parse(input)
 
     const existing = await prisma.user.findFirst({
@@ -109,8 +110,8 @@ export async function createUserAction(input: CreateUserInput): Promise<ActionRe
       )
     }
 
-    const role = await prisma.role.findUnique({ where: { key: data.roleKey } })
-    if (!role) throw new NotFoundError('Role', data.roleKey)
+    // Nobody may create an account more powerful than their own.
+    const role = await assertCanGrantRole(actor, data.roleKey)
 
     const passwordHash = await hashPassword(data.password)
 
@@ -149,8 +150,10 @@ export async function createUserAction(input: CreateUserInput): Promise<ActionRe
 
 export async function updateUserAction(input: UpdateUserInput): Promise<ActionResult<void>> {
   return runAction(async () => {
-    const actor = await requireAdmin()
+    const actor = await requirePermission('user:update')
     const data = updateUserSchema.parse(input)
+
+    await assertCanActOnUser(actor, data.id)
 
     const before = await prisma.user.findUnique({
       where: { id: data.id },
@@ -176,8 +179,7 @@ export async function updateUserAction(input: UpdateUserInput): Promise<ActionRe
       }
     }
 
-    const role = await prisma.role.findUnique({ where: { key: data.roleKey } })
-    if (!role) throw new NotFoundError('Role', data.roleKey)
+    const role = await assertCanGrantRole(actor, data.roleKey)
 
     await prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -223,12 +225,14 @@ export async function updateUserAction(input: UpdateUserInput): Promise<ActionRe
 
 export async function setUserActiveAction(input: SetUserActiveInput): Promise<ActionResult<void>> {
   return runAction(async () => {
-    const actor = await requireAdmin()
+    const actor = await requirePermission('user:deactivate')
     const data = setUserActiveSchema.parse(input)
 
     if (data.userId === actor.id && !data.isActive) {
       throw new BusinessRuleError('You cannot deactivate your own account.')
     }
+
+    await assertCanActOnUser(actor, data.userId)
 
     const target = await prisma.user.findUnique({
       where: { id: data.userId },
@@ -283,8 +287,12 @@ export async function adminResetPasswordAction(
   input: AdminResetPasswordInput,
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
-    const actor = await requireAdmin()
+    const actor = await requirePermission('user:reset-password')
     const data = adminResetPasswordSchema.parse(input)
+
+    // Resetting someone's password is taking over their account, so it is bound
+    // by the same seniority rule as editing them.
+    await assertCanActOnUser(actor, data.userId)
 
     const target = await prisma.user.findUnique({
       where: { id: data.userId },
@@ -403,7 +411,7 @@ export async function updateProfileAction(
  * table was write-only, so an admin could not answer "who is signed in?".
  */
 export async function listSessionsAction() {
-  await requireAdmin()
+  await requirePermission('user:view')
 
   return prisma.userSession.findMany({
     select: {
@@ -433,7 +441,9 @@ export async function revokeUserSessionsAction(
   userId: string,
 ): Promise<ActionResult<{ revoked: number }>> {
   return runAction(async () => {
-    const actor = await requireAdmin()
+    const actor = await requirePermission('user:deactivate')
+
+    await assertCanActOnUser(actor, userId)
 
     const target = await prisma.user.findUnique({
       where: { id: userId },

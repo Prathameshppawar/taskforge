@@ -46,7 +46,7 @@ export async function GET() {
   })
 
   return NextResponse.json({
-    actor: { username: actor.username, name: actor.name, role: actor.role },
+    actor: { username: actor.username, name: actor.name, role: actor.roleKey },
     projects,
     tools: getToolDefinitions().map((tool) => ({
       name: tool.name,

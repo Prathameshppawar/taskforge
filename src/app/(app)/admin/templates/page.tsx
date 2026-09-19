@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { LayoutTemplate, Plus } from 'lucide-react'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { requireAdminPage } from '@/features/auth/guards'
+import { requirePermissionPage } from '@/features/auth/guards'
 import { PageHeader, EmptyState } from '@/components/shared/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 export const metadata: Metadata = { title: 'Templates' }
 
 export default async function AdminTemplatesPage() {
-  await requireAdminPage()
+  await requirePermissionPage('template:manage')
 
   const templates = await prisma.projectTemplate.findMany({
     orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],

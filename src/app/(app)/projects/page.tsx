@@ -2,12 +2,11 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { FolderKanban, Plus } from 'lucide-react'
 
-import { requireUser } from '@/features/auth/guards'
+import { requireUser, can } from '@/features/auth/guards'
 import { listProjects } from '@/features/projects/queries'
 import { ProjectCard } from '@/features/projects/components/project-card'
 import { PageHeader, EmptyState } from '@/components/shared/page-header'
 import { Button } from '@/components/ui/button'
-import { roleHas } from '@/core/domain/rbac'
 
 export const metadata: Metadata = { title: 'Projects' }
 
@@ -24,7 +23,7 @@ export default async function ProjectsPage({
     includeArchived: archived === '1',
   })
 
-  const canCreate = roleHas(actor.role, 'project:create')
+  const canCreate = can(actor, 'project:create')
   const active = projects.filter((p) => !p.isArchived)
   const archivedProjects = projects.filter((p) => p.isArchived)
 

@@ -32,9 +32,10 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # 56 assertions over the framework-free domain: RBAC, progress rollup,
-      # the two-level hierarchy rule, recurrence arithmetic, the AI tool trust
-      # boundary and its token budget. No database, no network, under a second.
+      # 69 assertions over the framework-free domain: the permission catalogue
+      # and seniority rules, progress rollup, the two-level hierarchy rule,
+      # recurrence arithmetic, the AI tool trust boundary and its token budget.
+      # No database, no network, under a second.
       - name: Domain suite
         run: npm run verify
 
@@ -108,8 +109,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      # 11 tests: page-level scroll containment across five viewports from phone
-      # to desktop, the forced password-change gate, and the notification chime.
+      # 15 tests: page-level scroll containment across five viewports from phone
+      # to desktop, the forced password-change gate, the notification chime, and
+      # the privilege-escalation guards on roles and delegated administration.
       - name: Browser suite
         run: npm run e2e
 

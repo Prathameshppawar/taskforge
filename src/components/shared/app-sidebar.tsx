@@ -13,11 +13,13 @@ import {
   LayoutTemplate,
   ListTodo,
   MonitorSmartphone,
+  ShieldCheck,
+  UsersRound,
   Plus,
   Settings,
   Users,
 } from 'lucide-react'
-import type { RoleKey } from '@prisma/client'
+import type { Permission } from '@/core/domain/rbac'
 
 import { cn } from '@/lib/utils'
 import { ProjectLogo } from '@/components/shared/project-logo'
@@ -42,8 +44,12 @@ interface NavItem {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string }>
-  /** Roles allowed to see the entry. Omitted = everyone. */
-  roles?: RoleKey[]
+  /**
+   * Any one of these permissions reveals the entry. Omitted = everyone.
+   * Gating on capability rather than role name is what lets a custom role see
+   * the right navigation without the sidebar knowing that role exists.
+   */
+  anyOf?: Permission[]
 }
 
 const MAIN_NAV: NavItem[] = [
@@ -55,17 +61,29 @@ const MAIN_NAV: NavItem[] = [
 ]
 
 const ADMIN_NAV: NavItem[] = [
-  { href: '/admin/users', label: 'Users', icon: Users, roles: ['ADMIN'] },
-  { href: '/admin/templates', label: 'Templates', icon: LayoutTemplate, roles: ['ADMIN'] },
-  { href: '/admin/sessions', label: 'Sessions', icon: MonitorSmartphone, roles: ['ADMIN'] },
+  { href: '/admin/users', label: 'People', icon: Users, anyOf: ['user:view'] },
+  { href: '/admin/roles', label: 'Roles', icon: ShieldCheck, anyOf: ['role:manage'] },
+  {
+    href: '/admin/teams',
+    label: 'Teams',
+    icon: UsersRound,
+    anyOf: ['team:manage', 'team:manage-members'],
+  },
+  {
+    href: '/admin/templates',
+    label: 'Templates',
+    icon: LayoutTemplate,
+    anyOf: ['template:manage'],
+  },
+  { href: '/admin/sessions', label: 'Sessions', icon: MonitorSmartphone, anyOf: ['user:view'] },
 ]
 
 export function AppSidebar({
-  role,
+  permissions,
   projects,
   onNavigate,
 }: {
-  role: RoleKey
+  permissions: Permission[]
   projects: SidebarProject[]
   onNavigate?: () => void
 }) {
@@ -75,7 +93,11 @@ export function AppSidebar({
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`)
 
-  const canSeeAdmin = role === 'ADMIN'
+  const allows = (item: NavItem) =>
+    !item.anyOf || item.anyOf.some((permission) => permissions.includes(permission))
+
+  const adminNav = ADMIN_NAV.filter(allows)
+  const canSeeAdmin = adminNav.length > 0
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -174,7 +196,7 @@ export function AppSidebar({
                 Administration
               </p>
               <ul className="space-y-0.5">
-                {ADMIN_NAV.map((item) => (
+                {adminNav.map((item) => (
                   <li key={item.href}>
                     <NavLink item={item} active={isActive(item.href)} onNavigate={onNavigate} />
                   </li>

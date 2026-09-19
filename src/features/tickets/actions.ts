@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import { recordActivity } from '@/features/activity/service'
-import { requireActor, requireProjectPermission } from '@/features/auth/guards'
+import { requireActor, requireProjectPermission, can } from '@/features/auth/guards'
 import { allocateTicketNumber, loadProjectConfig } from '@/features/projects/service'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/errors'
@@ -439,7 +439,7 @@ export async function updateTicketAction(
     // A plain USER may only edit tickets they report or are assigned to, unless
     // their role grants the broader 'ticket:update-any'.
     if (
-      actor.role === 'USER' &&
+      !can(actor, 'ticket:update-any') &&
       before.assigneeId !== actor.id &&
       !access.isOwner &&
       access.memberRole !== 'MANAGER'

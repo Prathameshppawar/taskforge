@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import type { Actor } from '@/features/auth/guards'
+import { isPermission, type Permission } from '@/core/domain/rbac'
 
 /**
  * Personal access tokens.
@@ -67,7 +68,14 @@ export async function authenticateToken(raw: string | null): Promise<TokenActor 
           avatarColor: true,
           isActive: true,
           mustChangePassword: true,
-          role: { select: { key: true } },
+          role: {
+            select: {
+              key: true,
+              name: true,
+              level: true,
+              permissions: { select: { permission: true } },
+            },
+          },
         },
       },
     },
@@ -96,7 +104,14 @@ export async function authenticateToken(raw: string | null): Promise<TokenActor 
     id: record.user.id,
     username: record.user.username,
     name: record.user.name,
-    role: record.user.role.key,
+    roleKey: record.user.role.key,
+    roleName: record.user.role.name,
+    level: record.user.role.level,
+    // Filtered against the compile-time catalogue, exactly as the session path
+    // does — a token must never reach a capability a cookie could not.
+    permissions: record.user.role.permissions
+      .map((row) => row.permission)
+      .filter((value): value is Permission => isPermission(value)),
     avatarColor: record.user.avatarColor,
     mustChangePassword: record.user.mustChangePassword,
     tokenId: record.id,

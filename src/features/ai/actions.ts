@@ -7,6 +7,7 @@ import {
   requireActor,
   requirePermission,
   ticketVisibilityFilter,
+  can,
 } from '@/features/auth/guards'
 import { isAiEnabled } from '@/lib/env'
 import { AiProviderError } from '@/infrastructure/ai'
@@ -51,7 +52,7 @@ export async function copilotAction(
       const project = await prisma.project.findFirst({
         where: {
           id: input.projectId,
-          ...(actor.role === 'ADMIN' || actor.role === 'PROJECT_MANAGER'
+          ...(can(actor, 'project:view-all')
             ? {}
             : {
                 OR: [

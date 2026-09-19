@@ -3,7 +3,6 @@ import Link from 'next/link'
 import { ArrowLeft, ShieldAlert } from 'lucide-react'
 
 import { requireUser } from '@/features/auth/guards'
-import { ROLE_LABELS } from '@/core/domain/rbac'
 import { Button } from '@/components/ui/button'
 
 export const metadata: Metadata = { title: 'No access' }
@@ -34,7 +33,7 @@ export default async function ForbiddenPage({
           {REASONS[reason ?? ''] ?? 'You do not have permission to view this page.'}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          You are signed in as {actor.name} ({ROLE_LABELS[actor.role]}). If this looks wrong,
+          You are signed in as {actor.name} ({actor.roleName}). If this looks wrong,
           ask an administrator to adjust your access.
         </p>
 

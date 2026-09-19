@@ -2,17 +2,17 @@
 
 import * as React from 'react'
 import { Menu } from 'lucide-react'
-import type { RoleKey } from '@prisma/client'
+import type { Permission } from '@/core/domain/rbac'
 
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { AppSidebar, type SidebarProject } from './app-sidebar'
 
 export function MobileNav({
-  role,
+  permissions,
   projects,
 }: {
-  role: RoleKey
+  permissions: Permission[]
   projects: SidebarProject[]
 }) {
   const [open, setOpen] = React.useState(false)
@@ -26,7 +26,7 @@ export function MobileNav({
       </SheetTrigger>
       <SheetContent side="left" className="w-64 p-0">
         <SheetTitle className="sr-only">Navigation</SheetTitle>
-        <AppSidebar role={role} projects={projects} onNavigate={() => setOpen(false)} />
+        <AppSidebar permissions={permissions} projects={projects} onNavigate={() => setOpen(false)} />
       </SheetContent>
     </Sheet>
   )

@@ -28,7 +28,9 @@ export const createUserSchema = z.object({
   name: z.string().trim().min(2, 'Enter a full name.').max(80),
   jobTitle: z.string().trim().max(80).optional().or(z.literal('')),
   password,
-  roleKey: z.enum(['ADMIN', 'PROJECT_MANAGER', 'USER']),
+  // Roles are administrator-defined, so the set cannot be known at compile
+  // time. Existence and the seniority ceiling are checked in the action.
+  roleKey: z.string().trim().min(1, 'Choose a role'),
   mustChangePassword: z.boolean().default(true),
 })
 export type CreateUserInput = z.infer<typeof createUserSchema>
@@ -38,7 +40,9 @@ export const updateUserSchema = z.object({
   email: z.string().trim().toLowerCase().email('Enter a valid email address.'),
   name: z.string().trim().min(2, 'Enter a full name.').max(80),
   jobTitle: z.string().trim().max(80).optional().or(z.literal('')),
-  roleKey: z.enum(['ADMIN', 'PROJECT_MANAGER', 'USER']),
+  // Roles are administrator-defined, so the set cannot be known at compile
+  // time. Existence and the seniority ceiling are checked in the action.
+  roleKey: z.string().trim().min(1, 'Choose a role'),
 })
 export type UpdateUserInput = z.infer<typeof updateUserSchema>
 

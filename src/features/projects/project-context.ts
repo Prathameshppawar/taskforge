@@ -4,6 +4,7 @@ import {
   projectVisibilityFilter,
   requireActor,
   requireProjectView,
+  can,
 } from '@/features/auth/guards'
 import type { TicketFormConfig } from '@/features/tickets/components/create-ticket-dialog'
 
@@ -156,7 +157,7 @@ export async function getWorkspaceViewContext() {
       // which the user picks from within a project or the command palette.
       createTicket: false,
       updateTicket: true,
-      deleteTicket: actor.role !== 'USER',
+      deleteTicket: can(actor, 'ticket:delete'),
     },
   }
 }

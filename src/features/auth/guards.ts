@@ -1,12 +1,12 @@
 import { cache } from 'react'
 import { notFound, redirect } from 'next/navigation'
-import type { RoleKey } from '@prisma/client'
 
 import { auth } from '@/auth'
 import { prisma } from '@/infrastructure/db/prisma'
 import {
   canInProject,
-  roleHas,
+  hasPermission,
+  isPermission,
   type Permission,
   type ProjectAccessContext,
 } from '@/core/domain/rbac'
@@ -16,10 +16,61 @@ export interface Actor {
   id: string
   username: string
   name: string
-  role: RoleKey
+  /** Stable role identifier. Free-form — administrators define their own roles. */
+  roleKey: string
+  /** Display name of the role, for the UI. */
+  roleName: string
+  /**
+   * Authority ranking, lower being more senior. Carried on the actor so a
+   * seniority check never needs another query.
+   */
+  level: number
+  /** Resolved capabilities. The single thing every authorization check reads. */
+  permissions: Permission[]
   avatarColor: string
   mustChangePassword: boolean
 }
+
+/**
+ * Resolves a role key to its rank and permission set.
+ *
+ * Read per request rather than carried in the session token, so that editing a
+ * role takes effect on the user's very next request. Baking permissions into
+ * the JWT would leave them stale until it refreshed, which for a *revoked*
+ * permission means a window where it still works.
+ *
+ * `cache` keeps it to one query per request even though many guards ask.
+ */
+const resolveRole = cache(
+  async (
+    roleKey: string,
+  ): Promise<{ name: string; level: number; permissions: Permission[] }> => {
+    const role = await prisma.role.findUnique({
+      where: { key: roleKey },
+      select: {
+        name: true,
+        level: true,
+        permissions: { select: { permission: true } },
+      },
+    })
+
+    // Fail closed. A missing role means no capabilities and the lowest possible
+    // rank, never a default that happens to permit something.
+    if (!role) {
+      return { name: 'Unknown role', level: Number.MAX_SAFE_INTEGER, permissions: [] }
+    }
+
+    return {
+      name: role.name,
+      level: role.level,
+      // Rows are filtered against the compile-time catalogue: a permission left
+      // behind by a rename no longer means anything and must not be honoured.
+      permissions: role.permissions
+        .map((row) => row.permission)
+        .filter((value): value is Permission => isPermission(value)),
+    }
+  },
+)
 
 /**
  * Current actor, or null when unauthenticated.
@@ -38,11 +89,15 @@ export const getCurrentUser = cache(async (): Promise<Actor | null> => {
   const session = await auth()
 
   if (session?.user?.id) {
+    const role = await resolveRole(session.user.role)
     return {
       id: session.user.id,
       username: session.user.username,
       name: session.user.name ?? session.user.username,
-      role: session.user.role,
+      roleKey: session.user.role,
+      roleName: role.name,
+      level: role.level,
+      permissions: role.permissions,
       avatarColor: session.user.avatarColor,
       mustChangePassword: session.user.mustChangePassword,
     }
@@ -81,18 +136,15 @@ export async function requireActor(): Promise<Actor> {
 /** Asserts a global (non project-scoped) permission. */
 export async function requirePermission(permission: Permission): Promise<Actor> {
   const actor = await requireActor()
-  if (!roleHas(actor.role, permission)) {
+  if (!hasPermission(actor.permissions, permission)) {
     throw new ForbiddenError(`Your role does not allow this action (${permission}).`)
   }
   return actor
 }
 
-export async function requireAdmin(): Promise<Actor> {
-  const actor = await requireActor()
-  if (actor.role !== 'ADMIN') {
-    throw new ForbiddenError('This area is restricted to administrators.')
-  }
-  return actor
+/** Convenience predicate for branching in a page or component. */
+export function can(actor: Actor, permission: Permission): boolean {
+  return hasPermission(actor.permissions, permission)
 }
 
 /**
@@ -116,7 +168,7 @@ export const getProjectAccess = cache(
     if (!project) throw new NotFoundError('Project', projectId)
 
     return {
-      role: actor.role,
+      permissions: actor.permissions,
       memberRole: project.members[0]?.role ?? null,
       isOwner: project.ownerId === actor.id,
     }
@@ -144,16 +196,17 @@ export async function requireProjectPermission(
 }
 
 /**
- * Read access to a project. Admins and Project Managers may browse every
- * project; regular users see projects they belong to or own, unless the project
- * is marked private — in which case membership is required of everyone but an
- * admin.
+ * Read access to a project.
+ *
+ * `project:access-all` sees everything, private projects included. Otherwise a
+ * private project requires membership of anyone, and a non-member needs
+ * `project:view-all` to browse a project they do not belong to.
  */
 export async function requireProjectView(projectId: string): Promise<ProjectGuardResult> {
   const actor = await requireActor()
   const access = await getProjectAccess(projectId, actor)
 
-  if (actor.role === 'ADMIN') return { actor, access }
+  if (hasPermission(actor.permissions, 'project:access-all')) return { actor, access }
 
   const settings = await prisma.projectSettings.findUnique({
     where: { projectId },
@@ -166,7 +219,7 @@ export async function requireProjectView(projectId: string): Promise<ProjectGuar
     throw new ForbiddenError('This project is private.')
   }
 
-  if (!isMember && actor.role === 'USER') {
+  if (!isMember && !hasPermission(actor.permissions, 'project:view-all')) {
     throw new ForbiddenError('You are not a member of this project.')
   }
 
@@ -175,11 +228,11 @@ export async function requireProjectView(projectId: string): Promise<ProjectGuar
 
 /**
  * Prisma `where` fragment restricting a ticket/project query to what the actor
- * may see. Admins and PMs are unrestricted; users are limited to projects they
- * belong to or own.
+ * may see. `project:view-all` lifts the restriction; everyone else is limited
+ * to projects they belong to or own.
  */
 export function projectVisibilityFilter(actor: Actor) {
-  if (actor.role === 'ADMIN' || actor.role === 'PROJECT_MANAGER') return {}
+  if (hasPermission(actor.permissions, 'project:view-all')) return {}
 
   return {
     OR: [
@@ -190,7 +243,7 @@ export function projectVisibilityFilter(actor: Actor) {
 }
 
 export function ticketVisibilityFilter(actor: Actor) {
-  if (actor.role === 'ADMIN' || actor.role === 'PROJECT_MANAGER') return {}
+  if (hasPermission(actor.permissions, 'project:view-all')) return {}
 
   return {
     project: {
@@ -213,19 +266,11 @@ export function ticketVisibilityFilter(actor: Actor) {
 // control-flow signal that would escape as an unhandled error.
 // -----------------------------------------------------------------------------
 
-/** Admin-only page guard. */
-export async function requireAdminPage(): Promise<Actor> {
-  const user = await getCurrentUser()
-  if (!user) redirect('/login')
-  if (user.role !== 'ADMIN') redirect('/forbidden?reason=admin')
-  return user
-}
-
 /** Permission-gated page guard. */
 export async function requirePermissionPage(permission: Permission): Promise<Actor> {
   const user = await getCurrentUser()
   if (!user) redirect('/login')
-  if (!roleHas(user.role, permission)) redirect('/forbidden?reason=permission')
+  if (!hasPermission(user.permissions, permission)) redirect('/forbidden?reason=permission')
   return user
 }
 

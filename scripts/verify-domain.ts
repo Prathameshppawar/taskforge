@@ -13,7 +13,16 @@ import { getToolDefinitions, TOOL_SCHEMAS, isToolName } from '@/features/ai/tool
 import { clamp } from '@/features/ai/executor'
 import { rollupProgress, assertValidParent, parseTicketKey, buildTicketKey } from '@/core/domain/ticket-rules'
 import { previewSchedule, nextOccurrence, firstOccurrence } from '@/core/domain/recurrence'
-import { canInProject, roleHas } from '@/core/domain/rbac'
+import {
+  canInProject,
+  hasPermission,
+  isPermission,
+  outranks,
+  PERMISSIONS,
+  PERMISSION_GROUPS,
+  SYSTEM_ROLES,
+  type Permission,
+} from '@/core/domain/rbac'
 
 let passed = 0
 let failed = 0
@@ -175,27 +184,73 @@ const expired = nextOccurrence({
 }, new Date('2026-01-02T00:00:00Z'))
 check('returns null once past the end date', expired === null)
 
-console.log('\n── RBAC ──')
-check('admin has every permission', roleHas('ADMIN', 'user:create') && roleHas('ADMIN', 'project:delete'))
-check('plain user cannot create users', !roleHas('USER', 'user:create'))
-check('plain user cannot delete projects', !roleHas('USER', 'project:delete'))
-check('PM can manage members', roleHas('PROJECT_MANAGER', 'project:manage-members'))
-check('PM cannot manage platform users', !roleHas('PROJECT_MANAGER', 'user:create'))
+console.log('\n── RBAC: the permission catalogue ──')
+const admin = SYSTEM_ROLES.find((r) => r.key === 'ADMIN')!
+const pm = SYSTEM_ROLES.find((r) => r.key === 'PROJECT_MANAGER')!
+const user = SYSTEM_ROLES.find((r) => r.key === 'USER')!
 
-check('admin bypasses project scope',
-  canInProject({ role: 'ADMIN', memberRole: null, isOwner: false }, 'project:manage-config'))
-check('non-member user gets nothing',
-  !canInProject({ role: 'USER', memberRole: null, isOwner: false }, 'ticket:create'))
+check('admin holds every permission', admin.permissions.length === PERMISSIONS.length)
+check('plain user cannot create users', !hasPermission(user.permissions, 'user:create'))
+check('plain user cannot delete projects', !hasPermission(user.permissions, 'project:delete'))
+check('PM can manage project members', hasPermission(pm.permissions, 'project:manage-members'))
+check('PM cannot manage platform users', !hasPermission(pm.permissions, 'user:create'))
+check('PM cannot manage roles', !hasPermission(pm.permissions, 'role:manage'))
+
+// A permission the editor never shows cannot be granted deliberately, which
+// makes it a capability nobody can audit.
+const grouped = new Set(PERMISSION_GROUPS.flatMap((g) => g.permissions.map((p) => p.key)))
+const ungrouped = PERMISSIONS.filter((p) => !grouped.has(p))
+check(
+  'every permission appears in the role editor',
+  ungrouped.length === 0,
+  ungrouped.join(', '),
+)
+check('the editor invents no permissions', [...grouped].every((p) => isPermission(p)))
+check('no permission is listed in two groups', grouped.size === PERMISSIONS.length)
+
+console.log('\n── RBAC: seniority ──')
+check('a senior rank outranks a junior one', outranks(admin.level, user.level))
+check('a junior rank does not outrank a senior one', !outranks(user.level, admin.level))
+// The one that matters: equal ranks must not be able to act on each other, or
+// two admins can demote one another and a workspace can end up with none.
+check('a peer does not outrank a peer', !outranks(admin.level, admin.level))
+check('system levels are ordered admin < PM < user', admin.level < pm.level && pm.level < user.level)
+check('levels leave room for custom roles between them', pm.level - admin.level > 1)
+
+console.log('\n── RBAC: project scope ──')
+const ALL: Permission[] = [...PERMISSIONS]
+
+check('project:access-all waives membership',
+  canInProject({ permissions: ALL, memberRole: null, isOwner: false }, 'project:manage-config'))
+check('non-member gets nothing',
+  !canInProject({ permissions: [...user.permissions], memberRole: null, isOwner: false }, 'ticket:create'))
 check('VIEWER cannot create tickets',
-  !canInProject({ role: 'USER', memberRole: 'VIEWER', isOwner: false }, 'ticket:create'))
+  !canInProject({ permissions: [...user.permissions], memberRole: 'VIEWER', isOwner: false }, 'ticket:create'))
 check('MEMBER can create tickets',
-  canInProject({ role: 'USER', memberRole: 'MEMBER', isOwner: false }, 'ticket:create'))
+  canInProject({ permissions: [...user.permissions], memberRole: 'MEMBER', isOwner: false }, 'ticket:create'))
 check('MEMBER cannot manage project config',
-  !canInProject({ role: 'PROJECT_MANAGER', memberRole: 'MEMBER', isOwner: false }, 'project:manage-config'))
+  !canInProject({ permissions: [...pm.permissions], memberRole: 'MEMBER', isOwner: false }, 'project:manage-config'))
 check('project MANAGER can manage config',
-  canInProject({ role: 'PROJECT_MANAGER', memberRole: 'MANAGER', isOwner: false }, 'project:manage-config'))
-check('owner can manage config even without membership row',
-  canInProject({ role: 'PROJECT_MANAGER', memberRole: null, isOwner: true }, 'project:manage-config'))
+  canInProject({ permissions: [...pm.permissions], memberRole: 'MANAGER', isOwner: false }, 'project:manage-config'))
+check('owner can manage config without a membership row',
+  canInProject({ permissions: [...pm.permissions], memberRole: null, isOwner: true }, 'project:manage-config'))
+
+// view-all is visibility; access-all is capability. Conflating them would let
+// every Project Manager reconfigure a project they are not part of.
+check('seeing every project does not grant acting in every project',
+  !canInProject(
+    { permissions: [...pm.permissions], memberRole: null, isOwner: false },
+    'project:manage-config',
+  ))
+check('PM can see every project', hasPermission(pm.permissions, 'project:view-all'))
+check('PM cannot act in every project', !hasPermission(pm.permissions, 'project:access-all'))
+
+// access-all waives scope; it must never add a capability the role lacks.
+check('access-all does not invent capabilities',
+  !canInProject(
+    { permissions: ['project:access-all', 'project:view'], memberRole: null, isOwner: false },
+    'project:delete',
+  ))
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

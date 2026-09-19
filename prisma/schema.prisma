@@ -27,14 +27,6 @@ datasource db {
 // ENUMS
 // =============================================================================
 
-/// Global platform roles. Permissions for each are defined as a typed matrix in
-/// src/core/domain/rbac — the DB stores the assignment, the domain owns policy.
-enum RoleKey {
-  ADMIN
-  PROJECT_MANAGER
-  USER
-}
-
 enum ProjectStatus {
   PLANNING
   ACTIVE
@@ -94,6 +86,8 @@ enum ActivityEntity {
   TICKET_TYPE
   TEMPLATE
   RECURRING_TICKET
+  ROLE
+  TEAM
 }
 
 enum ActivityAction {
@@ -171,20 +165,81 @@ enum ViewType {
 // IDENTITY & ACCESS
 // =============================================================================
 
+/// A role an administrator can define. The three seeded roles are marked
+/// `isSystem` and cannot be deleted or re-keyed, so an edit can never leave the
+/// workspace with nobody able to administer it.
 model Role {
   id          String  @id @default(cuid())
-  key         RoleKey @unique
+  /// Stable identifier. Free-form so administrators can add their own.
+  key         String  @unique
   name        String
   description String?
   /// System roles cannot be deleted or re-keyed.
-  isSystem    Boolean @default(true)
+  isSystem    Boolean @default(false)
 
-  users User[]
+  /// Authority ranking, lower being more senior: Admin is 0. A user may only
+  /// grant, edit or delete roles ranked strictly below their own, which is what
+  /// stops a manager promoting themselves or a peer. Seeded with gaps so custom
+  /// roles can be slotted between the built-in ones without renumbering.
+  level Int @default(100)
+
+  permissions RolePermission[]
+  users       User[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([level])
   @@map("roles")
+}
+
+/// One granted permission. The permission *catalogue* stays in TypeScript
+/// (`core/domain/rbac.ts`) so code cannot reference a capability nothing
+/// enforces; only the mapping from role to permission is data.
+model RolePermission {
+  roleId     String
+  role       Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission String
+
+  @@id([roleId, permission])
+  @@index([permission])
+  @@map("role_permissions")
+}
+
+/// A group of people with one or more managers. Delegated administration is
+/// scoped through teams: a team manager may act on their own team's members and
+/// nobody else's.
+model Team {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+
+  members TeamMember[]
+
+  createdById String?
+  createdBy   User?   @relation("TeamCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("teams")
+}
+
+model TeamMember {
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Managers may administer the other members of this team, bounded by the
+  /// role level ceiling.
+  isManager Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
 }
 
 model User {
@@ -215,9 +270,12 @@ model User {
   /// Set once the threshold is crossed; sign-in is refused until it passes.
   lockedUntil         DateTime?
 
-  createdById String?
-  createdBy   User?   @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdUsers User[] @relation("UserCreatedBy")
+  createdById  String?
+  createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers User[]  @relation("UserCreatedBy")
+
+  teamMemberships TeamMember[]
+  createdTeams    Team[]       @relation("TeamCreatedBy")
 
   // --- reverse relations -----------------------------------------------------
   ownedProjects       Project[]         @relation("ProjectOwner")
@@ -235,8 +293,8 @@ model User {
   savedFilters        SavedFilter[]
   sessions            UserSession[]
   accessTokens        AccessToken[]
-  notifications       Notification[] @relation("NotificationRecipient")
-  notificationsCaused Notification[] @relation("NotificationActor")
+  notifications       Notification[]    @relation("NotificationRecipient")
+  notificationsCaused Notification[]    @relation("NotificationActor")
   createdTemplates    ProjectTemplate[]
   recurringTickets    RecurringTicket[] @relation("RecurringCreatedBy")
   recurringAssignee   RecurringTicket[] @relation("RecurringAssignee")
@@ -263,11 +321,11 @@ model AccessToken {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// Human label, e.g. "Claude Desktop".
-  name       String
+  name      String
   /// SHA-256 of the token. Never the token itself.
-  tokenHash  String  @unique
+  tokenHash String @unique
   /// First 8 characters, shown in the UI so a token can be identified.
-  prefix     String
+  prefix    String
 
   lastUsedAt DateTime?
   expiresAt  DateTime?
@@ -294,8 +352,8 @@ model Notification {
   actorId String?
   actor   User?   @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
 
-  ticketId String?
-  ticket   Ticket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  String?
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   /// Anchors a mention or reply to the exact comment.
   commentId String?
   comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
@@ -317,14 +375,14 @@ model Notification {
 /// Credentials provider); these rows give the admin visibility and an explicit
 /// revoke action, enforced through User.sessionVersion.
 model UserSession {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ipAddress String?
-  userAgent String?
-  createdAt DateTime @default(now())
-  lastSeenAt DateTime @default(now())
-  revokedAt DateTime?
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
 
   @@index([userId, createdAt])
   @@map("user_sessions")
@@ -435,8 +493,8 @@ model TemplateTicket {
   templateId String
   template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
-  title       String
-  description String?
+  title        String
+  description  String?
   /// Resolved by NAME against the cloned project config at creation time.
   typeName     String?
   priorityName String?
@@ -695,8 +753,8 @@ model Ticket {
   parent   Ticket?  @relation("TicketTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Ticket[] @relation("TicketTree")
 
-  startDate DateTime?
-  dueDate   DateTime?
+  startDate   DateTime?
+  dueDate     DateTime?
   completedAt DateTime?
 
   estimateHours Decimal? @db.Decimal(6, 2)
@@ -800,8 +858,8 @@ model Comment {
   parent   Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
   replies  Comment[] @relation("CommentThread")
 
-  isEdited Boolean   @default(false)
-  editedAt DateTime?
+  isEdited  Boolean   @default(false)
+  editedAt  DateTime?
   /// Soft delete keeps the thread structure intact.
   deletedAt DateTime?
 
@@ -839,10 +897,10 @@ model CommentMention {
 model ActivityLog {
   id String @id @default(cuid())
 
-  action     ActivityAction
-  entityType ActivityEntity
+  action      ActivityAction
+  entityType  ActivityEntity
   /// Id of the changed entity. Not an FK — the row must survive its deletion.
-  entityId   String
+  entityId    String
   /// Human label captured at write time so the log reads correctly even after
   /// the referenced record is renamed or removed.
   entityLabel String?
@@ -899,9 +957,9 @@ model RecurringTicket {
   assigneeId String?
   assignee   User?   @relation("RecurringAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 
-  frequency RecurrenceFrequency
+  frequency  RecurrenceFrequency
   /// Repeat every N periods of `frequency` (e.g. frequency=WEEKLY, interval=2).
-  interval  Int                 @default(1)
+  interval   Int                 @default(1)
   /// 0 = Sunday .. 6 = Saturday. Used by WEEKLY / BIWEEKLY.
   dayOfWeek  Int?
   /// 1..31, clamped to the month's length. Used by MONTHLY / QUARTERLY / YEARLY.
@@ -949,8 +1007,8 @@ model RecurringTicketLabel {
 // =============================================================================
 
 model SavedFilter {
-  id      String @id @default(cuid())
-  name    String
+  id   String @id @default(cuid())
+  name String
 
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -964,8 +1022,8 @@ model SavedFilter {
   isPinned Boolean  @default(false)
   viewType ViewType @default(TABLE)
 
-  sortBy  String  @default("updatedAt")
-  sortDir String  @default("desc")
+  sortBy  String @default("updatedAt")
+  sortDir String @default("desc")
 
   criteria SavedFilterCriterion[]
 
