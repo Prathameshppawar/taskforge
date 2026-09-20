@@ -108,11 +108,27 @@ server-side requires no change here.
 | Tool | Effect |
 |---|---|
 | `search_tickets` | Read — filters, or free text |
+| `get_ticket` | Read — one ticket in full, including its children and recent comments |
 | `project_insights` | Read — description, dates, team, labels, health |
-| `find_duplicates` | Read — title overlap, deterministic |
+| `find_duplicates` | Read — semantic similarity plus word overlap |
 | `create_ticket` | **Write** |
 | `bulk_create_tickets` | **Write** — parent + children in one transaction |
 | `update_ticket` | **Write** — status, assignee, priority, due date, labels |
+| `comment_on_ticket` | **Write** — `@username` notifies that person |
+
+`get_ticket` and `search_tickets` answer different questions. Search returns
+rows to scan; `get_ticket` returns everything needed to *act* on one piece of
+work — description, remarks, labels, dates, parent, children and the last ten
+comments.
+
+`comment_on_ticket` routes through the same Server Action the comment box uses,
+so mentions are resolved, the people mentioned are notified and the activity
+entry is written in the same transaction. An agent commenting is recorded as
+the person whose token it holds:
+
+```
+audited as: @admin — commented on LOAD5-967
+```
 
 ### In practice
 
@@ -122,6 +138,8 @@ server-side requires no change here.
 "Create a ticket: login returns 500 after password reset, high priority"
 "Break the authentication module into Login API, Login UI, Password Reset"
 "Move ATLAS-14 to Testing and assign it to Arjun"
+"Read ATLAS-14 and tell me what is left to do"
+"Comment on ATLAS-14 that the fix is deployed, and mention @arjun.mehta"
 ```
 
 ---

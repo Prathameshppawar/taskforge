@@ -44,7 +44,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # 75 assertions over the framework-free domain: the permission catalogue,
+      # 88 assertions over the framework-free domain: the permission catalogue,
       # seniority and project-access rules, progress rollup, the two-level
       # hierarchy rule, recurrence arithmetic, the AI tool trust boundary and its
       # token budget. No database, no network, under a second.

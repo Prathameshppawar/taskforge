@@ -4,6 +4,7 @@ import {
   createTicketAction,
   bulkCreateTicketsAction,
   updateTicketAction,
+  createCommentAction,
 } from '@/features/tickets/actions'
 import { listTickets, findSimilarTickets } from '@/features/tickets/queries'
 import {
@@ -14,7 +15,7 @@ import {
 } from '@/features/dashboard/queries'
 import { EMPTY_FILTERS } from '@/features/filters/types'
 import { MUTATING_TOOLS, TOOL_SCHEMAS, type ToolName } from './tools'
-import { requireProjectPermission } from '@/features/auth/guards'
+import { requireProjectPermission, requireProjectView } from '@/features/auth/guards'
 import {
   daysFromNow,
   resolveLabels,
@@ -107,6 +108,10 @@ export async function executeTool(
   }
 
   switch (name) {
+    case 'get_ticket':
+      return getTicket(parsed.data as never, context)
+    case 'comment_on_ticket':
+      return commentOnTicket(parsed.data as never, context)
     case 'find_duplicates':
       return findDuplicates(parsed.data as never, context)
     case 'search_tickets':
@@ -167,6 +172,11 @@ async function assertCanWrite(
       const ticket = await resolveTicketByKey(ctx.actor, String(args.ticketKey))
       await requireProjectPermission(ticket.projectId, 'ticket:update')
       // The ticket key already carries the project prefix, so the card has it.
+      return { allowed: true }
+    }
+    if (name === 'comment_on_ticket') {
+      const ticket = await resolveTicketByKey(ctx.actor, String(args.ticketKey))
+      await requireProjectPermission(ticket.projectId, 'comment:create')
       return { allowed: true }
     }
     const project = await resolveProject(
@@ -619,5 +629,130 @@ async function findDuplicates(
       .map((m) => `${m.key} — ${m.title} [${m.statusName}] (${Math.round(m.score * 100)}% similar)`)
       .join('\n')}\nMention these to the user before creating a duplicate.`,
     data: { kind: 'duplicates', matches },
+  }
+}
+
+// -----------------------------------------------------------------------------
+
+type GetTicketArgs = ReturnType<(typeof TOOL_SCHEMAS)['get_ticket']['parse']>
+
+/**
+ * Reads one ticket in full.
+ *
+ * `search_tickets` returns rows for scanning; this returns everything an agent
+ * needs to reason about a single piece of work — which is the difference
+ * between "there is a ticket called X" and being able to act on it.
+ */
+async function getTicket(args: GetTicketArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  const ticket = await resolveTicketByKey(ctx.actor, args.ticketKey)
+
+  // The key resolves before this, but visibility is still the guard that
+  // decides whether this actor may read it.
+  await requireProjectView(ticket.projectId)
+
+  const full = await prisma.ticket.findUnique({
+    where: { id: ticket.id },
+    select: {
+      key: true,
+      title: true,
+      description: true,
+      remarks: true,
+      startDate: true,
+      dueDate: true,
+      completedAt: true,
+      estimateHours: true,
+      storyPoints: true,
+      status: { select: { name: true, category: true } },
+      priority: { select: { name: true } },
+      type: { select: { name: true } },
+      assignee: { select: { name: true, username: true } },
+      reporter: { select: { name: true, username: true } },
+      project: { select: { code: true, name: true } },
+      parent: { select: { key: true, title: true } },
+      children: {
+        select: { key: true, title: true, status: { select: { name: true } } },
+        orderBy: { number: 'asc' },
+      },
+      labels: { select: { label: { select: { name: true } } } },
+      comments: {
+        where: { deletedAt: null },
+        select: {
+          body: true,
+          createdAt: true,
+          author: { select: { name: true, username: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      },
+    },
+  })
+
+  if (!full) return { ok: false, summary: `${args.ticketKey} no longer exists.` }
+
+  const lines = [
+    `${full.key} — ${full.title}`,
+    `${full.project.name} (${full.project.code}) · ${full.type.name} · ${full.priority.name} · ${full.status.name}`,
+    full.assignee ? `Assignee: ${full.assignee.name} (@${full.assignee.username})` : 'Unassigned',
+    full.reporter ? `Reporter: ${full.reporter.name}` : 'No reporter',
+  ]
+
+  if (full.dueDate) lines.push(`Due ${full.dueDate.toISOString().slice(0, 10)}`)
+  if (full.storyPoints != null) lines.push(`${full.storyPoints} points`)
+  if (full.labels.length) {
+    lines.push(`Labels: ${full.labels.map((entry) => entry.label.name).join(', ')}`)
+  }
+  if (full.parent) lines.push(`Parent: ${full.parent.key} — ${full.parent.title}`)
+  if (full.children.length) {
+    lines.push(
+      `Children:\n${full.children
+        .map((child) => `  ${child.key} [${child.status.name}] ${child.title}`)
+        .join('\n')}`,
+    )
+  }
+  if (full.description) lines.push(`\nDescription:\n${full.description}`)
+  if (full.remarks) lines.push(`\nRemarks:\n${full.remarks}`)
+  if (full.comments.length) {
+    lines.push(
+      `\nRecent comments (newest first):\n${full.comments
+        .map(
+          (comment) =>
+            `  @${comment.author.username} on ${comment.createdAt
+              .toISOString()
+              .slice(0, 10)}: ${comment.body.slice(0, 300)}`,
+        )
+        .join('\n')}`,
+    )
+  }
+
+  return {
+    ok: true,
+    summary: lines.join('\n'),
+    data: { kind: 'ticket', key: full.key, title: full.title },
+  }
+}
+
+type CommentArgs = ReturnType<(typeof TOOL_SCHEMAS)['comment_on_ticket']['parse']>
+
+/**
+ * Posts a comment.
+ *
+ * Routed through the same Server Action the comment box uses, so @mentions are
+ * resolved, the people mentioned are notified and the activity entry is written
+ * in the same transaction — none of which would happen if this wrote to the
+ * comments table directly.
+ */
+async function commentOnTicket(
+  args: CommentArgs,
+  ctx: ExecutionContext,
+): Promise<ToolResult> {
+  const ticket = await resolveTicketByKey(ctx.actor, args.ticketKey)
+
+  const result = await createCommentAction({ ticketId: ticket.id, body: args.body })
+  if (!result.success) return { ok: false, summary: result.error }
+
+  return {
+    ok: true,
+    summary: `Commented on ${ticket.key}.`,
+    data: { kind: 'comment', ticketKey: ticket.key },
   }
 }

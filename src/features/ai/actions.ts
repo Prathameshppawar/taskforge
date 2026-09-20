@@ -15,6 +15,7 @@ import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { runAction } from '@/lib/safe-action'
 import { runCopilotTurn, type CopilotTurn } from './service'
 import { extractBreakdown, type ExtractedBreakdown } from './extract'
+import { parseSlash } from './slash'
 import { executeTool } from './executor'
 
 export interface CopilotRequest {
@@ -200,5 +201,57 @@ export async function confirmCaptureAction(
 
     if (input.projectId) revalidatePath(`/projects/${input.projectId}`)
     return ok({ summary: result.summary })
+  })
+}
+
+export interface SlashRequest {
+  input: string
+  projectId?: string
+  /** Set by Approve, exactly as the chat flow does. */
+  approve?: boolean
+}
+
+/**
+ * Runs a slash command.
+ *
+ * No provider call at all — the command was parsed deterministically, so there
+ * is nothing for a model to decide. That means it works with AI switched off,
+ * costs nothing, and spends none of the daily token budget.
+ *
+ * Writes still go through propose-then-confirm. The user typed the instruction,
+ * but the *arguments* are still resolved by name — "prakhar" has to become a
+ * person, "In Review" a status — and the proposal card is where that resolution
+ * becomes visible before it is committed.
+ */
+export async function slashAction(
+  input: SlashRequest,
+): Promise<ActionResult<CopilotTurn>> {
+  return runAction(async () => {
+    const actor = await requirePermission('ai:use')
+
+    const parsed = parseSlash(input.input)
+    if (!parsed) return fail('That is not a command.')
+
+    if (!parsed.call) {
+      return fail(
+        `\`/${parsed.command.name}\` needs ${parsed.command.hint ?? 'an argument'}.`,
+      )
+    }
+
+    const result = await executeTool(parsed.call.tool, parsed.call.arguments, {
+      actor,
+      currentProjectId: input.projectId,
+      propose: parsed.command.mutates && !input.approve,
+    })
+
+    if (input.projectId && parsed.command.mutates && input.approve) {
+      revalidatePath(`/projects/${input.projectId}`)
+    }
+
+    return ok({
+      reply: result.ok ? result.summary : `That did not work. ${result.summary}`,
+      toolRuns: [{ name: parsed.call.tool, result }],
+      proposals: result.proposal ? [result.proposal] : [],
+    })
   })
 }

@@ -87,6 +87,15 @@ export const projectInsightsTool = z.object({
   projectCode: z.string().optional(),
 })
 
+export const getTicketTool = z.object({
+  ticketKey: z.string().describe('e.g. RC-14'),
+})
+
+export const commentTool = z.object({
+  ticketKey: z.string().describe('e.g. RC-14'),
+  body: z.string().min(1).max(5000).describe('Markdown. Use @username to notify someone.'),
+})
+
 export const findDuplicatesTool = z.object({
   title: z.string().min(3),
   projectCode: z.string().optional(),
@@ -99,6 +108,8 @@ export const TOOL_SCHEMAS = {
   update_ticket: updateTicketTool,
   project_insights: projectInsightsTool,
   find_duplicates: findDuplicatesTool,
+  get_ticket: getTicketTool,
+  comment_on_ticket: commentTool,
 } as const
 
 export type ToolName = keyof typeof TOOL_SCHEMAS
@@ -117,6 +128,9 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   project_insights:
     'Everything about a project: description, dates, owner, team, labels, types, plus completion, overdue and workload. Use for "what is this project", "when is it due", "who is on it".',
   find_duplicates: 'Check for similar existing tickets before creating one.',
+  get_ticket:
+    'Read one ticket in full: description, remarks, labels, dates, its parent and children, and recent comments.',
+  comment_on_ticket: 'Post a comment. @username notifies that person.',
 }
 
 /** Tool list handed to the model, with JSON Schema generated from Zod. */
@@ -140,6 +154,7 @@ export function getToolDefinitions(): AiToolDefinition[] {
 
 /** Tools that change data. These are proposed to the user, never auto-applied. */
 export const MUTATING_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
+  'comment_on_ticket',
   'create_ticket',
   'bulk_create_tickets',
   'update_ticket',

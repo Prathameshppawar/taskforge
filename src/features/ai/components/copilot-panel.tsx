@@ -24,10 +24,11 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { copilotAction } from '../actions'
+import { copilotAction, slashAction } from '../actions'
 import { useSpeechInput } from '../hooks/use-speech-input'
 import { CopilotResultCard } from './copilot-result-card'
 import { CopilotProposalCard } from './copilot-proposal-card'
+import { matchingCommands, parseSlash } from '../slash'
 import { MarkdownText } from './markdown-text'
 
 export interface CopilotProposal {
@@ -170,6 +171,10 @@ export function CopilotPanel({
   const [input, setInput] = React.useState('')
   const [restored, setRestored] = React.useState(false)
   const [historyOpen, setHistoryOpen] = React.useState(false)
+
+  // Commands matching what has been typed. Empty for ordinary messages, so the
+  // menu never appears for a sentence that merely contains a slash.
+  const suggestions = React.useMemo(() => matchingCommands(input), [input])
   const panelRef = React.useRef<HTMLElement>(null)
 
   const active = threads.find((t) => t.id === activeId) ?? null
@@ -314,13 +319,17 @@ export function CopilotPanel({
     setInput('')
 
     startTransition(async () => {
-      const result = await copilotAction({
-        message: trimmed,
-        projectId,
-        screen,
-        history,
-        approve,
-      })
+      // A recognised slash command is answered without the provider at all —
+      // it parsed deterministically, so there is nothing to infer.
+      const result = parseSlash(trimmed)
+        ? await slashAction({ input: trimmed, projectId, approve })
+        : await copilotAction({
+            message: trimmed,
+            projectId,
+            screen,
+            history,
+            approve,
+          })
 
       if (!result.success) {
         updateActive((current) => [
@@ -550,6 +559,36 @@ export function CopilotPanel({
             <Separator />
 
             <div className="shrink-0 p-3">
+              {/* The command menu. Only while the whole input is still just
+                  "/word" — once arguments are being typed it gets out of the
+                  way rather than hovering over the text. */}
+              {suggestions.length > 0 && (
+                <ul className="mb-2 max-h-56 overflow-y-auto rounded-lg border bg-popover p-1 shadow-sm">
+                  {suggestions.map((command) => (
+                    <li key={command.name}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInput(`/${command.name} `)
+                          inputRef.current?.focus()
+                        }}
+                        className="flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                      >
+                        <span className="font-mono text-xs font-medium">/{command.name}</span>
+                        {command.hint && (
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {command.hint}
+                          </span>
+                        )}
+                        <span className="ml-auto truncate text-[11px] text-muted-foreground">
+                          {command.description}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               <div className="relative">
                 <Textarea
                   ref={inputRef}

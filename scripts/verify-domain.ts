@@ -11,6 +11,7 @@
  */
 import { getToolDefinitions, TOOL_SCHEMAS, isToolName } from '@/features/ai/tools'
 import { clamp } from '@/features/ai/executor'
+import { parseSlash, matchingCommands, SLASH_COMMANDS } from '@/features/ai/slash'
 import { rollupProgress, assertValidParent, parseTicketKey, buildTicketKey } from '@/core/domain/ticket-rules'
 import { previewSchedule, nextOccurrence, firstOccurrence } from '@/core/domain/recurrence'
 import {
@@ -40,7 +41,7 @@ function check(name: string, condition: boolean, detail?: string) {
 
 console.log('\n── AI tool contracts ──')
 const defs = getToolDefinitions()
-check('6 tools defined', defs.length === 6, `got ${defs.length}`)
+check('8 tools defined', defs.length === 8, `got ${defs.length}`)
 check('no $schema leaks to the provider', defs.every((d) => !('$schema' in d.parameters)))
 check('every tool has a description', defs.every((d) => d.description.trim().length > 0))
 
@@ -267,6 +268,40 @@ check(
   strongestProjectRole(['MANAGER', 'VIEWER', 'MEMBER']) === 'MANAGER',
 )
 check('member beats viewer', strongestProjectRole(['VIEWER', 'MEMBER']) === 'MEMBER')
+
+console.log('\n── Slash commands ──')
+// These exist to skip the model, so the parse has to be exactly right: a
+// command that silently mis-parses would act on the wrong ticket.
+check('every command maps to a real tool', SLASH_COMMANDS.every((c) => {
+  const built = c.build(c.requiresArgs ? 'RC-14 something' : '')
+  return built === null || isToolName(built.tool)
+}))
+
+const find = parseSlash('/find login bug')
+check('/find carries its text', find?.call?.arguments.query === 'login bug')
+
+const mine = parseSlash('/mine')
+check('/mine needs no argument', mine?.call?.arguments.assignee === 'me')
+
+const assign = parseSlash('/assign rc-14 prakhar')
+check('/assign upper-cases the key', assign?.call?.arguments.ticketKey === 'RC-14')
+check('/assign keeps the rest as the person', assign?.call?.arguments.assignee === 'prakhar')
+
+const comment = parseSlash('/comment RC-9 looks good to me')
+check('/comment splits key from body', comment?.call?.arguments.body === 'looks good to me')
+
+// The failure that matters: a missing argument must produce no call at all
+// rather than a call with an empty field.
+check('a command missing its argument builds nothing', parseSlash('/assign RC-14')?.call === null)
+check('an unknown command is not a command', parseSlash('/nonsense') === null)
+// Otherwise a sentence beginning with a slash would error instead of being answered.
+check('a plain message is not a command', parseSlash('hello there') === null)
+
+check('writes are marked as mutating', parseSlash('/move RC-1 Done')!.command.mutates)
+check('reads are not', !parseSlash('/overdue')!.command.mutates)
+
+check('the menu filters by prefix', matchingCommands('/mi').every((c) => c.name.startsWith('mi')))
+check('the menu closes once arguments start', matchingCommands('/find abc').length === 0)
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)
