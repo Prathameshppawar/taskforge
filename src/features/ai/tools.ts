@@ -133,6 +133,84 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   comment_on_ticket: 'Post a comment. @username notifies that person.',
 }
 
+/**
+ * Lets every optional property also be null.
+ *
+ * Models routinely fill a field they have no value for with an explicit `null`
+ * rather than omitting it. Zod's `.optional()` produces `"type": "string"` and
+ * leaves the key out of `required`, which says "you may omit this" — not "you
+ * may send null". Groq validates the tool call against this schema *server
+ * side* and rejects the whole call, so one stray null loses the entire turn
+ * with an error the user can do nothing about.
+ *
+ * Widening here rather than changing every schema keeps the Zod types honest:
+ * internally a field is still `string | undefined`, and `dropNulls` below turns
+ * the model's nulls into omissions before anything validates them.
+ */
+export function allowNulls(schema: Record<string, unknown>): Record<string, unknown> {
+  const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
+  if (!properties) return schema
+
+  const required = new Set((schema.required as string[] | undefined) ?? [])
+
+  for (const [key, property] of Object.entries(properties)) {
+    if (required.has(key)) continue
+
+    const type = property.type
+    if (typeof type === 'string' && type !== 'null') {
+      property.type = [type, 'null']
+    } else if (Array.isArray(type) && !type.includes('null')) {
+      property.type = [...type, 'null']
+    }
+
+    /*
+     * An enum constrains the value as well as the type, so widening the type
+     * alone is not enough: null passes `type` and then fails `enum`, and the
+     * call is rejected for a field the model was told it could leave out.
+     */
+    if (Array.isArray(property.enum) && !property.enum.includes(null)) {
+      property.enum = [...property.enum, null]
+    }
+  }
+
+  return schema
+}
+
+/**
+ * Removes null-valued keys so an optional field reads as absent.
+ *
+ * The counterpart to `allowNulls`: the schema tolerates the model's nulls, and
+ * this turns them back into the omissions the Zod schemas expect. Without it
+ * every `.optional()` would have to become `.nullable().optional()` and every
+ * downstream check would have to handle a third state that means nothing.
+ */
+export function dropNulls(args: Record<string, unknown>): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(args)) {
+    if (value === null) continue
+
+    // Children of a bulk create arrive as objects carrying their own nulls.
+    if (Array.isArray(value)) {
+      cleaned[key] = value.map((entry) =>
+        entry && typeof entry === 'object' && !Array.isArray(entry)
+          ? dropNulls(entry as Record<string, unknown>)
+          : entry,
+      )
+      continue
+    }
+
+    if (value && typeof value === 'object') {
+      cleaned[key] = dropNulls(value as Record<string, unknown>)
+      continue
+    }
+
+    cleaned[key] = value
+  }
+
+  return cleaned
+}
+
 /** Tool list handed to the model, with JSON Schema generated from Zod. */
 export function getToolDefinitions(): AiToolDefinition[] {
   return (Object.keys(TOOL_SCHEMAS) as ToolName[]).map((name) => {
@@ -147,7 +225,7 @@ export function getToolDefinitions(): AiToolDefinition[] {
     return {
       name,
       description: DESCRIPTIONS[name],
-      parameters: jsonSchema,
+      parameters: allowNulls(jsonSchema),
     }
   })
 }

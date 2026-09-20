@@ -9,7 +9,7 @@
  *
  *     npm run verify
  */
-import { getToolDefinitions, TOOL_SCHEMAS, isToolName } from '@/features/ai/tools'
+import { getToolDefinitions, TOOL_SCHEMAS, isToolName, allowNulls, dropNulls } from '@/features/ai/tools'
 import { clamp } from '@/features/ai/executor'
 import { parseSlash, matchingCommands, SLASH_COMMANDS } from '@/features/ai/slash'
 import { describeLink, validateLink } from '@/features/tickets/relations'
@@ -487,6 +487,49 @@ check('the prompt reports how long something stalled', prompt.includes('14d'))
 check('empty sections say none explicitly', prompt.includes('Overdue now: none'))
 check('a ticket with no assignee does not print an empty bracket',
   !prompt.includes('()'))
+
+console.log('\n── Model output tolerance ──')
+// A model asked for an optional field it has no value for sends `null` far more
+// often than it omits the key. Groq validates the tool call against our schema
+// server-side, so one stray null loses the whole turn with an error the user
+// can do nothing about. Both halves of the fix are asserted here.
+const widened = allowNulls({
+  type: 'object',
+  required: ['ticketKey'],
+  properties: {
+    ticketKey: { type: 'string' },
+    assignee: { type: 'string' },
+    labels: { type: 'array', items: { type: 'string' } },
+    overdueOnly: { type: 'boolean' },
+    statusCategory: { type: 'string', enum: ['BACKLOG', 'DONE'] },
+  },
+}) as { properties: Record<string, { type: unknown; enum?: unknown[] }> }
+
+check('an optional string also accepts null',
+  JSON.stringify(widened.properties.assignee.type) === '["string","null"]')
+check('an optional array also accepts null',
+  JSON.stringify(widened.properties.labels.type) === '["array","null"]')
+check('a required field is left strict',
+  widened.properties.ticketKey.type === 'string')
+// The subtle half: an enum constrains the value as well as the type, so null
+// passes `type` and then fails `enum` unless it is listed there too.
+check('an optional enum also accepts null',
+  widened.properties.statusCategory.enum?.includes(null) === true)
+check('the enum keeps its real values',
+  widened.properties.statusCategory.enum?.includes('DONE') === true)
+
+check('nulls are dropped so optional means absent',
+  !('assignee' in dropNulls({ title: 'x', assignee: null })))
+check('real values survive', dropNulls({ title: 'x', assignee: null }).title === 'x')
+check('false is not treated as absent', dropNulls({ overdueOnly: false }).overdueOnly === false)
+check('zero is not treated as absent', dropNulls({ dueInDays: 0 }).dueInDays === 0)
+check('an empty string is not treated as absent', dropNulls({ title: '' }).title === '')
+// bulk_create_tickets sends children as objects carrying their own nulls.
+const nested = dropNulls({ children: [{ title: 'a', assignee: null }] }) as {
+  children: Array<Record<string, unknown>>
+}
+check('nulls inside array members are dropped too',
+  !('assignee' in nested.children[0]) && nested.children[0].title === 'a')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

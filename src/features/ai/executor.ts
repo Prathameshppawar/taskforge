@@ -14,7 +14,7 @@ import {
   getTeamWorkload,
 } from '@/features/dashboard/queries'
 import { EMPTY_FILTERS } from '@/features/filters/types'
-import { MUTATING_TOOLS, TOOL_SCHEMAS, type ToolName } from './tools'
+import { MUTATING_TOOLS, TOOL_SCHEMAS, type ToolName, dropNulls} from './tools'
 import { requireProjectPermission, requireProjectView } from '@/features/auth/guards'
 import {
   daysFromNow,
@@ -88,7 +88,9 @@ export async function executeTool(
   context: ExecutionContext,
 ): Promise<ToolResult> {
   // The model's arguments are untrusted input — validate before anything else.
-  const parsed = TOOL_SCHEMAS[name].safeParse(rawArgs)
+  // Models fill fields they have no value for with an explicit null; the schema
+  // tolerates that, and this turns them back into the omissions Zod expects.
+  const parsed = TOOL_SCHEMAS[name].safeParse(dropNulls(rawArgs))
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((issue) => `${issue.path.join('.') || 'input'}: ${issue.message}`)

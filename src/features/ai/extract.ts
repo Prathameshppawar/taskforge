@@ -1,5 +1,5 @@
 import { getAiProvider, type AiMessage } from '@/infrastructure/ai'
-import { bulkCreateTool, getToolDefinitions } from './tools'
+import { bulkCreateTool, dropNulls, getToolDefinitions } from './tools'
 
 /**
  * Turning notes into a ticket breakdown.
@@ -82,7 +82,7 @@ export async function extractBreakdown(
 
   // The same validation a Copilot tool call gets. Model output is never trusted
   // just because it came from a narrower prompt.
-  const parsed = bulkCreateTool.safeParse(call.arguments)
+  const parsed = bulkCreateTool.safeParse(dropNulls(call.arguments))
   if (!parsed.success) {
     return {
       ok: false,

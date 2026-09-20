@@ -2,6 +2,7 @@ import { z } from 'zod'
 import zodToJsonSchema from 'zod-to-json-schema'
 
 import { getAiProvider, type AiMessage } from '@/infrastructure/ai'
+import { allowNulls, dropNulls } from '@/features/ai/tools'
 import type { Actor } from '@/features/auth/guards'
 import {
   resolveLabels,
@@ -84,10 +85,12 @@ export async function interpretFilter(
       {
         name: 'build_filter',
         description: 'Set the ticket filters matching the request.',
-        parameters: zodToJsonSchema(filterTool, { target: 'openApi3' }) as Record<
-          string,
-          unknown
-        >,
+        // Widened the same way the Copilot's tools are: a model filling every
+        // unused field with null would otherwise have its whole call rejected
+        // by Groq before it ever reached us.
+        parameters: allowNulls(
+          zodToJsonSchema(filterTool, { target: 'openApi3' }) as Record<string, unknown>,
+        ),
       },
     ],
   })
@@ -97,7 +100,7 @@ export async function interpretFilter(
     return { error: response.content.trim() || 'That could not be turned into a filter.' }
   }
 
-  const parsed = filterTool.safeParse(call.arguments)
+  const parsed = filterTool.safeParse(dropNulls(call.arguments))
   if (!parsed.success) return { error: 'The filter came back malformed. Try rephrasing.' }
 
   return resolveDraft(parsed.data, actor, projectId)

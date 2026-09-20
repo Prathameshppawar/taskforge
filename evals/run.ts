@@ -11,6 +11,7 @@ import {
   getToolDefinitions,
   TOOL_SCHEMAS,
   isToolName,
+  dropNulls,
   MUTATING_TOOLS,
 } from '@/features/ai/tools'
 import type { Actor } from '@/features/auth/guards'
@@ -199,7 +200,7 @@ async function runCase(testCase: EvalCase, gate: RateGate): Promise<Outcome> {
       if (call.name === testCase.tool) {
         if (isToolName(call.name)) {
           // The same validation the app runs before executing anything.
-          const parsed = TOOL_SCHEMAS[call.name].safeParse(call.arguments)
+          const parsed = TOOL_SCHEMAS[call.name].safeParse(dropNulls(call.arguments))
           if (!parsed.success) {
             return {
               case: testCase,

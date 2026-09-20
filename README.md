@@ -673,7 +673,7 @@ Five suites, each catching something the others structurally cannot.
 
 ```bash
 npm run typecheck # strict, zero errors
-npm run verify    # 161 domain assertions — no DB, no network, <1s
+npm run verify    # 172 domain assertions — no DB, no network, <1s
 npm run verify:embeddings  # semantic similarity, against a real database
 npm run smoke     # signs in for real, walks every route, greps the server log
 npm run e2e       # 20 browser tests, phone to desktop
@@ -759,6 +759,31 @@ Copilot evals — groq/openai/gpt-oss-120b
 
 Nothing is executed. The run stops at the tool call, so the suite is safe to
 point at a production key.
+
+### Tolerating what models actually send
+
+A model asked for an optional field it has no value for sends `null` far more
+often than it omits the key. Zod's `.optional()` generates `"type": "string"`
+and leaves the field out of `required` — which says *you may omit this*, not
+*you may send null*. Groq validates the tool call against that schema **server
+side**, so one stray null loses the entire turn with:
+
+> The model produced an invalid tool call and Groq rejected it.
+
+Pasting a paragraph into "Describe a view" reproduced it every time: with
+nothing to filter on, the model dutifully sent `null` for all twelve fields.
+
+The fix is in two halves, because the first alone is not enough. Optional
+properties are widened to `["string", "null"]` — and any `enum` on them gains
+`null` as a member, since an enum constrains the *value* as well as the type, so
+null would otherwise pass `type` and fail `enum`. Then `dropNulls` turns those
+nulls back into omissions before Zod ever sees them, so the internal types stay
+honest: a field is still `string | undefined`, never a third state meaning
+nothing.
+
+It costs **69 tokens** on the tool payload, taking it to 1,052 against a
+1,100-token budget — which the domain suite asserts, so the next tool added
+fails the build rather than the user's next sentence.
 
 ### The eval that was wrong
 
