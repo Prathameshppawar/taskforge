@@ -5,6 +5,7 @@ import { getProjectViewContext } from '@/features/projects/project-context'
 import { CalendarView } from '@/features/tickets/components/calendar-view'
 import { TicketToolbar } from '@/features/filters/components/ticket-toolbar'
 import { parseFiltersFromParams } from '@/features/filters/types'
+import { isAiEnabled } from '@/lib/env'
 
 export const metadata: Metadata = { title: 'Calendar' }
 
@@ -24,7 +25,7 @@ export default async function CalendarPage({
 
   return (
     <div className="flex h-full flex-col">
-      <TicketToolbar context={context} filters={filters} total={total} />
+      <TicketToolbar context={context} filters={filters} total={total} aiEnabled={isAiEnabled()} />
       <div className="min-h-0 flex-1">
         <CalendarView tickets={items} />
       </div>

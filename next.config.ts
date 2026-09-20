@@ -3,7 +3,9 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  serverExternalPackages: ['@prisma/client', 'bcryptjs'],
+  // @xenova/transformers ships native ONNX bindings and loads model weights at
+  // runtime; bundling it breaks both.
+  serverExternalPackages: ['@prisma/client', 'bcryptjs', '@xenova/transformers'],
   experimental: {
     optimizePackageImports: ['lucide-react', 'date-fns', 'recharts'],
   },

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import { generateDueTickets } from '@/features/recurring/service'
+import { sweepEmbeddings } from '@/features/tickets/embeddings'
 
 /**
  * Recurring ticket scheduler.
@@ -14,7 +15,9 @@ import { generateDueTickets } from '@/features/recurring/service'
  * then advanced beyond the current time.
  */
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+// The embedding sweep loads a model on a cold start, so the default 10s ceiling
+// is not enough headroom.
+export const maxDuration = 120
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -41,12 +44,28 @@ export async function GET(request: NextRequest) {
   try {
     const result = await generateDueTickets(prisma)
 
+    /*
+     * Embeddings are refreshed on the same schedule rather than in the request
+     * that edits a ticket. Loading the model costs a couple of seconds the first
+     * time a process needs it, which is fine once a day in a background job and
+     * not fine in the path of somebody saving a title.
+     *
+     * Bounded, and failure is swallowed: a missing embedding costs recall in
+     * duplicate detection, which is not worth failing the recurring sweep over.
+     */
+    const embeddings = await sweepEmbeddings(300).catch((error) => {
+      console.error('[cron/recurring] embedding sweep failed:', error)
+      return { embedded: 0, remaining: -1 }
+    })
+
     return NextResponse.json({
       ok: true,
       generated: result.generated.length,
       tickets: result.generated.map((entry) => entry.ticketKey),
       deactivated: result.deactivated.length,
       errors: result.errors,
+      embedded: embeddings.embedded,
+      embeddingsRemaining: embeddings.remaining,
       durationMs: Date.now() - startedAt,
     })
   } catch (error) {

@@ -5,6 +5,7 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { ticketVisibilityFilter, type Actor } from '@/features/auth/guards'
 import { rollupProgress } from '@/core/domain/ticket-rules'
 import { EMPTY_FILTERS, type TicketFilters } from '@/features/filters/types'
+import { semanticMatches } from './embeddings'
 
 /**
  * Read models for the ticket views.
@@ -423,18 +424,30 @@ export async function listParentCandidates(projectId: string, excludeTicketId?: 
   })
 }
 
+export interface SimilarTicket {
+  id: string
+  key: string
+  title: string
+  statusName: string
+  score: number
+  /** Which signal found it, so the UI can say why. */
+  via: 'semantic' | 'lexical'
+}
+
 /**
- * Duplicate detection.
+ * Word-overlap similarity. The original implementation, kept as the fallback.
  *
- * Deliberately not an AI call — a trigram-style overlap on titles within the
- * same project is fast, deterministic and costs nothing. The Copilot surfaces
- * these before creating a ticket.
+ * Its weakness is the reason semantic matching exists: it can only find a
+ * duplicate that reuses the same words. "Users cannot sign in" and "Login
+ * redirect broken" share none, so this scores them zero and the duplicate gets
+ * created. It is still worth running — it is exact, free, and catches the
+ * near-identical titles an embedding rates merely similar.
  */
-export async function findSimilarTickets(
+async function lexicalSimilar(
   projectId: string,
   title: string,
-  limit = 5,
-): Promise<Array<{ id: string; key: string; title: string; statusName: string; score: number }>> {
+  limit: number,
+): Promise<SimilarTicket[]> {
   const words = title
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -483,9 +496,41 @@ export async function findSimilarTickets(
         title: candidate.title,
         statusName: candidate.status.name,
         score,
+        via: 'lexical' as const,
       }
     })
     .filter((candidate) => candidate.score >= 0.3)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
+}
+
+/**
+ * Duplicate detection.
+ *
+ * Two signals, unioned. Semantic matching catches a duplicate written in
+ * different words, which is the common case and the one lexical matching is
+ * blind to; word overlap catches the near-identical title and keeps working
+ * when embedding is switched off or a ticket has not been embedded yet.
+ *
+ * Still not an LLM call. Both signals are deterministic, cost nothing per
+ * lookup, and run inside the project — which is what lets this sit in the path
+ * of every ticket creation without anyone noticing it.
+ */
+export async function findSimilarTickets(
+  projectId: string,
+  title: string,
+  limit = 5,
+): Promise<SimilarTicket[]> {
+  const [semantic, lexical] = await Promise.all([
+    semanticMatches(projectId, title, limit).catch(() => []),
+    lexicalSimilar(projectId, title, limit),
+  ])
+
+  // Semantic first: when both find the same ticket, its score is the more
+  // meaningful of the two, and a 0.9 cosine says far more than a 0.4 Jaccard.
+  const byId = new Map<string, SimilarTicket>()
+  for (const match of semantic) byId.set(match.id, { ...match, via: 'semantic' })
+  for (const match of lexical) if (!byId.has(match.id)) byId.set(match.id, match)
+
+  return [...byId.values()].sort((a, b) => b.score - a.score).slice(0, limit)
 }

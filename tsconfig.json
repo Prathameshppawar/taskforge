@@ -16,6 +16,7 @@
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": false,
     "plugins": [{ "name": "next" }],
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }

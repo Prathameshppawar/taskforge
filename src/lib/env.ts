@@ -25,6 +25,12 @@ const serverSchema = z.object({
   OLLAMA_MODEL: z.string().default('llama3.1'),
   AI_MAX_TOKENS: z.coerce.number().int().positive().default(2048),
 
+  /**
+   * Semantic similarity. Runs in-process with no API key and no per-call cost,
+   * so it is on by default; 'none' falls everything back to lexical matching.
+   */
+  EMBEDDING_PROVIDER: z.enum(['local', 'none']).default('local'),
+
   CRON_SECRET: z.string().optional(),
 
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

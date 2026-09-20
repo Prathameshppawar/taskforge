@@ -4,12 +4,15 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { requireActor, can } from '@/features/auth/guards'
-import { ok, type ActionResult } from '@/core/domain/result'
+import { requireActor, requireProjectView, can } from '@/features/auth/guards'
+import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { ForbiddenError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
-import { ticketFiltersSchema } from './types'
+import { ticketFiltersSchema, type TicketFilters } from './types'
 import { fromCriteria, toCriteria } from './criteria'
+import { interpretFilter } from './nl'
+import { AiProviderError } from '@/infrastructure/ai'
+import { isAiEnabled } from '@/lib/env'
 
 const saveFilterSchema = z.object({
   name: z.string().trim().min(1, 'Name this filter set.').max(60),
@@ -128,3 +131,35 @@ export async function listSavedFilters(projectId?: string) {
 }
 
 export type SavedFilterItem = Awaited<ReturnType<typeof listSavedFilters>>[number]
+
+/**
+ * Plain English to filter settings. Reads only — it returns a filter for the
+ * user to look at and apply, and writes nothing.
+ */
+export async function interpretFilterAction(input: {
+  request: string
+  projectId: string
+}): Promise<ActionResult<{ filters: TicketFilters; summary: string[]; unresolved: string[] }>> {
+  return runAction(async () => {
+    const { actor } = await requireProjectView(input.projectId)
+
+    if (!can(actor, 'ai:use')) {
+      return fail('You do not have access to the AI features.')
+    }
+    if (!isAiEnabled()) {
+      return fail('The AI Copilot is not configured.', { code: 'AI_DISABLED' })
+    }
+
+    const request = input.request.trim()
+    if (request.length < 3) return fail('Describe what you want to see.')
+
+    try {
+      const result = await interpretFilter(request, actor, input.projectId)
+      if ('error' in result) return fail(result.error)
+      return ok(result)
+    } catch (error) {
+      if (error instanceof AiProviderError) return fail(error.message, { code: error.kind })
+      throw error
+    }
+  })
+}

@@ -14,6 +14,8 @@ import { AiProviderError } from '@/infrastructure/ai'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { runAction } from '@/lib/safe-action'
 import { runCopilotTurn, type CopilotTurn } from './service'
+import { extractBreakdown, type ExtractedBreakdown } from './extract'
+import { executeTool } from './executor'
 
 export interface CopilotRequest {
   message: string
@@ -134,5 +136,69 @@ export async function getAiStatusAction(): Promise<
       enabled: isAiEnabled(),
       provider: process.env.AI_PROVIDER ?? 'none',
     })
+  })
+}
+
+export interface CaptureRequest {
+  text: string
+  projectId?: string
+  projectCode?: string
+}
+
+export interface CaptureResult {
+  breakdown: ExtractedBreakdown
+  /** Passed straight back on confirm, so the model is not asked twice. */
+  rawArguments: Record<string, unknown>
+}
+
+/**
+ * Notes in, proposed breakdown out. Writes nothing.
+ */
+export async function captureAction(
+  input: CaptureRequest,
+): Promise<ActionResult<CaptureResult>> {
+  return runAction(async () => {
+    await requirePermission('ai:use')
+
+    if (!isAiEnabled()) {
+      return fail('The AI Copilot is not configured.', { code: 'AI_DISABLED' })
+    }
+
+    try {
+      const result = await extractBreakdown(input.text, input.projectCode)
+      if (!result.ok) return fail(result.reason)
+
+      return ok({ breakdown: result.breakdown, rawArguments: result.rawArguments })
+    } catch (error) {
+      if (error instanceof AiProviderError) return fail(error.message, { code: error.kind })
+      throw error
+    }
+  })
+}
+
+/**
+ * Creates what the user approved.
+ *
+ * Routed through the same executor as every Copilot write, so it inherits the
+ * project permission check, the resolver and the audit entries rather than
+ * reimplementing them next to the capture dialog.
+ */
+export async function confirmCaptureAction(
+  input: { rawArguments: Record<string, unknown>; projectId?: string },
+): Promise<ActionResult<{ summary: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermission('ai:use')
+
+    const result = await executeTool('bulk_create_tickets', input.rawArguments, {
+      actor,
+      currentProjectId: input.projectId,
+      // Already approved by the person looking at the breakdown.
+      propose: false,
+    })
+
+    if (!result.ok) return fail(result.summary)
+
+    if (input.projectId) revalidatePath(`/projects/${input.projectId}`)
+    return ok({ summary: result.summary })
   })
 }

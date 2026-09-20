@@ -113,6 +113,11 @@ jobs:
       - name: Seed
         run: npm run db:seed
 
+      # Downloads a 33MB model on first run, so it is its own step rather than
+      # hidden inside the browser suite's timing.
+      - name: Semantic similarity
+        run: npm run verify:embeddings
+
       # Chrome specifically — the config pins the channel so local runs need no
       # browser download, and CI must match what developers actually run.
       - name: Install Chrome

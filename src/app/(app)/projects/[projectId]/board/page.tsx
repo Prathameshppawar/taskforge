@@ -5,6 +5,7 @@ import { getProjectViewContext } from '@/features/projects/project-context'
 import { BoardView } from '@/features/tickets/components/board-view'
 import { TicketToolbar } from '@/features/filters/components/ticket-toolbar'
 import { parseFiltersFromParams } from '@/features/filters/types'
+import { isAiEnabled } from '@/lib/env'
 
 export const metadata: Metadata = { title: 'Board' }
 
@@ -25,6 +26,7 @@ export default async function BoardPage({
   return (
     <div className="flex h-full flex-col">
       <TicketToolbar
+        aiEnabled={isAiEnabled()}
         context={context}
         filters={filters}
         total={columns.reduce((sum, column) => sum + column.tickets.length, 0)}

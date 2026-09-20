@@ -19,6 +19,7 @@ import {
   Sun,
   Ticket,
   UserX,
+  Wand2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTheme } from 'next-themes'
@@ -59,12 +60,14 @@ export function CommandPalette({
   onCreateTicket,
   onOpenCopilot,
   canCreateProject,
+  onOpenCapture,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreateTicket: () => void
   onOpenCopilot: () => void
   canCreateProject: boolean
+  onOpenCapture: () => void
 }) {
   const router = useRouter()
   const { setTheme } = useTheme()
@@ -420,6 +423,10 @@ export function CommandPalette({
             <Sparkles className="size-4" />
             Ask the Copilot
             <CommandShortcut>⌘J</CommandShortcut>
+          </CommandItem>
+          <CommandItem value="capture-notes" onSelect={() => run(onOpenCapture)}>
+            <Wand2 className="size-4" />
+            Capture notes as tickets
           </CommandItem>
         </CommandGroup>
 

@@ -3,17 +3,19 @@
 import * as React from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import type { Permission } from '@/core/domain/rbac'
-import { Command, Sparkles } from 'lucide-react'
+import { Command, Sparkles, Wand2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CommandPalette } from '@/features/command/components/command-palette'
 import { CopilotPanel } from '@/features/ai/components/copilot-panel'
+import { CaptureDialog } from '@/features/ai/components/capture-dialog'
 import type { CopilotScreen } from '@/features/ai/components/copilot-panel'
 
 interface ShellContextValue {
   openPalette: () => void
   openCopilot: () => void
+  openCapture: () => void
 }
 
 const ShellContext = React.createContext<ShellContextValue | null>(null)
@@ -58,6 +60,7 @@ export function AppShellClient({
    * new tab does not open with the panel already showing.
    */
   const [copilotOpen, setCopilotOpenState] = React.useState(false)
+  const [captureOpen, setCaptureOpen] = React.useState(false)
 
   React.useEffect(() => {
     try {
@@ -202,6 +205,7 @@ export function AppShellClient({
     () => ({
       openPalette: () => setPaletteOpen(true),
       openCopilot: () => setCopilotOpen(true),
+      openCapture: () => setCaptureOpen(true),
     }),
     [setCopilotOpen],
   )
@@ -220,6 +224,13 @@ export function AppShellClient({
           else router.push('/projects')
         }}
         onOpenCopilot={() => setCopilotOpen(true)}
+        onOpenCapture={() => setCaptureOpen(true)}
+      />
+
+      <CaptureDialog
+        open={captureOpen}
+        onOpenChange={setCaptureOpen}
+        projectId={projectId}
       />
 
       <CopilotPanel
@@ -235,7 +246,7 @@ export function AppShellClient({
 
 /** Toolbar buttons for the palette and the Copilot. */
 export function ShellActions({ aiEnabled }: { aiEnabled: boolean }) {
-  const { openPalette, openCopilot } = useAppShell()
+  const { openPalette, openCopilot, openCapture } = useAppShell()
 
   return (
     <>
@@ -256,6 +267,21 @@ export function ShellActions({ aiEnabled }: { aiEnabled: boolean }) {
         </TooltipTrigger>
         <TooltipContent>Command palette · ⌘K</TooltipContent>
       </Tooltip>
+
+      {/* Capture has its own button rather than living only in the palette:
+          typing there searches tickets, so commands are reachable only from an
+          empty query — which is no way to find a feature. */}
+      {aiEnabled && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-8" onClick={openCapture}>
+              <Wand2 className="size-4" />
+              <span className="sr-only">Capture notes as tickets</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Capture notes as tickets</TooltipContent>
+        </Tooltip>
+      )}
 
       {aiEnabled && (
         <Tooltip>
