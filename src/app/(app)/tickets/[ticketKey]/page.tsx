@@ -14,6 +14,8 @@ import { ResourceList } from '@/features/tickets/components/resource-list'
 import { ActivityFeed } from '@/features/activity/components/activity-feed'
 import { ChildTicketList } from '@/features/tickets/components/child-ticket-list'
 import { TicketLinks } from '@/features/tickets/components/ticket-links'
+import { HistoricalEstimate } from '@/features/tickets/components/historical-estimate'
+import { estimateFromHistory } from '@/features/tickets/estimates'
 import { TicketAttachments } from '@/features/tickets/components/ticket-attachments'
 import { WatchButton } from '@/features/tickets/components/watch-button'
 import { listTicketLinks } from '@/features/tickets/relations'
@@ -46,7 +48,7 @@ export default async function TicketDetailPage({
 
   const context = await getProjectViewContext(ticket.project.id)
 
-  const [activity, links, attachments, watchers] = await Promise.all([
+  const [activity, links, attachments, watchers, estimate] = await Promise.all([
     getTicketActivity(ticket.id),
     listTicketLinks(ticket.id),
     listAttachments(ticket.id),
@@ -54,6 +56,13 @@ export default async function TicketDetailPage({
       where: { ticketId: ticket.id },
       select: { userId: true },
     }),
+    // Null whenever the project has not finished enough comparable work, in
+    // which case the block simply does not render.
+    estimateFromHistory(
+      ticket.project.id,
+      `${ticket.title}\n\n${ticket.description ?? ''}`,
+      ticket.id,
+    ).catch(() => null),
   ])
 
   const canEdit = context.can.updateTicket
@@ -174,6 +183,8 @@ export default async function TicketDetailPage({
             canEdit={canEdit && !ticket.parentId}
             isChild={Boolean(ticket.parentId)}
           />
+
+          <HistoricalEstimate estimate={estimate} />
 
           <TicketLinks ticketKey={ticket.key} links={links} canEdit={canEdit} />
 

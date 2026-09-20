@@ -426,14 +426,28 @@ async function populateTickets(
     // A spread of due dates: some past (overdue), some imminent, some ahead.
     const dueOffset = [-6, -2, 3, 7, 14, 21, 30][index % 7]
 
+    /*
+     * Demo tickets are backdated so they have a plausible life.
+     *
+     * Previously every finished ticket was created "now" and completed
+     * yesterday, which is not merely untidy — it makes cycle time negative, and
+     * anything derived from history (estimates, lead-time charts) reads as
+     * nonsense or silently discards the data.
+     */
+    const ageDays = 12 + (index % 40)
+    const createdAt = daysFromNow(-ageDays)
+    const cycleDays = 2 + (index % 14)
+
     await prisma.ticket.update({
       where: { id: ticket.id },
       data: {
         statusId: status.id,
         assigneeId,
+        createdAt,
         dueDate: daysFromNow(dueOffset),
         startDate: daysFromNow(dueOffset - 10),
-        completedAt: isDone ? daysFromNow(-1) : null,
+        // Always after creation, and never in the future.
+        completedAt: isDone ? daysFromNow(-Math.max(1, ageDays - cycleDays)) : null,
         storyPoints: [1, 2, 3, 5, 8][index % 5],
         estimateHours: [2, 4, 8, 16][index % 4],
       },

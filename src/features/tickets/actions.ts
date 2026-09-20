@@ -21,6 +21,7 @@ import {
   validateParentAssignment,
 } from './service'
 import { describeLink, ticketAudience, validateLink } from './relations'
+import { suggestTriage, type TriageSuggestion } from './triage'
 import {
   addChildrenSchema,
   addResourceSchema,
@@ -1392,5 +1393,26 @@ export async function toggleWatchAction(
 
     revalidatePath(`/tickets/${ticket.key}`)
     return ok({ watching: !existing })
+  })
+}
+
+/**
+ * Suggests a type, priority and labels from the project's own history.
+ *
+ * No model call, so it is free, instant and cannot be rate-limited — and the
+ * suggestion is explainable, which is what makes it acceptable to act on.
+ */
+export async function suggestTriageAction(
+  projectId: string,
+  title: string,
+  description?: string,
+): Promise<ActionResult<TriageSuggestion | null>> {
+  return runAction(async () => {
+    await requireProjectView(projectId)
+
+    if (title.trim().length < 5) return ok(null)
+
+    const suggestion = await suggestTriage(projectId, title, description).catch(() => null)
+    return ok(suggestion)
   })
 }

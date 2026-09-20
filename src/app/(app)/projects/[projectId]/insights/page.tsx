@@ -20,6 +20,8 @@ import {
 } from '@/features/dashboard/components/charts'
 import { WorkloadTable } from '@/features/dashboard/components/workload-table'
 import { PageHeader } from '@/components/shared/page-header'
+import { isAiEnabled } from '@/lib/env'
+import { StatusReportCard } from '@/features/reports/components/status-report'
 
 export const metadata: Metadata = { title: 'Insights' }
 
@@ -42,12 +44,16 @@ export default async function InsightsPage({
     getTeamWorkload(context.actor, scope),
   ])
 
+  const aiEnabled = isAiEnabled()
+
   return (
     <div className="h-full overflow-y-auto">
       <PageHeader title="Insights" description="Project health at a glance." />
 
       <div className="space-y-4 p-4 sm:p-6">
         <StatTiles stats={stats} basePath={`/projects/${projectId}/table`} />
+
+        {aiEnabled && <StatusReportCard projectId={projectId} />}
 
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <CompletionCard

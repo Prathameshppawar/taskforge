@@ -31,6 +31,7 @@ import {
 import { SaveFilterDialog } from './save-filter-dialog'
 import { countActiveFilters, type TicketFilters } from '../types'
 import { SmartFilterInput } from './smart-filter-input'
+import { ExportButton } from '@/features/export/components/export-button'
 
 /**
  * Minimal shape the toolbar needs, so it serves both a single project and the
@@ -164,6 +165,9 @@ export function TicketToolbar({
         {/* Describe a view in words. Produces a normal filter, so the chips it
             sets are visible and correctable rather than a hidden query. */}
         {context.projectId && aiEnabled && <SmartFilterInput projectId={context.projectId} />}
+
+        {/* Exports whatever the filters above currently select. */}
+        <ExportButton projectId={context.projectId} total={total} />
 
         {/* Status */}
         <FilterPopover

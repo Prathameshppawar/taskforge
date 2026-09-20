@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2,
+  History,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -37,7 +39,12 @@ import {
   type ConfigOption,
   type PriorityOption,
 } from './ticket-form-fields'
-import { createTicketAction, suggestSimilarTicketsAction } from '../actions'
+import {
+  createTicketAction,
+  suggestSimilarTicketsAction,
+  suggestTriageAction,
+} from '../actions'
+import type { TriageSuggestion } from '../triage'
 import { createTicketSchema, type CreateTicketInput } from '../schemas'
 
 export interface TicketFormConfig {
@@ -76,6 +83,9 @@ export function CreateTicketDialog({
   const router = useRouter()
   const [isPending, startTransition] = React.useTransition()
   const [similar, setSimilar] = React.useState<SimilarTicket[]>([])
+  const [triage, setTriage] = React.useState<TriageSuggestion | null>(null)
+  // Cleared once applied or dismissed, so it does not nag after a decision.
+  const [triageDismissed, setTriageDismissed] = React.useState(false)
 
   const initialStatus = defaultStatusId ?? config.statuses[0]?.id
   const initialPriority =
@@ -120,6 +130,8 @@ export function CreateTicketDialog({
         resources: [],
       })
       setSimilar([])
+      setTriage(null)
+      setTriageDismissed(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultStatusId, defaultParentId, config.projectId])
@@ -130,12 +142,19 @@ export function CreateTicketDialog({
   React.useEffect(() => {
     if (!open || title.trim().length < 5) {
       setSimilar([])
+      setTriage(null)
       return
     }
 
     const timer = setTimeout(async () => {
-      const result = await suggestSimilarTicketsAction(config.projectId, title)
-      if (result.success) setSimilar(result.data)
+      // Both read the same embeddings, so they are fetched together rather than
+      // making the user's typing trigger two staggered round trips.
+      const [duplicates, suggestion] = await Promise.all([
+        suggestSimilarTicketsAction(config.projectId, title),
+        suggestTriageAction(config.projectId, title),
+      ])
+      if (duplicates.success) setSimilar(duplicates.data)
+      if (suggestion.success) setTriage(suggestion.data)
     }, 450)
 
     return () => clearTimeout(timer)
@@ -196,6 +215,65 @@ export function CreateTicketDialog({
                 />
 
                 {/* Duplicate detection */}
+                {triage && !triageDismissed && (
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <p className="flex items-center gap-1.5 text-xs font-medium">
+                      <History className="size-3.5 text-muted-foreground" />
+                      Suggested from {triage.basedOn} similar tickets
+                    </p>
+
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {triage.typeName && (
+                        <span className="rounded bg-background px-1.5 py-0.5 text-[11px]">
+                          {triage.typeName}
+                        </span>
+                      )}
+                      {triage.priorityName && (
+                        <span className="rounded bg-background px-1.5 py-0.5 text-[11px]">
+                          {triage.priorityName}
+                        </span>
+                      )}
+                      {triage.labelNames.map((name: string) => (
+                        <span key={name} className="rounded bg-background px-1.5 py-0.5 text-[11px]">
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* The evidence, because a suggestion you cannot question
+                        is one people either accept blindly or ignore. */}
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {triage.evidence.join(' · ')}
+                    </p>
+
+                    <div className="mt-2 flex gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                          if (triage.typeId) form.setValue('typeId', triage.typeId)
+                          if (triage.priorityId) form.setValue('priorityId', triage.priorityId)
+                          if (triage.labelIds.length) form.setValue('labelIds', triage.labelIds)
+                          setTriageDismissed(true)
+                        }}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        onClick={() => setTriageDismissed(true)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {similar.length > 0 && (
                   <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
                     <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">

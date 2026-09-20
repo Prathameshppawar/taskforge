@@ -13,6 +13,10 @@ import { getToolDefinitions, TOOL_SCHEMAS, isToolName } from '@/features/ai/tool
 import { clamp } from '@/features/ai/executor'
 import { parseSlash, matchingCommands, SLASH_COMMANDS } from '@/features/ai/slash'
 import { describeLink, validateLink } from '@/features/tickets/relations'
+import { percentile, cycleDays, summarise } from '@/features/tickets/estimates'
+import { majority, commonLabels } from '@/features/tickets/triage'
+import { escapeForCsv, csvCell, toCsv, exportFilename } from '@/features/export/service'
+import { factsToPrompt, isQuietPeriod } from '@/features/reports/service'
 import {
   contentDisposition,
   isInlineType,
@@ -365,6 +369,124 @@ check('an empty file is refused', !validateUpload(0, 0).ok)
 check('an oversized file is refused', !validateUpload(MAX_ATTACHMENT_BYTES + 1, 0).ok)
 check('a file at the limit is allowed', validateUpload(MAX_ATTACHMENT_BYTES, 0).ok)
 check('a full ticket refuses more', !validateUpload(10, MAX_ATTACHMENTS_PER_TICKET).ok)
+
+console.log('\n── Estimates from history ──')
+check('a single value is its own median', percentile([5], 0.5) === 5)
+check('the median of an odd list is the middle', percentile([1, 3, 9], 0.5) === 3)
+// Nearest-rank, not interpolated: with samples this small a real observed
+// duration is more honest than the average of two that never happened.
+check('an even list reports an observed value', [3, 5].includes(percentile([1, 3, 5, 9], 0.5)))
+check('the extremes are reachable',
+  percentile([2, 4, 6], 0) === 2 && percentile([2, 4, 6], 1) === 6)
+check('an empty list does not throw', percentile([], 0.5) === 0)
+
+const created = new Date('2026-01-01T00:00:00Z')
+check('a normal duration is counted',
+  cycleDays(created, new Date('2026-01-08T00:00:00Z')) === 7)
+// The bug this guards: demo data once held tickets completed before they were
+// created, and counting that as negative would drag a median below zero.
+check('completion before creation is discarded',
+  cycleDays(created, new Date('2025-12-25T00:00:00Z')) === null)
+check('an unfinished ticket has no duration', cycleDays(created, null) === null)
+check('same-day work counts as a day',
+  cycleDays(created, new Date('2026-01-01T04:00:00Z')) === 1)
+check('an implausible duration is discarded',
+  cycleDays(created, new Date('2030-01-01T00:00:00Z')) === null)
+
+const sample = (days: number) => ({ key: 'X-1', title: 't', days })
+check('too few samples report nothing',
+  summarise([sample(2), sample(4)]) === null)
+const est = summarise([sample(9), sample(2), sample(5), sample(4)])
+check('a summary reports the real spread',
+  est !== null && est.fastestDays === 2 && est.slowestDays === 9)
+check('the summary keeps its evidence',
+  est !== null && est.comparable.length === 3)
+
+console.log('\n── Triage from history ──')
+check('a clear majority is offered',
+  majority(['BUG', 'BUG', 'BUG', 'TASK'])?.value === 'BUG')
+// A tie is a coin toss dressed as a decision, so it offers nothing.
+check('a tie offers nothing', majority(['BUG', 'TASK']) === null)
+// Half agreeing is enough for a suggestion the user reviews; a third is not.
+check('half agreeing is enough',
+  majority(['BUG', 'TASK', 'STORY', 'BUG'])?.value === 'BUG')
+check('a weak plurality offers nothing',
+  majority(['BUG', 'TASK', 'STORY', 'DOC', 'BUG', 'EPIC']) === null)
+check('nulls are ignored, not counted',
+  majority([null, 'BUG', 'BUG', undefined])?.count === 2)
+check('an empty list offers nothing', majority([]) === null)
+check('the evidence is reported',
+  majority(['BUG', 'BUG', 'TASK'])?.outOf === 3)
+
+check('a label on most tickets is offered',
+  commonLabels([['a'], ['a'], ['a', 'b']]).some((l) => l.value === 'a'))
+check('a rare label is not offered',
+  !commonLabels([['a'], ['a'], ['a', 'b']]).some((l) => l.value === 'b'))
+// A ticket carrying the same label twice must not count as two tickets.
+check('a repeated label counts once per ticket',
+  commonLabels([['a', 'a'], ['b'], ['b']]).every((l) => l.count <= 3))
+check('no tickets means no labels', commonLabels([]).length === 0)
+
+console.log('\n── Export ──')
+// A spreadsheet is a program and every cell here was typed by a user. That is
+// the whole reason the export has a service layer rather than a template.
+check('a formula is neutralised', escapeForCsv('=1+1').startsWith("'"))
+check('the classic injection payload is neutralised',
+  escapeForCsv(String.raw`=cmd|'/c calc'!A0`).startsWith("'"))
+check('a plus is a trigger', escapeForCsv('+1').startsWith("'"))
+check('a minus is a trigger', escapeForCsv('-1').startsWith("'"))
+check('an at sign is a trigger', escapeForCsv('@SUM(A1)').startsWith("'"))
+// Excel strips leading whitespace before deciding, so a tab still reaches a
+// formula — which is why the obvious "trim, then check" version is wrong.
+check('a leading tab is a trigger', escapeForCsv('\t=1+1').startsWith("'"))
+check('ordinary text is untouched', escapeForCsv('Fix the login bug') === 'Fix the login bug')
+check('an empty value is untouched', escapeForCsv('') === '')
+// A hyphen mid-string is arithmetic to nobody.
+check('a hyphen inside a title is untouched',
+  escapeForCsv('Re-open the sync issue') === 'Re-open the sync issue')
+
+check('a comma forces quoting', csvCell('a,b') === '"a,b"')
+check('a quote is doubled', csvCell('say "hi"').includes('""hi""'))
+check('a newline forces quoting', csvCell('a\nb').startsWith('"'))
+check('a date becomes ISO', csvCell(new Date('2026-03-04T10:00:00Z')) === '2026-03-04')
+check('null becomes empty', csvCell(null) === '')
+
+const csvSample = toCsv([{ a: 'x' }], [{ key: 'a', header: 'A', value: (r) => r.a }])
+// Without the BOM Excel reads the system code page and mangles every accent.
+check('the CSV starts with a BOM', csvSample.charCodeAt(0) === 0xfeff)
+check('the CSV uses CRLF', csvSample.includes('\r\n'))
+check('the header is written', csvSample.includes('A'))
+
+check('the filename is dated and safe',
+  exportFilename('Regency Ceramics!!', 'xlsx', new Date('2026-03-04T00:00:00Z')) ===
+    'regency-ceramics-2026-03-04.xlsx')
+check('an empty name still produces a file',
+  exportFilename('', 'csv', new Date('2026-03-04T00:00:00Z')) === 'export-2026-03-04.csv')
+
+console.log('\n── Status report ──')
+const emptyFacts = {
+  projectName: 'P', projectCode: 'P', periodDays: 7,
+  completed: [], started: [], created: [], overdue: [], blocked: [], stalled: [],
+  totals: { open: 0, done: 0, total: 0 },
+}
+// A quiet week costs no tokens: the model is never called for it.
+check('a quiet period is detected', isQuietPeriod(emptyFacts))
+check('any activity ends the quiet period',
+  !isQuietPeriod({ ...emptyFacts, blocked: [{ key: 'A-1', title: 't', statusName: 'Blocked', assignee: null }] }))
+
+const prompt = factsToPrompt({
+  ...emptyFacts,
+  completed: [{ key: 'RC-1', title: 'Fix sync', statusName: 'Done', assignee: 'Prakhar' }],
+  stalled: [{ key: 'RC-9', title: 'Old work', statusName: 'In Progress', assignee: null, days: 14 }],
+})
+check('the prompt names the completed ticket', prompt.includes('RC-1'))
+check('the prompt carries the assignee', prompt.includes('Prakhar'))
+check('the prompt reports how long something stalled', prompt.includes('14d'))
+// Empty sections are stated rather than omitted, so the model is not left to
+// guess whether "no overdue tickets" means none or means unknown.
+check('empty sections say none explicitly', prompt.includes('Overdue now: none'))
+check('a ticket with no assignee does not print an empty bracket',
+  !prompt.includes('()'))
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)
