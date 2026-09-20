@@ -23,6 +23,7 @@ import {
   fetchNotificationsAction,
   markAllReadAction,
   markNotificationReadAction,
+  setNotificationSoundAction,
 } from '../actions'
 import type { NotificationItem } from '../queries'
 import { useNotificationSound } from './use-notification-sound'
@@ -44,14 +45,39 @@ const ICONS = {
  */
 const POLL_MS = 60_000
 
-export function NotificationBell({ initialUnread }: { initialUnread: number }) {
+export function NotificationBell({
+  initialUnread,
+  soundEnabled,
+}: {
+  initialUnread: number
+  soundEnabled: boolean
+}) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
   const [unread, setUnread] = React.useState(initialUnread)
   const [items, setItems] = React.useState<NotificationItem[]>([])
   const [loading, setLoading] = React.useState(false)
 
-  const { enabled: soundOn, toggle: toggleSound, play } = useNotificationSound()
+  /*
+   * The mute button is optimistic. The preference lives on the account, so the
+   * truthful value is the prop — but waiting for a round trip and a layout
+   * re-render before the icon changes makes a mute button feel broken. Local
+   * state leads, and re-syncs to the prop whenever the server disagrees.
+   */
+  const [soundOn, setSoundOn] = React.useState(soundEnabled)
+  React.useEffect(() => setSoundOn(soundEnabled), [soundEnabled])
+
+  const play = useNotificationSound(soundOn)
+
+  const toggleSound = React.useCallback(() => {
+    const next = !soundOn
+    setSoundOn(next)
+    void setNotificationSoundAction(next).then((result) => {
+      // Refused or failed — snap back rather than show a lie.
+      if (!result.success) setSoundOn(!next)
+      else router.refresh()
+    })
+  }, [soundOn, router])
 
   // The chime is held in a ref so that muting it does not re-create the poll
   // interval — that would reset the timer on every toggle.

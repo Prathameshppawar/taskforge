@@ -6,6 +6,7 @@ import {
   Activity,
   ArrowLeft,
   ArrowRight,
+  Building2,
   Check,
   FolderKanban,
   FolderPlus,
@@ -60,6 +61,7 @@ export function CommandPalette({
   onCreateTicket,
   onOpenCopilot,
   canCreateProject,
+  canAdministerWorkspace,
   onOpenCapture,
 }: {
   open: boolean
@@ -67,6 +69,7 @@ export function CommandPalette({
   onCreateTicket: () => void
   onOpenCopilot: () => void
   canCreateProject: boolean
+  canAdministerWorkspace: boolean
   onOpenCapture: () => void
 }) {
   const router = useRouter()
@@ -450,6 +453,15 @@ export function CommandPalette({
             <Activity className="size-4" />
             Activity
           </CommandItem>
+          {canAdministerWorkspace && (
+            <CommandItem
+              value="goto-workspace"
+              onSelect={() => run(() => router.push('/workspace'))}
+            >
+              <Building2 className="size-4" />
+              Workspace
+            </CommandItem>
+          )}
           <CommandItem value="goto-settings" onSelect={() => run(() => router.push('/settings'))}>
             <Settings className="size-4" />
             Settings

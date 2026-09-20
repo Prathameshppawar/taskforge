@@ -118,6 +118,15 @@ enum ActivityAction {
   AI_GENERATED
 }
 
+/// How two tickets relate. BLOCKS is directional — the source blocks the
+/// target — while RELATES_TO and DUPLICATES read the same from either end and
+/// are therefore stored once, not twice.
+enum TicketLinkType {
+  BLOCKS
+  RELATES_TO
+  DUPLICATES
+}
+
 enum NotificationType {
   MENTIONED
   ASSIGNED
@@ -279,6 +288,13 @@ model User {
   avatarColor  String  @default("slate")
   jobTitle     String?
 
+  /// Whether the notification chime plays for this person.
+  ///
+  /// Stored on the account rather than in the browser so that muting on a
+  /// laptop also mutes on a phone. Defaults on: someone who has never opened
+  /// the setting should still hear that work arrived.
+  notificationSound Boolean @default(true)
+
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
@@ -301,8 +317,11 @@ model User {
   createdUsers User[]  @relation("UserCreatedBy")
 
   teamMemberships TeamMember[]
-  attachedTeams   ProjectTeam[] @relation("ProjectTeamAddedBy")
-  createdTeams    Team[]        @relation("TeamCreatedBy")
+  watching        TicketWatcher[]
+  createdLinks    TicketLink[]       @relation("TicketLinkCreatedBy")
+  uploads         TicketAttachment[] @relation("AttachmentUploadedBy")
+  attachedTeams   ProjectTeam[]      @relation("ProjectTeamAddedBy")
+  createdTeams    Team[]             @relation("TeamCreatedBy")
 
   // --- reverse relations -----------------------------------------------------
   ownedProjects       Project[]         @relation("ProjectOwner")
@@ -628,6 +647,76 @@ model ProjectSettings {
   @@map("project_settings")
 }
 
+/// A relationship between two tickets.
+///
+/// Stored once per pair and direction. The reverse reading ("is blocked by") is
+/// derived when displaying rather than written as a second row, so a link can
+/// never be half-deleted and the two directions cannot disagree.
+model TicketLink {
+  id       String         @id @default(cuid())
+  sourceId String
+  source   Ticket         @relation("LinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  targetId String
+  target   Ticket         @relation("LinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  type     TicketLinkType
+
+  createdById String?
+  createdBy   User?    @relation("TicketLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@unique([sourceId, targetId, type])
+  @@index([targetId])
+  @@map("ticket_links")
+}
+
+/// Someone following a ticket without being assigned to it.
+model TicketWatcher {
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([ticketId, userId])
+  @@index([userId])
+  @@map("ticket_watchers")
+}
+
+/// File metadata. The bytes live in TicketAttachmentData.
+model TicketAttachment {
+  id          String @id @default(cuid())
+  ticketId    String
+  ticket      Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  filename    String
+  contentType String
+  /// Bytes, recorded here so a listing never has to touch the blob.
+  size        Int
+
+  data TicketAttachmentData?
+
+  uploadedById String?
+  uploadedBy   User?    @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("ticket_attachments")
+}
+
+/// The bytes, deliberately in their own table.
+///
+/// Prisma selects every scalar column unless told otherwise, so keeping the
+/// blob beside the filename would mean any forgotten `select` quietly reads
+/// megabytes to render a list of names. A separate table makes that mistake
+/// impossible rather than merely discouraged.
+model TicketAttachmentData {
+  attachmentId String           @id
+  attachment   TicketAttachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  content      Bytes
+
+  @@map("ticket_attachment_data")
+}
+
 model ProjectMember {
   id        String  @id @default(cuid())
   projectId String
@@ -818,6 +907,10 @@ model Ticket {
   labels        TicketLabel[]
   resources     TicketResource[]
   comments      Comment[]
+  linksOut      TicketLink[]       @relation("LinkSource")
+  linksIn       TicketLink[]       @relation("LinkTarget")
+  watchers      TicketWatcher[]
+  attachments   TicketAttachment[]
   activities    ActivityLog[]
   notifications Notification[]
 

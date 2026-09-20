@@ -155,3 +155,11 @@ export const addChildrenSchema = z.object({
   titles: z.array(z.string().trim().min(3).max(200)).min(1).max(50),
 })
 export type AddChildrenInput = z.infer<typeof addChildrenSchema>
+
+/** Linking two tickets. The pair and direction are validated in the service. */
+export const linkTicketSchema = z.object({
+  ticketKey: z.string().trim().min(1),
+  targetKey: z.string().trim().min(1, 'Enter a ticket key, e.g. RC-14'),
+  type: z.enum(['BLOCKS', 'RELATES_TO', 'DUPLICATES']),
+})
+export type LinkTicketInput = z.infer<typeof linkTicketSchema>

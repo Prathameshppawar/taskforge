@@ -28,8 +28,9 @@ taskforge/
     │   │   ├── forbidden/         # access-denied explanation
     │   │   ├── error.tsx          # safety-net boundary
     │   │   ├── not-found.tsx
-    │   │   ├── admin/{users,templates}/
-    │   │   ├── settings/{,security}/
+    │   │   ├── admin/{users,roles,teams,templates,sessions}/   # redirects → workspace/
+    │   │   ├── settings/{,notifications,security,tokens}/       # your account
+    │   │   ├── workspace/{people,roles,teams,templates,sessions}/ # administration
     │   │   ├── tickets/[ticketKey]/
     │   │   └── projects/
     │   │       ├── new/
@@ -69,6 +70,8 @@ taskforge/
     │   ├── recurring/              # schedules, generation service
     │   ├── command/                # palette search + quick actions
     │   ├── ai/                     # tools, resolver, executor, service, panel
+    │   ├── settings/               # account module list (navigation as data)
+    │   ├── workspace/              # administration module list + its permissions
     │   └── admin/                  # user management UI
     │
     ├── components/

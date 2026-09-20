@@ -12,6 +12,16 @@
 import { getToolDefinitions, TOOL_SCHEMAS, isToolName } from '@/features/ai/tools'
 import { clamp } from '@/features/ai/executor'
 import { parseSlash, matchingCommands, SLASH_COMMANDS } from '@/features/ai/slash'
+import { describeLink, validateLink } from '@/features/tickets/relations'
+import {
+  contentDisposition,
+  isInlineType,
+  sanitiseFilename,
+  storedContentType,
+  validateUpload,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_TICKET,
+} from '@/features/attachments/service'
 import { rollupProgress, assertValidParent, parseTicketKey, buildTicketKey } from '@/core/domain/ticket-rules'
 import { previewSchedule, nextOccurrence, firstOccurrence } from '@/core/domain/recurrence'
 import {
@@ -302,6 +312,59 @@ check('reads are not', !parseSlash('/overdue')!.command.mutates)
 
 check('the menu filters by prefix', matchingCommands('/mi').every((c) => c.name.startsWith('mi')))
 check('the menu closes once arguments start', matchingCommands('/find abc').length === 0)
+
+console.log('\n── Ticket links ──')
+// A link is stored once. Everything about how it *reads* from the other end is
+// derived, so the derivation is the thing worth asserting.
+check('blocks reads as blocked-by from the other end',
+  describeLink('BLOCKS', 'outgoing') === 'blocks' &&
+  describeLink('BLOCKS', 'incoming') === 'is blocked by')
+check('relates-to reads the same both ways',
+  describeLink('RELATES_TO', 'outgoing') === describeLink('RELATES_TO', 'incoming'))
+
+check('a ticket cannot link to itself', !validateLink('a', 'a', 'RELATES_TO', []).ok)
+check('the same link cannot be added twice',
+  !validateLink('a', 'b', 'BLOCKS', [{ sourceId: 'a', targetId: 'b', type: 'BLOCKS' }]).ok)
+// Symmetric, so the mirrored row is the same link rather than a second one.
+check('a mirrored relates-to is the same link',
+  !validateLink('a', 'b', 'RELATES_TO', [{ sourceId: 'b', targetId: 'a', type: 'RELATES_TO' }]).ok)
+// The one that matters: two tickets blocking each other can never both start.
+check('two tickets cannot block each other',
+  !validateLink('a', 'b', 'BLOCKS', [{ sourceId: 'b', targetId: 'a', type: 'BLOCKS' }]).ok)
+check('blocking in one direction is fine',
+  validateLink('a', 'b', 'BLOCKS', [{ sourceId: 'a', targetId: 'c', type: 'BLOCKS' }]).ok)
+// Directional, so the reverse is a different link and must be allowed.
+check('a duplicates b does not forbid b duplicates a',
+  validateLink('a', 'b', 'DUPLICATES', [{ sourceId: 'b', targetId: 'a', type: 'DUPLICATES' }]).ok)
+
+console.log('\n── Attachments ──')
+check('images render inline', isInlineType('image/png') && isInlineType('image/jpeg'))
+// The security decision: an SVG is a document that can carry script, so serving
+// one inline from our origin would be a stored XSS with the session cookie.
+check('SVG is never inline', !isInlineType('image/svg+xml'))
+check('HTML is never inline', !isInlineType('text/html'))
+check('parameters and casing do not smuggle a type past the check',
+  isInlineType('IMAGE/PNG; charset=utf-8'))
+
+check('an unknown type becomes a plain stream',
+  storedContentType('totally/made-up; x=1') === 'totally/made-up')
+check('a malformed type becomes a plain stream',
+  storedContentType('not-a-type') === 'application/octet-stream')
+
+// A filename reaches a header, so a quote or newline in it would let an upload
+// inject header directives.
+check('quotes are stripped from filenames', !sanitiseFilename('a"b.png').includes('"'))
+check('newlines are stripped from filenames', !/[\r\n]/.test(sanitiseFilename('a\r\nb.png')))
+check('an empty filename still yields something', sanitiseFilename('""') === 'download')
+check('the disposition forces a download for SVG',
+  contentDisposition('x.svg', 'image/svg+xml').startsWith('attachment'))
+check('the disposition renders a PNG inline',
+  contentDisposition('x.png', 'image/png').startsWith('inline'))
+
+check('an empty file is refused', !validateUpload(0, 0).ok)
+check('an oversized file is refused', !validateUpload(MAX_ATTACHMENT_BYTES + 1, 0).ok)
+check('a file at the limit is allowed', validateUpload(MAX_ATTACHMENT_BYTES, 0).ok)
+check('a full ticket refuses more', !validateUpload(10, MAX_ATTACHMENTS_PER_TICKET).ok)
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

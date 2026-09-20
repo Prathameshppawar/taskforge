@@ -1,15 +1,15 @@
 import { requireUser } from '@/features/auth/guards'
-import { visibleSections } from '@/features/settings/modules'
-import { SettingsNav } from '@/features/settings/components/settings-nav'
+import { SETTINGS_SECTIONS, visibleSections } from '@/features/settings/modules'
+import { ModuleNav } from '@/components/shared/module-nav'
 
 /**
  * The settings shell.
  *
- * Account and workspace administration live in one place rather than scattered
- * across the main navigation, because they answer the same question — "how is
- * this set up?" — and because the modules an individual can see depend entirely
- * on their permissions, which makes a single gated list far easier to reason
- * about than five separate top-level entries.
+ * Your account and nothing else — name, notifications, password, tokens.
+ * Workspace administration used to share this shell; it now lives at
+ * `/workspace`, reachable from the sidebar, because "how am I set up?" and
+ * "how is this organisation set up?" are different questions asked by
+ * different people at different times.
  *
  * This layout owns the scrolling. The modules render plain content, so there is
  * exactly one scroll container and the header never leaves the screen.
@@ -18,11 +18,11 @@ export default async function SettingsLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const actor = await requireUser()
-  const sections = visibleSections(actor.permissions)
+  const sections = visibleSections(SETTINGS_SECTIONS, actor.permissions)
 
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
-      <SettingsNav sections={sections} />
+      <ModuleNav sections={sections} exact={['/settings']} />
 
       {/* `relative` for the same reason the app shell needs it: a stray
           absolutely positioned descendant must be clipped here, not escape to

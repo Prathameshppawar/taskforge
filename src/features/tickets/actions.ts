@@ -4,7 +4,9 @@ import { revalidatePath } from 'next/cache'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import { recordActivity } from '@/features/activity/service'
-import { requireActor, requireProjectPermission, can } from '@/features/auth/guards'
+import { requireActor, requireProjectPermission, can,
+  requireProjectView,
+} from '@/features/auth/guards'
 import { allocateTicketNumber, loadProjectConfig } from '@/features/projects/service'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/errors'
@@ -18,6 +20,7 @@ import {
   syncTicketLabels,
   validateParentAssignment,
 } from './service'
+import { describeLink, ticketAudience, validateLink } from './relations'
 import {
   addChildrenSchema,
   addResourceSchema,
@@ -25,6 +28,8 @@ import {
   bulkCreateSchema,
   bulkUpdateSchema,
   createCommentSchema,
+  linkTicketSchema,
+  type LinkTicketInput,
   createTicketSchema,
   deleteCommentSchema,
   deleteTicketSchema,
@@ -1072,6 +1077,37 @@ export async function createCommentAction(
         }
       }
 
+      /*
+       * Everyone following the ticket hears about it.
+       *
+       * Last, and with the people already told removed, because `notify` only
+       * de-duplicates within a single call — without this, a watcher who was
+       * also mentioned would get the same comment twice.
+       */
+      const alreadyTold = new Set<string>([
+        ...mentioned.map((user) => user.id),
+        ...(data.parentId ? [(await tx.comment.findUnique({
+          where: { id: data.parentId },
+          select: { authorId: true },
+        }))?.authorId ?? ''] : []),
+      ])
+
+      const audience = (await ticketAudience(ticket.id)).filter(
+        (userId) => !alreadyTold.has(userId),
+      )
+
+      if (audience.length > 0) {
+        await notify(tx, {
+          userIds: audience,
+          type: 'COMMENT_REPLY',
+          actorId: actor.id,
+          ticketId: ticket.id,
+          commentId: created.id,
+          title: `${actor.name} commented on ${ticket.key}`,
+          body: preview(data.body),
+        })
+      }
+
       return created
     })
 
@@ -1205,5 +1241,156 @@ export async function suggestSimilarTicketsAction(
     const { findSimilarTickets } = await import('./queries')
     const matches = await findSimilarTickets(projectId, title, 4)
     return ok(matches)
+  })
+}
+
+// -----------------------------------------------------------------------------
+// Links and watchers
+// -----------------------------------------------------------------------------
+
+export async function linkTicketsAction(
+  input: LinkTicketInput,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const data = linkTicketSchema.parse(input)
+
+    const [source, target] = await Promise.all([
+      prisma.ticket.findUnique({
+        where: { key: data.ticketKey.toUpperCase() },
+        select: { id: true, key: true, projectId: true },
+      }),
+      prisma.ticket.findUnique({
+        where: { key: data.targetKey.toUpperCase() },
+        select: { id: true, key: true, title: true, projectId: true, assigneeId: true },
+      }),
+    ])
+
+    if (!source) throw new NotFoundError('Ticket', data.ticketKey)
+    if (!target) return fail(`${data.targetKey.toUpperCase()} does not exist.`)
+
+    const { actor } = await requireProjectPermission(source.projectId, 'ticket:update')
+    // Linking reveals a ticket's key and title, so the other end has to be
+    // visible to this actor as well — otherwise a link is an oracle.
+    await requireProjectView(target.projectId)
+
+    const existing = await prisma.ticketLink.findMany({
+      where: {
+        OR: [
+          { sourceId: source.id, targetId: target.id },
+          { sourceId: target.id, targetId: source.id },
+        ],
+      },
+      select: { sourceId: true, targetId: true, type: true },
+    })
+
+    const verdict = validateLink(source.id, target.id, data.type, existing)
+    if (!verdict.ok) return fail(verdict.reason)
+
+    await prisma.$transaction(async (tx) => {
+      await tx.ticketLink.create({
+        data: {
+          sourceId: source.id,
+          targetId: target.id,
+          type: data.type,
+          createdById: actor.id,
+        },
+      })
+
+      await recordActivity(tx, {
+        action: 'UPDATED',
+        entityType: 'TICKET',
+        entityId: source.id,
+        entityLabel: source.key,
+        projectId: source.projectId,
+        ticketId: source.id,
+        actorId: actor.id,
+        summary: `${describeLink(data.type, 'outgoing')} ${target.key}`,
+      })
+
+      // The person who now has something in their way should be told. This is
+      // what the TICKET_BLOCKED notification type was always for.
+      if (data.type === 'BLOCKS' && target.assigneeId) {
+        await notify(tx, {
+          userIds: [target.assigneeId],
+          type: 'TICKET_BLOCKED',
+          actorId: actor.id,
+          ticketId: target.id,
+          title: `${target.key} is now blocked by ${source.key}`,
+          body: target.title,
+        })
+      }
+    })
+
+    revalidatePath(`/tickets/${source.key}`)
+    revalidatePath(`/tickets/${target.key}`)
+    return ok(undefined)
+  })
+}
+
+export async function unlinkTicketsAction(linkId: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const link = await prisma.ticketLink.findUnique({
+      where: { id: linkId },
+      select: {
+        id: true,
+        type: true,
+        source: { select: { id: true, key: true, projectId: true } },
+        target: { select: { key: true } },
+      },
+    })
+    if (!link) return fail('That link no longer exists.')
+
+    const { actor } = await requireProjectPermission(link.source.projectId, 'ticket:update')
+
+    await prisma.$transaction(async (tx) => {
+      await tx.ticketLink.delete({ where: { id: link.id } })
+      await recordActivity(tx, {
+        action: 'UPDATED',
+        entityType: 'TICKET',
+        entityId: link.source.id,
+        entityLabel: link.source.key,
+        projectId: link.source.projectId,
+        ticketId: link.source.id,
+        actorId: actor.id,
+        summary: `removed link to ${link.target.key}`,
+      })
+    })
+
+    revalidatePath(`/tickets/${link.source.key}`)
+    return ok(undefined)
+  })
+}
+
+/** Follow or unfollow a ticket. Returns the state it ended in. */
+export async function toggleWatchAction(
+  ticketId: string,
+): Promise<ActionResult<{ watching: boolean }>> {
+  return runAction(async () => {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { id: true, key: true, projectId: true },
+    })
+    if (!ticket) throw new NotFoundError('Ticket', ticketId)
+
+    // Watching is reading, not writing: anyone who can see the ticket may follow
+    // it. Requiring update permission would stop exactly the people who most
+    // need to keep an eye on something.
+    const { actor } = await requireProjectView(ticket.projectId)
+
+    const existing = await prisma.ticketWatcher.findUnique({
+      where: { ticketId_userId: { ticketId, userId: actor.id } },
+      select: { ticketId: true },
+    })
+
+    if (existing) {
+      await prisma.ticketWatcher.delete({
+        where: { ticketId_userId: { ticketId, userId: actor.id } },
+      })
+    } else {
+      await prisma.ticketWatcher.create({ data: { ticketId, userId: actor.id } })
+    }
+
+    revalidatePath(`/tickets/${ticket.key}`)
+    return ok({ watching: !existing })
   })
 }

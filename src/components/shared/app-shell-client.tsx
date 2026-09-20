@@ -8,6 +8,7 @@ import { Command, Sparkles, Wand2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CommandPalette } from '@/features/command/components/command-palette'
+import { WORKSPACE_PERMISSIONS } from '@/features/workspace/modules'
 import { CopilotPanel } from '@/features/ai/components/copilot-panel'
 import { CaptureDialog } from '@/features/ai/components/capture-dialog'
 import type { CopilotScreen } from '@/features/ai/components/copilot-panel'
@@ -218,6 +219,9 @@ export function AppShellClient({
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         canCreateProject={permissions.includes('project:create')}
+        canAdministerWorkspace={WORKSPACE_PERMISSIONS.some((p) =>
+          permissions.includes(p),
+        )}
         onCreateTicket={() => {
           // Ticket creation needs a project context, so send the user to one.
           if (projectId) router.push(`/projects/${projectId}/board?new=1`)

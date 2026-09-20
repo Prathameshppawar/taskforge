@@ -39,9 +39,15 @@ export function allPages(projectId: string): Array<{ name: string; path: string 
     // The settings area has its own nested layout with a second scroll
     // container, which is exactly the shape that produced the last three
     // containment bugs.
-    ...['', '/security', '/tokens', '/people', '/roles', '/teams', '/sessions'].map(
-      (module) => ({ name: `settings${module || '/profile'}`, path: `/settings${module}` }),
-    ),
+    ...['', '/notifications', '/security', '/tokens'].map((module) => ({
+      name: `settings${module || '/profile'}`,
+      path: `/settings${module}`,
+    })),
+    // Workspace administration moved out of Settings into its own area.
+    ...['/people', '/roles', '/teams', '/sessions'].map((module) => ({
+      name: `workspace${module}`,
+      path: `/workspace${module}`,
+    })),
   ]
 }
 

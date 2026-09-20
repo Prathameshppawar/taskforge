@@ -102,11 +102,14 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 |---|---|
 | **Views** | Kanban (dnd-kit) · Table (TanStack) · Calendar · Timeline · Tree · Dashboards (Recharts) |
 | **Hierarchy** | Two-level, enforced in the domain layer. Progress rollup, automatic parent status |
+| **Links** | `blocks` · `relates to` · `duplicates`, stored once and read from both ends; an unresolved blocker is surfaced on the ticket |
+| **Watchers** | Follow a ticket without owning it — gated on *viewing*, because the people who most need to watch often should not be editing |
+| **Attachments** | Screenshots and logs, served only to people who can already see the ticket |
 | **Tickets** | Per-project keys (`AUTH-14`), inline editing, bulk actions, external resource links |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
 | **Palette** | `⌘K` search and commands; `→` on a ticket for inline actions |
-| **Notifications** | @mentions, replies and assignment reach an inbox with unread counts, and a chime — synthesised in the Web Audio API, so no asset ships — that sounds only when the count *rises*, and can be muted |
+| **Notifications** | @mentions, replies and assignment reach an inbox with unread counts, and a chime — synthesised in the Web Audio API, so no asset ships — that sounds only when the count *rises*. Muting is a **property of the account**, not the browser, and **Settings → Notifications** can play the chime on demand so the choice is an informed one |
 | **Search** | Weighted Postgres full-text with ranking, not `LIKE %term%` |
 | **Semantic similarity** | Sentence embeddings, computed in-process at no cost, so duplicate detection catches a rephrasing that shares no words |
 | **Capture** | Paste a meeting note, chat thread or stack trace; get a reviewed parent-and-tasks breakdown |
@@ -248,9 +251,12 @@ command.
 **Interfaces that don't lie.** Optimistic updates revert on failure, so a
 rejected permission check never leaves a stale value on screen. The Copilot
 renders what a tool *actually did* as a structured card **above** the model's
-prose, so you can verify the change without trusting the narration. A project
-logo that 404s falls back to the colour swatch rather than showing a broken
-image.
+prose, so you can verify the change without trusting the narration. When the
+card *is* the answer — a search, a created ticket, a pending approval — there is
+no prose under it at all: a tool's `summary` restates every row because the
+*model* has to reason about it, and printing that beneath a card listing the
+same rows is the screen twice over. A project logo that 404s falls back to the
+colour swatch rather than showing a broken image.
 
 **Counted, not claimed:** 38 `aria-label`, 16 `aria-hidden`, 12 `role`,
 9 `sr-only`, 38 `focus-visible` rings, 45 hover `title` hints, and 10 empty
@@ -395,6 +401,54 @@ twin in the sweep's `WHERE` clause — and if they ever disagree nothing throws:
 the sweep either rewrites the same rows forever or stops noticing edits.
 `verify:embeddings` proves they agree.
 
+## Serving files people uploaded
+
+Attachments were a deliberate non-goal for a long time — resource links instead,
+no bytes to store. That holds right up until somebody has to describe a UI bug
+without a screenshot.
+
+The storing is dull. The *serving* is where this feature can hurt you, so those
+decisions are in one place
+([`features/attachments/service.ts`](src/features/attachments/service.ts)) and
+asserted in the domain suite:
+
+- **SVG is never rendered inline.** It is an image everywhere else in the
+  product, but to a browser it is a document that may contain script — serving
+  one inline from our own origin hands an uploader a stored XSS with access to
+  the session cookie. It uploads fine; it downloads rather than renders.
+- **An unrecognised Content-Type becomes `application/octet-stream`.** A client
+  can claim any type it likes; echoing that back later would let the uploader
+  choose how their bytes are interpreted.
+- **Filenames are stripped of quotes, backslashes and control characters**
+  before reaching the `Content-Disposition` header, where they could otherwise
+  break out of the quoted string. The real name still arrives via the RFC 5987
+  `filename*` parameter beside it.
+- **Every download is authorised.** There are no unguessable-URL files here — an
+  id that leaks in a referrer would otherwise be a permanent public link. A file
+  you may not see returns **404, not 403**, because confirming it exists is
+  itself a disclosure.
+
+The bytes live in their own table rather than beside the filename. Prisma
+selects every scalar column unless told otherwise, so one forgotten `select`
+would quietly read megabytes to render a list of names — a separate table makes
+that mistake impossible rather than merely discouraged.
+
+## Links that mean something
+
+`blocks` and `is blocked by` are the same row read from opposite ends, so the
+row is stored once and the reverse reading is derived. Two rows could disagree,
+could be half-deleted, and would double every write.
+
+Two rules the database cannot express, so the domain does:
+
+- A ticket cannot link to itself.
+- Two tickets cannot block **each other** — that reads as "each waits for the
+  other", and is never what anybody means.
+
+An unresolved incoming blocker is surfaced above the list, because it is the
+reason the ticket cannot move. And linking finally gives the `TICKET_BLOCKED`
+notification type something to do: block someone's ticket and they are told.
+
 ## Slash commands
 
 `/overdue` and *"show me everything that's overdue"* produce the same tool call.
@@ -425,6 +479,11 @@ the instruction, but `"prakhar"` still has to *become* a person and `"In
 Review"` a status, and the proposal card is where that resolution becomes
 visible before it is committed.
 
+With no model in the loop there is also nothing to narrate, so `/mine` answers
+with the card and stops there. The rows are still replayed as conversation
+history, which is what lets *"assign the first one to me"* work on the next
+line even though nothing was written on screen.
+
 ## Two more things the model does
 
 Neither is a chatbot, because a chat box is the wrong shape for either job.
@@ -451,25 +510,35 @@ the toolbar, which can be adjusted, shared and saved.
 
 ---
 
-## The settings area
+## Settings and Workspace
 
-Account settings and workspace administration are one place, not five top-level
-navigation entries, because they answer the same question — *how is this set
-up?* — and because which modules a person can see depends entirely on their
-permissions.
+Two areas, because they answer two different questions.
 
-| Account | Workspace |
-|---|---|
-| Profile · Security · Access tokens | People · Roles · Teams · Templates · Sessions |
+| | Settings (`/settings`) | Workspace (`/workspace`) |
+|---|---|---|
+| **Asks** | *How am I set up?* | *How is this organisation set up?* |
+| **Modules** | Profile · Notifications · Security · Access tokens | People · Roles · Teams · Templates · Sessions |
+| **Reached from** | The gear at the foot of the sidebar | A top-level sidebar entry, and `⌘K` |
+| **Who sees it** | Everyone | Only someone holding at least one of its permissions |
+
+These lived together until running the place — who is here, what they may do,
+which teams they sit in — turned out to be *recurring* work, and recurring work
+belongs in the sidebar next to the other recurring work rather than two levels
+down behind a gear icon.
 
 Each workspace module names the permission that reveals it
-([`features/settings/modules.ts`](src/features/settings/modules.ts)), so a
+([`features/workspace/modules.ts`](src/features/workspace/modules.ts)), so a
 custom role sees exactly the administration it was granted — the navigation
 never mentions a role by name, and adding a role needs no change here at all.
-Profile is the default, and the layout owns the scrolling so there is exactly
-one scroll container rather than a module-inside-a-module.
+The sidebar entry derives its own visibility from that same list, so a module
+added tomorrow cannot leave the entry hidden from the people who need it.
+Someone with no workspace permissions is redirected rather than shown an empty
+shell, so hiding the entry is a courtesy and not the access control.
 
-The old `/admin/*` URLs still resolve; they redirect.
+Both shells render the same navigation component and each owns its scrolling,
+so there is exactly one scroll container rather than a module-inside-a-module.
+
+The old `/settings/*` and `/admin/*` URLs still resolve; they redirect.
 
 ---
 
@@ -531,10 +600,10 @@ Five suites, each catching something the others structurally cannot.
 
 ```bash
 npm run typecheck # strict, zero errors
-npm run verify    # 88 domain assertions — no DB, no network, <1s
+npm run verify    # 111 domain assertions — no DB, no network, <1s
 npm run verify:embeddings  # semantic similarity, against a real database
 npm run smoke     # signs in for real, walks every route, greps the server log
-npm run e2e       # 19 browser tests, phone to desktop
+npm run e2e       # 20 browser tests, phone to desktop
 npm run eval:ai   # grades the Copilot against the live model
 ```
 
@@ -679,6 +748,8 @@ a decision rather than plumbing.
 | [`features/roles/service.ts`](src/features/roles/service.ts) | The escalation guards: grant-below-your-rank, act-on-juniors-only, never-grant-what-you-lack. |
 | [`features/teams/service.ts`](src/features/teams/service.ts) | Delegated administration, scoped to the teams somebody actually manages. |
 | [`features/settings/modules.ts`](src/features/settings/modules.ts) | The settings area as data, so navigation and permissions cannot drift apart. |
+| [`features/workspace/modules.ts`](src/features/workspace/modules.ts) | Workspace administration as data — and the permission set the sidebar entry derives from. |
+| [`features/notifications/components/use-notification-sound.ts`](src/features/notifications/components/use-notification-sound.ts) | The chime, synthesised rather than shipped — and split so a muted person can still audition it. |
 | [`prisma/schema.prisma`](prisma/schema.prisma) | 32 models, fully normalized, every foreign key with an explicit referential action. |
 
 ### The AI

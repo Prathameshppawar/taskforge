@@ -66,7 +66,7 @@ test.afterAll(async () => {
 
 test('a delegated administrator sees only the roles they may act on', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/settings/roles')
+  await page.goto('/workspace/roles')
   await page.waitForLoadState('networkidle')
 
   // Admin is the recovery role: openable, but only to look at.
@@ -90,7 +90,7 @@ test('a delegated administrator sees only the roles they may act on', async ({ p
 
 test('the role editor offers only permissions the author holds', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/settings/roles')
+  await page.goto('/workspace/roles')
   await page.getByRole('button', { name: 'New role' }).click()
 
   // Held — so grantable.
@@ -108,7 +108,7 @@ test('the role editor offers only permissions the author holds', async ({ page }
 
 test('the server refuses a role ranked at or above its author', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/settings/roles')
+  await page.goto('/workspace/roles')
   await page.getByRole('button', { name: 'New role' }).click()
 
   const key = `E2E_ESCALATE_${SUFFIX.toUpperCase()}`
@@ -136,7 +136,7 @@ test('the server refuses a role ranked at or above its author', async ({ page })
 
 test('a delegated administrator is not offered roles at or above their own', async ({ page }) => {
   await signIn(page, LEAD_USERNAME, PASSWORD)
-  await page.goto('/settings/people')
+  await page.goto('/workspace/people')
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: /Add|New/ }).first().click()

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-/** Administration moved into Settings. Kept so existing links still resolve. */
-export default function MovedPage() {
-  redirect('/settings/templates')
+/** Long-standing alias. Points at the Workspace area since the move. */
+export default function AdminTemplatesRedirect() {
+  redirect('/workspace/templates')
 }

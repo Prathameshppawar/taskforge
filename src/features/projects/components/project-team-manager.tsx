@@ -125,7 +125,7 @@ export function ProjectTeamManager({
           No teams attached.{' '}
           {canManage && attachable.length === 0 ? (
             <>
-              Create one in <Link href="/settings/teams" className="text-primary hover:underline">Settings → Teams</Link> first.
+              Create one in <Link href="/workspace/teams" className="text-primary hover:underline">Workspace → Teams</Link> first.
             </>
           ) : (
             'Attach one to give a whole group access at once.'

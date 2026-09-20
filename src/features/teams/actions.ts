@@ -69,7 +69,7 @@ export async function createTeamAction(
       return created
     })
 
-    revalidatePath('/settings/teams')
+    revalidatePath('/workspace/teams')
     return ok({ id: team.id })
   })
 }
@@ -94,7 +94,7 @@ export async function updateTeamAction(input: UpdateTeamInput): Promise<ActionRe
       })
     })
 
-    revalidatePath('/settings/teams')
+    revalidatePath('/workspace/teams')
     return ok(undefined)
   })
 }
@@ -122,7 +122,7 @@ export async function deleteTeamAction(teamId: string): Promise<ActionResult<voi
       })
     })
 
-    revalidatePath('/settings/teams')
+    revalidatePath('/workspace/teams')
     return ok(undefined)
   })
 }
@@ -167,7 +167,7 @@ export async function setTeamMemberAction(
       })
     })
 
-    revalidatePath('/settings/teams')
+    revalidatePath('/workspace/teams')
     return ok(undefined)
   })
 }
@@ -201,7 +201,7 @@ export async function removeTeamMemberAction(
       })
     })
 
-    revalidatePath('/settings/teams')
+    revalidatePath('/workspace/teams')
     return ok(undefined)
   })
 }

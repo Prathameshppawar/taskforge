@@ -248,8 +248,18 @@ export async function slashAction(
       revalidatePath(`/projects/${input.projectId}`)
     }
 
+    /*
+     * No model ran, so there is no narration — and the tool's `summary` is not
+     * a substitute for one. It is written to be read by a model, and the panel
+     * has already rendered the same data as a card. A failure is carded too, in
+     * red, so repeating it in prose only says it twice.
+     */
     return ok({
-      reply: result.ok ? result.summary : `That did not work. ${result.summary}`,
+      reply: result.ok ? (result.reply ?? result.summary) : '',
+      // Kept for the next turn: with the prose gone, this is the only record of
+      // what was shown, and "assign the first one to me" has to resolve against
+      // something.
+      context: result.summary,
       toolRuns: [{ name: parsed.call.tool, result }],
       proposals: result.proposal ? [result.proposal] : [],
     })

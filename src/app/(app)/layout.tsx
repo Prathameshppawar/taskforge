@@ -10,15 +10,19 @@ import {
   ShellActions,
 } from "@/components/shared/app-shell-client";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
-import { getUnreadCount } from "@/features/notifications/queries";
+import {
+  getNotificationPreferences,
+  getUnreadCount,
+} from "@/features/notifications/queries";
 
 export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const actor = await requireUser();
-  const [projects, unread] = await Promise.all([
+  const [projects, unread, preferences] = await Promise.all([
     getSidebarProjects(actor),
     getUnreadCount(actor),
+    getNotificationPreferences(actor),
   ]);
   const aiEnabled = isAiEnabled();
 
@@ -27,17 +31,20 @@ export default async function AppLayout({
       <div className="flex h-dvh overflow-hidden">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 border-r lg:block">
-          <AppSidebar projects={projects} />
+          <AppSidebar projects={projects} permissions={actor.permissions} />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
-            <MobileNav projects={projects} />
+            <MobileNav projects={projects} permissions={actor.permissions} />
 
             <div className="flex-1" />
 
             <ShellActions aiEnabled={aiEnabled} />
-            <NotificationBell initialUnread={unread} />
+            <NotificationBell
+              initialUnread={unread}
+              soundEnabled={preferences.sound}
+            />
             <ThemeToggle />
             <UserMenu
               name={actor.name}

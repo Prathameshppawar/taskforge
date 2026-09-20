@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Activity,
+  Building2,
   ChevronRight,
   FolderKanban,
   Inbox,
@@ -15,6 +16,7 @@ import {
   Settings,
 } from 'lucide-react'
 import type { Permission } from '@/core/domain/rbac'
+import { WORKSPACE_PERMISSIONS } from '@/features/workspace/modules'
 
 import { cn } from '@/lib/utils'
 import { ProjectLogo } from '@/components/shared/project-logo'
@@ -53,14 +55,22 @@ const MAIN_NAV: NavItem[] = [
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/activity', label: 'Activity', icon: Activity },
+  {
+    href: '/workspace',
+    label: 'Workspace',
+    icon: Building2,
+    anyOf: WORKSPACE_PERMISSIONS,
+  },
 ]
 
 
 export function AppSidebar({
   projects,
+  permissions,
   onNavigate,
 }: {
   projects: SidebarProject[]
+  permissions: Permission[]
   onNavigate?: () => void
 }) {
   const pathname = usePathname()
@@ -68,6 +78,21 @@ export function AppSidebar({
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`)
+
+  /*
+   * Gating on capability rather than role name is what lets a custom role get
+   * the right navigation without this component knowing that role exists.
+   * Someone who administers nothing simply has no Workspace entry — and the
+   * workspace layout redirects them too, so hiding it here is a courtesy
+   * rather than the access control.
+   */
+  const nav = React.useMemo(
+    () =>
+      MAIN_NAV.filter(
+        (item) => !item.anyOf || item.anyOf.some((p) => permissions.includes(p)),
+      ),
+    [permissions],
+  )
 
 
   return (
@@ -89,7 +114,7 @@ export function AppSidebar({
       <ScrollArea className="min-h-0 flex-1">
         <nav className="space-y-6 p-3" aria-label="Main">
           <ul className="space-y-0.5">
-            {MAIN_NAV.map((item) => (
+            {nav.map((item) => (
               <li key={item.href}>
                 <NavLink item={item} active={isActive(item.href)} onNavigate={onNavigate} />
               </li>

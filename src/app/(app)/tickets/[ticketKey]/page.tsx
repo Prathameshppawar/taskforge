@@ -13,6 +13,12 @@ import { CommentThread } from '@/features/tickets/components/comment-thread'
 import { ResourceList } from '@/features/tickets/components/resource-list'
 import { ActivityFeed } from '@/features/activity/components/activity-feed'
 import { ChildTicketList } from '@/features/tickets/components/child-ticket-list'
+import { TicketLinks } from '@/features/tickets/components/ticket-links'
+import { TicketAttachments } from '@/features/tickets/components/ticket-attachments'
+import { WatchButton } from '@/features/tickets/components/watch-button'
+import { listTicketLinks } from '@/features/tickets/relations'
+import { listAttachments } from '@/features/attachments/actions'
+import { prisma } from '@/infrastructure/db/prisma'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { UserAvatar } from '@/components/shared/user-avatar'
@@ -39,7 +45,16 @@ export default async function TicketDetailPage({
   if (!ticket) notFound()
 
   const context = await getProjectViewContext(ticket.project.id)
-  const activity = await getTicketActivity(ticket.id)
+
+  const [activity, links, attachments, watchers] = await Promise.all([
+    getTicketActivity(ticket.id),
+    listTicketLinks(ticket.id),
+    listAttachments(ticket.id),
+    prisma.ticketWatcher.findMany({
+      where: { ticketId: ticket.id },
+      select: { userId: true },
+    }),
+  ])
 
   const canEdit = context.can.updateTicket
 
@@ -82,6 +97,16 @@ export default async function TicketDetailPage({
                   child of {ticket.parent.key}
                 </Link>
               )}
+
+              {/* Following is available to anyone who can see the ticket, so it
+                  sits with the identity row rather than the edit controls. */}
+              <div className="ml-auto">
+                <WatchButton
+                  ticketId={ticket.id}
+                  watching={watchers.some((watcher) => watcher.userId === actor.id)}
+                  watcherCount={watchers.length}
+                />
+              </div>
             </div>
 
             <EditableTitle
@@ -148,6 +173,14 @@ export default async function TicketDetailPage({
             childTickets={ticket.children}
             canEdit={canEdit && !ticket.parentId}
             isChild={Boolean(ticket.parentId)}
+          />
+
+          <TicketLinks ticketKey={ticket.key} links={links} canEdit={canEdit} />
+
+          <TicketAttachments
+            ticketId={ticket.id}
+            attachments={attachments}
+            canEdit={canEdit}
           />
 
           <ResourceList

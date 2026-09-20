@@ -2,8 +2,6 @@
 
 import * as React from 'react'
 
-const STORAGE_KEY = 'taskforge:notification-sound'
-
 /**
  * The notification chime.
  *
@@ -24,35 +22,19 @@ const NOTES = [
 const PEAK_GAIN = 0.12
 const NOTE_SECONDS = 0.22
 
-export function useNotificationSound() {
-  const [enabled, setEnabled] = React.useState(true)
+/**
+ * Plays the chime, unconditionally.
+ *
+ * Deliberately knows nothing about whether the person wants to hear it: the
+ * settings screen has a "play it for me" button that must work *while the
+ * preference is off*, because the whole point of that button is to let someone
+ * hear what they are about to switch on.
+ */
+export function useNotificationChime() {
   const contextRef = React.useRef<AudioContext | null>(null)
 
-  // Read after mount, never during render: the server has no localStorage, so
-  // reading it during render would make the markup mismatch and hydrate wrong.
-  React.useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY)
-      if (stored !== null) setEnabled(stored === 'on')
-    } catch {
-      // Private browsing or blocked site data — the default stands.
-    }
-  }, [])
-
-  const toggle = React.useCallback(() => {
-    setEnabled((previous) => {
-      const next = !previous
-      try {
-        window.localStorage.setItem(STORAGE_KEY, next ? 'on' : 'off')
-      } catch {
-        // Preference simply will not survive a reload.
-      }
-      return next
-    })
-  }, [])
-
   const play = React.useCallback(() => {
-    if (!enabled || typeof window === 'undefined') return
+    if (typeof window === 'undefined') return
 
     try {
       // Created on demand and reused. Browsers cap how many contexts a page may
@@ -93,9 +75,9 @@ export function useNotificationSound() {
       // No Web Audio support, or the context was refused. The badge still
       // updates; sound is an enhancement, never the notification itself.
     }
-  }, [enabled])
+  }, [])
 
-  // Release the audio hardware when the bell unmounts.
+  // Release the audio hardware when the owner unmounts.
   React.useEffect(() => {
     return () => {
       void contextRef.current?.close().catch(() => {})
@@ -103,5 +85,21 @@ export function useNotificationSound() {
     }
   }, [])
 
-  return { enabled, toggle, play }
+  return play
+}
+
+/**
+ * The chime, gated on the person's saved preference.
+ *
+ * `enabled` arrives from the server — it is a column on the user, not browser
+ * storage, so muting on a laptop also mutes on a phone. That means this hook
+ * holds no preference state of its own: the value changes by the server
+ * re-rendering the layout, never by this hook deciding anything.
+ */
+export function useNotificationSound(enabled: boolean) {
+  const chime = useNotificationChime()
+
+  return React.useCallback(() => {
+    if (enabled) chime()
+  }, [enabled, chime])
 }

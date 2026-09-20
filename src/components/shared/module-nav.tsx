@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  Bell,
   KeyRound,
   LayoutTemplate,
   Lock,
@@ -16,10 +17,11 @@ import {
 
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import type { SettingsSection } from '../modules'
+import type { NavSection } from '@/features/settings/modules'
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   user: User,
+  bell: Bell,
   lock: Lock,
   key: KeyRound,
   users: Users,
@@ -29,13 +31,25 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   monitor: MonitorSmartphone,
 }
 
-export function SettingsNav({ sections }: { sections: SettingsSection[] }) {
+/**
+ * The sub-navigation for a module shell — Settings and Workspace both use it.
+ *
+ * `exact` names the hrefs that must match the pathname exactly. `/settings` is
+ * the profile module, so a prefix test would mark it active on every other
+ * settings module too; the caller passes it rather than this component knowing
+ * which area it is rendering.
+ */
+export function ModuleNav({
+  sections,
+  exact = [],
+}: {
+  sections: NavSection[]
+  exact?: string[]
+}) {
   const pathname = usePathname()
 
-  // `/settings` is the profile module, so it must match exactly — a prefix test
-  // would mark it active on every other module too.
   const isActive = (href: string) =>
-    href === '/settings' ? pathname === '/settings' : pathname.startsWith(href)
+    exact.includes(href) ? pathname === href : pathname.startsWith(href)
 
   return (
     <>

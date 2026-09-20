@@ -31,7 +31,7 @@ bad()  { fail=$((fail+1)); printf '  \033[31m✗\033[0m %s\n' "$*"; }
 
 echo
 echo "── Anonymous access ──"
-for path in /dashboard /projects /settings/people; do
+for path in /dashboard /projects /workspace/people; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$path")
   if [ "$code" = "307" ] || [ "$code" = "302" ]; then
     ok "$path redirects when signed out ($code)"
@@ -69,7 +69,7 @@ PROJECT_ID=$(curl -s -b "$JAR" "$BASE/api/auth/session" >/dev/null; \
   curl -s -b "$JAR" "$BASE/projects" | sed -n 's|.*href="/projects/\([a-z0-9]\{20,\}\)".*|\1|p' | head -1)
 
 ROUTES=(/dashboard /my-tickets /activity /projects /projects/new /settings /settings/security)
-[ "$ROLE" = "ADMIN" ] && ROUTES+=(/settings/people /settings/roles /settings/teams /settings/templates)
+[ "$ROLE" = "ADMIN" ] && ROUTES+=(/workspace/people /workspace/roles /workspace/teams /workspace/templates)
 
 if [ -n "$PROJECT_ID" ]; then
   for view in board table tree calendar timeline insights recurring labels members settings activity; do

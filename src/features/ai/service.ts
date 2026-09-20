@@ -28,6 +28,14 @@ export interface CopilotContext {
 
 export interface CopilotTurn {
   reply: string
+  /**
+   * Replayed as history in place of `reply` when the reply is empty.
+   *
+   * A slash result is shown as a card, not prose, so there is no sentence to
+   * carry into the next turn — but "assign the first one to me" still has to
+   * resolve against what was listed.
+   */
+  context?: string
   toolRuns: Array<{ name: string; result: ToolResult }>
   /** Writes awaiting the user's approval. Empty when nothing was proposed. */
   proposals: Array<{ tool: string; arguments: Record<string, unknown>; label: string }>
@@ -63,6 +71,10 @@ export function buildSystemPrompt(context: CopilotContext): string {
     // The proposal card already lists every field, so repeating them in prose
     // duplicates the screen and spends output tokens saying it twice.
     'A tool that returns "Proposed:" has NOT run. The user already sees the full details in a card, so reply with ONE short sentence asking them to confirm. Do not list the fields again, and never say it is done.',
+    // Same reasoning as proposals: search, insight and duplicate results are
+    // rendered as a card above the reply. Re-typing the rows underneath it is
+    // the screen twice over, and on a narrow panel it pushes the card away.
+    'Search, insights and duplicate results are ALSO shown as a card. Never re-list those tickets or repeat their counts — answer the question that was asked, or say nothing beyond one short line.',
     // Screen context last, so it reads as the immediate situation.
     ...screenLines(context),
   ].join('\n')

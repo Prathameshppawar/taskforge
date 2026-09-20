@@ -30,13 +30,30 @@ jobs:
       # in raw SQL — so it proposes dropping them on almost every migration.
       # Accepting that silently would turn full-text search back into a
       # sequential scan with no test failing, so it is caught here instead.
-      - name: Guard the hand-written search indexes
+      # Prisma does not know about the ticket search objects — they are created
+      # in raw SQL — so it proposes dropping them on almost every migration, and
+      # re-proposes rewriting the Unsupported() embedding column. Accepting
+      # either silently would turn search back into a sequential scan or discard
+      # every stored vector, with no test failing.
+      - name: Guard the raw-SQL ticket columns
         run: |
-          if grep -rn 'DROP INDEX "tickets_\(search\|key_trgm\)_idx"' prisma/migrations/; then
-            echo "::error::A migration drops a ticket search index. Remove that statement."
+          # Comments are stripped first: a migration is allowed to *explain* why
+          # it removed one of these, it just must not contain the statement.
+          offenders=$(
+            for f in $(find prisma/migrations -name migration.sql); do
+              sed 's/--.*//' "$f" | grep -Hn \
+                -e 'DROP INDEX "tickets_search_idx"' \
+                -e 'DROP INDEX "tickets_key_trgm_idx"' \
+                -e 'DROP COLUMN "embedding"' \
+                --label="$f" || true
+            done
+          )
+          if [ -n "$offenders" ]; then
+            echo "$offenders"
+            echo "::error::A migration drops a raw-SQL search object or the embedding column."
             exit 1
           fi
-          echo "No migration drops the search indexes."
+          echo "No migration drops the search indexes or the embedding column."
 
       - name: Lint
         run: npm run lint
@@ -44,7 +61,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # 88 assertions over the framework-free domain: the permission catalogue,
+      # 111 assertions over the framework-free domain: the permission catalogue,
       # seniority and project-access rules, progress rollup, the two-level
       # hierarchy rule, recurrence arithmetic, the AI tool trust boundary and its
       # token budget. No database, no network, under a second.
@@ -126,7 +143,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      # 19 tests: page-level scroll containment across five viewports from phone
+      # 20 tests: page-level scroll containment across five viewports from phone
       # to desktop, the forced password-change gate, the notification chime, the
       # privilege-escalation guards on roles, and that project access genuinely
       # follows a team being attached and detached.

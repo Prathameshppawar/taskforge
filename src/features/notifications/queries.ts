@@ -28,4 +28,22 @@ export async function getUnreadCount(actor: Actor): Promise<number> {
   })
 }
 
+/**
+ * The delivery preferences the app shell needs on every page.
+ *
+ * Returns a default rather than throwing if the row has vanished mid-request
+ * (a deactivated account being cleaned up, say): the layout renders a bell
+ * either way, and a missing user is the session guard's problem, not this
+ * query's.
+ */
+export async function getNotificationPreferences(
+  actor: Actor,
+): Promise<{ sound: boolean }> {
+  const user = await prisma.user.findUnique({
+    where: { id: actor.id },
+    select: { notificationSound: true },
+  })
+  return { sound: user?.notificationSound ?? true }
+}
+
 export type NotificationItem = Awaited<ReturnType<typeof getNotifications>>[number]

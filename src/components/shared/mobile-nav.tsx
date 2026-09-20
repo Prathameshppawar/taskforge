@@ -5,12 +5,15 @@ import { Menu } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import type { Permission } from '@/core/domain/rbac'
 import { AppSidebar, type SidebarProject } from './app-sidebar'
 
 export function MobileNav({
   projects,
+  permissions,
 }: {
   projects: SidebarProject[]
+  permissions: Permission[]
 }) {
   const [open, setOpen] = React.useState(false)
 
@@ -23,7 +26,11 @@ export function MobileNav({
       </SheetTrigger>
       <SheetContent side="left" className="w-64 p-0">
         <SheetTitle className="sr-only">Navigation</SheetTitle>
-        <AppSidebar projects={projects} onNavigate={() => setOpen(false)} />
+        <AppSidebar
+          projects={projects}
+          permissions={permissions}
+          onNavigate={() => setOpen(false)}
+        />
       </SheetContent>
     </Sheet>
   )

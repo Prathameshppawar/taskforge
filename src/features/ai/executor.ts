@@ -39,6 +39,19 @@ export interface ToolResult {
   ok: boolean
   /** Text fed back to the model so it can narrate what happened. */
   summary: string
+  /**
+   * What the panel shows when nobody narrates the result.
+   *
+   * `summary` is written for a model: it restates every row so the model can
+   * reason about the data it just asked for. The panel is not a model — it
+   * already renders those rows as a card — so printing the summary underneath
+   * says the same thing twice. Slash commands hit this directly, since they
+   * skip the provider entirely and have no reply of their own.
+   *
+   * An empty string means the card IS the answer. Left unset when there is no
+   * card, in which case the summary is all the user would get.
+   */
+  reply?: string
   /** Structured payload rendered as a rich card in the panel. */
   data?: unknown
   /** Set when this is a proposal awaiting approval rather than a done deed. */
@@ -95,6 +108,9 @@ export async function executeTool(
     return {
       ok: true,
       summary: `Proposed: ${describe(name, parsed.data as never)}. Awaiting the user's approval — do not claim it is done.`,
+      // The approval block spells the change out and asks the question. This
+      // summary is an instruction to the model, not a sentence for a person.
+      reply: '',
       proposal: {
         tool: name,
         // The resolved project wins over whatever the model supplied: it is
@@ -255,6 +271,7 @@ async function createTicket(args: CreateArgs, ctx: ExecutionContext): Promise<To
       `Created ${result.data.key} — "${args.title}" in ${project.name}` +
       (assignee ? `, assigned to ${assignee.name}` : '') +
       (warnings.length ? `. Note: ${warnings.join('; ')}` : '.'),
+    reply: '',
     data: {
       kind: 'ticket_created',
       key: result.data.key,
@@ -306,6 +323,7 @@ async function bulkCreate(args: BulkArgs, ctx: ExecutionContext): Promise<ToolRe
   return {
     ok: true,
     summary: `Created ${result.data.parentKey} — "${args.parentTitle}" with ${result.data.childKeys.length} child tickets: ${result.data.childKeys.join(', ')}.`,
+    reply: '',
     data: {
       kind: 'bulk_created',
       parentKey: result.data.parentKey,
@@ -367,7 +385,12 @@ async function searchTickets(args: SearchArgs, ctx: ExecutionContext): Promise<T
   })
 
   if (items.length === 0) {
-    return { ok: true, summary: 'No tickets matched those filters.', data: { kind: 'search', tickets: [], total: 0 } }
+    return {
+      ok: true,
+      summary: 'No tickets matched those filters.',
+      reply: '',
+      data: { kind: 'search', tickets: [], total: 0 },
+    }
   }
 
   const lines = items
@@ -384,6 +407,9 @@ async function searchTickets(args: SearchArgs, ctx: ExecutionContext): Promise<T
     summary: `Found ${total} matching ${total === 1 ? 'ticket' : 'tickets'}${
       total > items.length ? ` (showing ${items.length})` : ''
     }:\n${lines}`,
+    // The card lists every one of these with its status, priority and owner,
+    // and counts them in its header — including the "showing N of M" case.
+    reply: '',
     data: {
       kind: 'search',
       total,
@@ -465,6 +491,7 @@ async function updateTicket(args: UpdateArgs, ctx: ExecutionContext): Promise<To
   return {
     ok: true,
     summary: `Updated ${ticket.key}: ${changes.join(', ') || 'no changes'}.`,
+    reply: '',
     data: {
       kind: 'ticket_updated',
       key: ticket.key,
@@ -583,9 +610,29 @@ async function projectInsights(args: InsightArgs, ctx: ExecutionContext): Promis
     }
   }
 
+  /*
+   * The insights card is the one card that does NOT carry the whole answer: it
+   * shows the health numbers and nothing else. So the panel line is what the
+   * card leaves out — the timeline, who owns it, who is carrying the most —
+   * rather than a restatement of the counts sitting directly above it.
+   */
+  const replyLines = [
+    dateBits.length ? `Dates: ${dateBits.join(', ')}.` : null,
+    `Owner: ${detail?.owner.name ?? 'unknown'}${
+      detail?.members.length ? ` · team of ${detail.members.length}` : ''
+    }.`,
+    workload.length
+      ? `Busiest: ${workload
+          .slice(0, 3)
+          .map((r) => `${r.name} ${r.total}`)
+          .join(', ')}.`
+      : null,
+  ].filter((line): line is string => line !== null)
+
   return {
     ok: true,
     summary: lines.join('\n'),
+    reply: replyLines.join('\n'),
     data: {
       kind: 'insights',
       projectName: project.name,
@@ -628,6 +675,7 @@ async function findDuplicates(
     } already exist:\n${matches
       .map((m) => `${m.key} — ${m.title} [${m.statusName}] (${Math.round(m.score * 100)}% similar)`)
       .join('\n')}\nMention these to the user before creating a duplicate.`,
+    reply: '',
     data: { kind: 'duplicates', matches },
   }
 }

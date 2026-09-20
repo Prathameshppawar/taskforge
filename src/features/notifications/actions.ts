@@ -42,3 +42,25 @@ export async function fetchNotificationsAction() {
   ])
   return { items, unread }
 }
+
+/**
+ * Turn the notification chime on or off for the signed-in person.
+ *
+ * Always scoped to the actor — there is no administrative override here, since
+ * whether someone's speakers make a noise is theirs to decide.
+ */
+export async function setNotificationSoundAction(
+  enabled: boolean,
+): Promise<ActionResult<{ enabled: boolean }>> {
+  return runAction(async () => {
+    const actor = await requireActor()
+    await prisma.user.update({
+      where: { id: actor.id },
+      data: { notificationSound: enabled },
+    })
+    // The bell reads this preference in the app layout, so every route's shell
+    // is stale once it changes — not just the settings page that changed it.
+    revalidatePath('/', 'layout')
+    return ok({ enabled })
+  })
+}

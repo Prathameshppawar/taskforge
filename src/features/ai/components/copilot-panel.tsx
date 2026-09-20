@@ -40,7 +40,16 @@ export interface CopilotProposal {
 export interface CopilotMessage {
   id: string
   role: 'user' | 'assistant'
+  /** What is displayed. Empty when the cards below say all there is to say. */
   content: string
+  /**
+   * Replayed as history in place of `content`.
+   *
+   * A slash command renders a card and no prose, so without this the next turn
+   * would see an empty assistant message and have nothing for "the first one"
+   * to refer to.
+   */
+  context?: string
   toolRuns?: Array<{ name: string; result: { ok: boolean; summary: string; data?: unknown } }>
   /** Writes the Copilot wants to make, pending approval. */
   proposals?: CopilotProposal[]
@@ -313,7 +322,8 @@ export function CopilotPanel({
 
     const history = messages
       .filter((message) => !message.error)
-      .map((message) => ({ role: message.role, content: message.content }))
+      .map((message) => ({ role: message.role, content: message.context ?? message.content }))
+      .filter((message) => message.content.trim().length > 0)
 
     updateActive((current) => [...current, userMessage])
     setInput('')
@@ -345,6 +355,7 @@ export function CopilotPanel({
           id: `a-${Date.now()}`,
           role: 'assistant',
           content: result.data.reply,
+          context: result.data.context,
           toolRuns: result.data.toolRuns,
           proposals: result.data.proposals?.length ? result.data.proposals : undefined,
         },
@@ -743,26 +754,38 @@ function MessageBubble({
         </div>
       )}
 
+      {/* Once approved the block above is gone, and a slash proposal carries no
+          prose of its own — without this the message would collapse to nothing
+          and leave a gap where the question used to be. What was actually
+          written shows up as the card on the next message. */}
+      {message.resolved === 'approved' && (
+        <p className="text-[11px] text-muted-foreground italic">Approved.</p>
+      )}
+
       {message.resolved === 'declined' && (
         <p className="text-[11px] text-muted-foreground italic">Cancelled — nothing was changed.</p>
       )}
 
-      <div
-        className={cn(
-          'flex gap-2',
-          message.error && 'rounded-lg border border-destructive/30 bg-destructive/5 p-2.5',
-        )}
-      >
-        {message.error ? (
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
-        ) : (
-          <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
-        )}
-        <MarkdownText
-          content={message.content}
-          className={cn('min-w-0', message.error && 'text-destructive')}
-        />
-      </div>
+      {/* Only when there is something to say. A result whose card is the whole
+          answer would otherwise leave a sparkle icon floating over an empty line. */}
+      {message.content.trim().length > 0 && (
+        <div
+          className={cn(
+            'flex gap-2',
+            message.error && 'rounded-lg border border-destructive/30 bg-destructive/5 p-2.5',
+          )}
+        >
+          {message.error ? (
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          ) : (
+            <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
+          )}
+          <MarkdownText
+            content={message.content}
+            className={cn('min-w-0', message.error && 'text-destructive')}
+          />
+        </div>
+      )}
     </div>
   )
 }

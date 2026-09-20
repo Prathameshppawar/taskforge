@@ -1,16 +1,15 @@
 import type { Permission } from '@/core/domain/rbac'
 
 /**
- * The settings area, as modules.
+ * Navigable module lists, shared by a shell's navigation and its layout.
  *
- * One list, used by both the navigation and the layout, so a module cannot
- * appear in one and not the other. Account modules are everyone's; workspace
- * modules each name the permission that reveals them, which is why a custom
- * role sees exactly the administration it was granted and nothing else — the
- * navigation never mentions a role by name.
+ * One list per area, used by both, so a module cannot appear in the navigation
+ * and not the shell. Modules each name the permission that reveals them, which
+ * is why a custom role sees exactly the administration it was granted and
+ * nothing else — the navigation never mentions a role by name.
  */
 
-export interface SettingsModule {
+export interface NavModule {
   href: string
   label: string
   description: string
@@ -19,12 +18,21 @@ export interface SettingsModule {
   anyOf?: Permission[]
 }
 
-export interface SettingsSection {
+export interface NavSection {
   label: string
-  modules: SettingsModule[]
+  modules: NavModule[]
 }
 
-export const SETTINGS_SECTIONS: SettingsSection[] = [
+/**
+ * Settings, which is now only your own account.
+ *
+ * Workspace administration used to live here too. It moved out to `/workspace`
+ * because the two answer different questions — "how am I set up?" versus "how
+ * is this organisation set up?" — and burying People and Roles two levels deep
+ * under a gear icon made the work of running the place feel incidental.
+ * See `src/features/workspace/modules.ts`.
+ */
+export const SETTINGS_SECTIONS: NavSection[] = [
   {
     label: 'Account',
     modules: [
@@ -33,6 +41,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
         label: 'Profile',
         description: 'Your name, job title and how you appear to colleagues.',
         icon: 'user',
+      },
+      {
+        href: '/settings/notifications',
+        label: 'Notifications',
+        description: 'Whether new work makes a sound.',
+        icon: 'bell',
       },
       {
         href: '/settings/security',
@@ -48,54 +62,19 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       },
     ],
   },
-  {
-    label: 'Workspace',
-    modules: [
-      {
-        href: '/settings/people',
-        label: 'People',
-        description: 'Accounts, roles and access. There is no self sign-up.',
-        icon: 'users',
-        anyOf: ['user:view'],
-      },
-      {
-        href: '/settings/roles',
-        label: 'Roles',
-        description: 'What each role may do, and how they rank.',
-        icon: 'shield',
-        anyOf: ['role:manage'],
-      },
-      {
-        href: '/settings/teams',
-        label: 'Teams',
-        description: 'Groups of people, and who may administer them.',
-        icon: 'usersRound',
-        anyOf: ['team:manage', 'team:manage-members'],
-      },
-      {
-        href: '/settings/templates',
-        label: 'Templates',
-        description: 'The starting boards new projects are cloned from.',
-        icon: 'template',
-        anyOf: ['template:manage'],
-      },
-      {
-        href: '/settings/sessions',
-        label: 'Sessions',
-        description: 'Who is signed in, and revoking access.',
-        icon: 'monitor',
-        anyOf: ['user:view'],
-      },
-    ],
-  },
 ]
 
 /** The sections this actor can actually see, with empty ones dropped. */
-export function visibleSections(permissions: readonly string[]): SettingsSection[] {
-  return SETTINGS_SECTIONS.map((section) => ({
-    ...section,
-    modules: section.modules.filter(
-      (module) => !module.anyOf || module.anyOf.some((p) => permissions.includes(p)),
-    ),
-  })).filter((section) => section.modules.length > 0)
+export function visibleSections(
+  sections: NavSection[],
+  permissions: readonly string[],
+): NavSection[] {
+  return sections
+    .map((section) => ({
+      ...section,
+      modules: section.modules.filter(
+        (module) => !module.anyOf || module.anyOf.some((p) => permissions.includes(p)),
+      ),
+    }))
+    .filter((section) => section.modules.length > 0)
 }

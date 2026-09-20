@@ -100,8 +100,8 @@ export async function createRoleAction(
       return created
     })
 
-    revalidatePath('/settings/roles')
-    revalidatePath('/settings/people')
+    revalidatePath('/workspace/roles')
+    revalidatePath('/workspace/people')
     return ok({ id: role.id })
   })
 }
@@ -150,8 +150,8 @@ export async function updateRoleAction(input: UpdateRoleInput): Promise<ActionRe
       })
     })
 
-    revalidatePath('/settings/roles')
-    revalidatePath('/settings/people')
+    revalidatePath('/workspace/roles')
+    revalidatePath('/workspace/people')
     return ok(undefined)
   })
 }
@@ -182,7 +182,7 @@ export async function deleteRoleAction(roleId: string): Promise<ActionResult<voi
       })
     })
 
-    revalidatePath('/settings/roles')
+    revalidatePath('/workspace/roles')
     return ok(undefined)
   })
 }
