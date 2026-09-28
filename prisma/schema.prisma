@@ -723,6 +723,11 @@ model ProjectSettings {
   /// Let linked GitHub activity move tickets forward: a pull request opened
   /// moves one to Review, merged moves it to Done. Never moves one backward.
   githubAutomation Boolean @default(true)
+  /// Let "Fix with AI" create and edit GitHub Actions workflows. Off by
+  /// default: a workflow runs as soon as its pull request opens, so this is a
+  /// deliberate per-project choice, and every workflow written is checked by
+  /// `checkWorkflow` before it is committed.
+  aiWorkflows      Boolean @default(false)
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)

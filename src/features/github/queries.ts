@@ -79,7 +79,7 @@ export type IntegrationOverview = Awaited<ReturnType<typeof getIntegrationOvervi
 
 /** A project's linked repositories, and every repository it could link. */
 export async function getProjectRepos(projectId: string) {
-  const [linked, available, settings] = await Promise.all([
+  const [linked, available, settings, app] = await Promise.all([
     prisma.projectRepo.findMany({
       where: { projectId },
       orderBy: { createdAt: 'asc' },
@@ -104,8 +104,9 @@ export async function getProjectRepos(projectId: string) {
     }),
     prisma.projectSettings.findUnique({
       where: { projectId },
-      select: { githubAutomation: true },
+      select: { githubAutomation: true, aiWorkflows: true },
     }),
+    prisma.githubApp.findUnique({ where: { id: 1 }, select: { slug: true, ownerLogin: true } }),
   ])
 
   const linkedIds = new Set(linked.map((link) => link.repo.id))
@@ -114,6 +115,9 @@ export async function getProjectRepos(projectId: string) {
     linked: linked.map((link) => ({ ...link.repo, role: link.role })),
     available: available.filter((repo) => !linkedIds.has(repo.id)),
     automation: settings?.githubAutomation ?? true,
+    aiWorkflows: settings?.aiWorkflows ?? false,
+    /** Where the app's permissions are edited — needed to grant Workflows. */
+    appPermissionsUrl: app ? `https://github.com/settings/apps/${app.slug}/permissions` : null,
     hasGithub: available.length > 0 || linked.length > 0,
   }
 }

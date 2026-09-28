@@ -95,6 +95,20 @@ export interface FixResult {
   transcript: string[]
 }
 
+/**
+ * Added only for projects that allow workflows. The rules are enforced by
+ * `checkWorkflow` whatever the model does; stating them saves it the round
+ * trips of learning them from rejections.
+ */
+const WORKFLOW_GUIDANCE = `
+
+This project allows you to create GitHub Actions workflows in .github/workflows/. Each one is checked before it is saved, and refused if it:
+- uses the pull_request_target or workflow_run triggers;
+- references any secret other than secrets.GITHUB_TOKEN, or uses "secrets: inherit";
+- grants "permissions: write-all";
+- uses a third-party action that is not pinned to a full 40-character commit sha. GitHub's own actions/* and github/* may use version tags such as actions/checkout@v4.
+Prefer GitHub's own actions and plain run steps. Give each job the narrowest "permissions:" it needs. If a job genuinely needs a secret (a deploy token, for example), do not reference it: say in your summary which secret to add and where, so a person can wire it in after review.`
+
 export async function runFixAgent(args: {
   provider: AiProvider
   workspace: RepoWorkspace
@@ -116,7 +130,7 @@ export async function runFixAgent(args: {
   let nudged = false
 
   const messages: AiMessage[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: SYSTEM_PROMPT + (workspace.allowWorkflows ? WORKFLOW_GUIDANCE : '') },
     {
       role: 'user',
       content: [

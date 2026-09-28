@@ -11,13 +11,15 @@
  * Normalises a repository path the model supplied, or explains why it is
  * refused.
  *
- * Refused: anything escaping the repository, git internals, CI workflow files
- * (a workflow runs with the repository's secrets, so editing one is a path to
- * them — and GitHub requires a separate permission for it regardless), and
- * env files, which should never be committed and which a model has no business
- * writing.
+ * Refused: anything escaping the repository, git internals, env files — which
+ * should never be committed and which a model has no business writing — and
+ * CI workflow files unless the project has opted in. A workflow runs with the
+ * repository's secrets, so even then each one must pass `checkWorkflow`.
  */
-export function checkRepoPath(raw: string): { ok: true; path: string } | { ok: false; reason: string } {
+export function checkRepoPath(
+  raw: string,
+  options: { allowWorkflows?: boolean } = {},
+): { ok: true; path: string } | { ok: false; reason: string } {
   const trimmed = raw.trim().replace(/\\/g, '/').replace(/^\.\//, '')
   if (!trimmed) return { ok: false, reason: 'Empty path.' }
   if (trimmed.startsWith('/')) return { ok: false, reason: 'Use a path relative to the repository root.' }
@@ -31,7 +33,15 @@ export function checkRepoPath(raw: string): { ok: true; path: string } | { ok: f
 
   if (parts[0] === '.git') return { ok: false, reason: 'Git internals are off limits.' }
   if (lower.startsWith('.github/workflows/')) {
-    return { ok: false, reason: 'CI workflow files cannot be changed by an AI fix.' }
+    if (!options.allowWorkflows) {
+      return {
+        ok: false,
+        reason: 'CI workflow files cannot be changed here. A project manager can allow it in project settings.',
+      }
+    }
+    if (!/^\.github\/workflows\/[^/]+\.ya?ml$/i.test(path)) {
+      return { ok: false, reason: 'Workflows must be .yml or .yaml files directly in .github/workflows/.' }
+    }
   }
   const file = parts[parts.length - 1].toLowerCase()
   if (file === '.env' || (file.startsWith('.env.') && file !== '.env.example')) {

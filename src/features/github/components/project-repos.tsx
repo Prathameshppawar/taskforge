@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import {
   linkRepoAction,
+  setAiWorkflowsAction,
   setGithubAutomationAction,
   setRepoRoleAction,
   syncProjectReposAction,
@@ -243,6 +244,39 @@ export function ProjectRepositories({
                 run(() => setGithubAutomationAction({ projectId, enabled }))
               }
             />
+          </div>
+
+          <div className="space-y-2 rounded-xl border p-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="ai-workflows">Let Fix with AI write CI workflows</Label>
+                <p className="text-xs text-muted-foreground">
+                  For tickets like &ldquo;set up CI&rdquo; or &ldquo;deploy on merge&rdquo;. Every workflow is
+                  checked before it is committed — no secrets beyond <code>GITHUB_TOKEN</code>, no{' '}
+                  <code>pull_request_target</code>, third-party actions pinned — and opens as a draft pull
+                  request.
+                </p>
+              </div>
+              <Switch
+                id="ai-workflows"
+                checked={repos.aiWorkflows}
+                disabled={!canEdit || isPending}
+                onCheckedChange={(enabled) => run(() => setAiWorkflowsAction({ projectId, enabled }))}
+              />
+            </div>
+            {repos.aiWorkflows && (
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px]">
+                GitHub also requires the app to hold the <strong>Workflows: Read and write</strong> permission.{' '}
+                {repos.appPermissionsUrl ? (
+                  <a href={repos.appPermissionsUrl} target="_blank" rel="noreferrer" className="font-medium underline">
+                    Add it on GitHub
+                  </a>
+                ) : (
+                  'Add it in the app’s settings on GitHub'
+                )}
+                , then accept the change on the installation.
+              </p>
+            )}
           </div>
         </>
       )}

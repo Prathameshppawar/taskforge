@@ -59,6 +59,8 @@ import { echoable } from '@/infrastructure/ai/anthropic'
 
 import { costMicros, lastWeekRange, monthKey, monthStart, thresholdToAlert } from '@/core/domain/ai-budget'
 
+import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
+
 let passed = 0
 let failed = 0
 
@@ -749,6 +751,60 @@ check('last week starts on a Monday', week.from.toISOString() === '2026-09-21T00
 check('last week ends where this one begins', week.to.toISOString() === '2026-09-28T00:00:00.000Z')
 check('on a Monday, "last week" is the week just ended',
   lastWeekRange(new Date(Date.UTC(2026, 8, 28, 6))).from.toISOString() === '2026-09-21T00:00:00.000Z')
+
+
+console.log('\n── AI workflows: what a model-written workflow may do ──')
+const GOOD = `name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npx --yes html-validate index.html
+      - uses: some-org/some-action@0123456789abcdef0123456789abcdef01234567
+      - run: gh pr comment --body ok
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+`
+const goodWorkflow = checkWorkflow(GOOD)
+check('a sensible CI workflow passes', goodWorkflow.ok, goodWorkflow.problems.join(' | '))
+const refused = (label: string, src: string) => {
+  const result = checkWorkflow(src)
+  check(label, !result.ok, 'it was accepted')
+}
+const wfJob = (steps: string) => `on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n${steps}`
+refused('pull_request_target is refused', 'on: pull_request_target\njobs:\n  a: { runs-on: ubuntu-latest, steps: [{ run: echo }] }')
+refused('workflow_run is refused', 'on:\n  workflow_run:\n    workflows: [CI]\njobs:\n  a: { runs-on: ubuntu-latest, steps: [{ run: echo }] }')
+refused('a named secret is refused', wfJob('      - run: deploy\n        env:\n          T: ${{ secrets.VERCEL_TOKEN }}'))
+refused('bracket access to secrets is refused', wfJob("      - run: echo ${{ secrets['VERCEL_TOKEN'] }}"))
+refused('dumping every secret is refused', wfJob('      - run: echo ${{ toJSON(secrets) }}'))
+refused('a secret smuggled beside GITHUB_TOKEN is refused',
+  wfJob('      - run: echo ${{ secrets.GITHUB_TOKEN }} ${{ secrets.NPM_TOKEN }}'))
+refused('secrets: inherit is refused', 'on: push\njobs:\n  a:\n    uses: org/repo/.github/workflows/x.yml@0123456789abcdef0123456789abcdef01234567\n    secrets: inherit')
+refused('write-all is refused', 'on: push\npermissions: write-all\njobs:\n  a: { runs-on: ubuntu-latest, steps: [{ run: echo }] }')
+refused('a third-party action on a tag is refused', wfJob('      - uses: some-org/deploy-action@v2'))
+refused('a third-party action on a branch is refused', wfJob('      - uses: some-org/deploy-action@main'))
+refused('an unpinned docker image is refused', wfJob('      - uses: docker://alpine:latest'))
+refused('invalid YAML is refused', 'on: [push\njobs: {')
+refused('a workflow with no jobs is refused', 'on: push')
+check('a comment mentioning secrets is not a secret',
+  checkWorkflow(wfJob('      # uses secrets.GITHUB_TOKEN only\n      - run: echo hi')).ok)
+check('GitHub-owned actions may use tags', checkWorkflow(wfJob('      - uses: github/codeql-action/init@v3')).ok)
+check('a pinned docker image is fine',
+  checkWorkflow(wfJob('      - uses: docker://alpine@sha256:' + 'a'.repeat(64))).ok)
+check('workflow paths are recognised', isWorkflowPath('.github/workflows/ci.yml') && !isWorkflowPath('.github/workflows/sub/x.yml'))
+check('workflows stay refused unless the project allows them', !checkRepoPath('.github/workflows/ci.yml').ok)
+check('an allowing project may write one', checkRepoPath('.github/workflows/ci.yml', { allowWorkflows: true }).ok)
+check('…but not a stray file in the workflows folder',
+  !checkRepoPath('.github/workflows/notes.txt', { allowWorkflows: true }).ok)
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

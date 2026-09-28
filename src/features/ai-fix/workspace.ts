@@ -1,5 +1,6 @@
 import { asInstallation } from '@/infrastructure/github/client'
 import { applyEdit, checkRepoPath, isListable, looksBinary } from '@/core/domain/ai-fix'
+import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
 
 /**
  * A staged, in-memory copy of one repository at one commit.
@@ -36,14 +37,22 @@ export class RepoWorkspace {
     readonly fullName: string,
     readonly baseBranch: string,
     readonly baseSha: string,
+    /** Whether workflow files may be written; see ProjectSettings.aiWorkflows. */
+    readonly allowWorkflows = false,
   ) {}
 
-  static async open(installationId: bigint, fullName: string, branch: string) {
+  static async open(installationId: bigint, fullName: string, branch: string, options: { allowWorkflows?: boolean } = {}) {
     const ref = await asInstallation<{ object: { sha: string } }>(
       installationId,
       `/repos/${fullName}/git/ref/heads/${encodeURIComponent(branch)}`,
     )
-    return new RepoWorkspace(installationId, fullName, branch, ref.object.sha)
+    return new RepoWorkspace(installationId, fullName, branch, ref.object.sha, options.allowWorkflows ?? false)
+  }
+
+  private check(raw: string) {
+    const checked = checkRepoPath(raw, { allowWorkflows: this.allowWorkflows })
+    if (!checked.ok) throw new WorkspaceError(checked.reason)
+    return checked.path
   }
 
   private async entries(): Promise<TreeEntry[]> {
@@ -73,9 +82,7 @@ export class RepoWorkspace {
   }
 
   async readFile(raw: string): Promise<string> {
-    const checked = checkRepoPath(raw)
-    if (!checked.ok) throw new WorkspaceError(checked.reason)
-    const path = checked.path
+    const path = this.check(raw)
 
     if (this.staged.has(path)) {
       const content = this.staged.get(path)
@@ -140,10 +147,22 @@ export class RepoWorkspace {
   }
 
   async writeFile(raw: string, content: string) {
-    const checked = checkRepoPath(raw)
-    if (!checked.ok) throw new WorkspaceError(checked.reason)
-    this.staged.set(checked.path, content)
-    return checked.path
+    const path = this.check(raw)
+    // Checked when written, so the model hears exactly what to fix while it
+    // can still fix it — rather than at commit, when the run is over.
+    if (isWorkflowPath(path)) {
+      const result = checkWorkflow(content)
+      if (!result.ok) {
+        throw new WorkspaceError(`That workflow was not saved:\n- ${result.problems.join('\n- ')}`)
+      }
+    }
+    this.staged.set(path, content)
+    return path
+  }
+
+  /** True when this change adds or edits a workflow — it opens as a draft. */
+  async touchesWorkflows(): Promise<boolean> {
+    return (await this.changes()).some((change) => isWorkflowPath(change.path))
   }
 
   async editFile(raw: string, oldText: string, newText: string) {
@@ -154,8 +173,7 @@ export class RepoWorkspace {
   }
 
   async deleteFile(raw: string) {
-    const checked = checkRepoPath(raw)
-    if (!checked.ok) throw new WorkspaceError(checked.reason)
+    const checked = { path: this.check(raw) }
     const inBase = (await this.entries()).some((entry) => entry.path === checked.path)
     if (inBase) {
       this.staged.set(checked.path, null)
@@ -187,6 +205,15 @@ export class RepoWorkspace {
   async commit(branch: string, message: string): Promise<{ sha: string; files: string[] }> {
     const changes = await this.changes()
     if (changes.length === 0) throw new WorkspaceError('Nothing to commit.')
+    // Belt and braces: every workflow is re-checked at the last moment, so no
+    // path through the staging code can commit one that was never validated.
+    for (const change of changes) {
+      if (change.content !== null && isWorkflowPath(change.path)) {
+        if (!this.allowWorkflows) throw new WorkspaceError(`${change.path}: workflows are not allowed in this project.`)
+        const result = checkWorkflow(change.content)
+        if (!result.ok) throw new WorkspaceError(`${change.path}: ${result.problems.join('; ')}`)
+      }
+    }
     const repo = `/repos/${this.fullName}`
 
     const baseCommit = await asInstallation<{ tree: { sha: string } }>(

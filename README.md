@@ -736,6 +736,20 @@ the repository's secrets), no `.env` files. The app is never granted the
 Starting a run needs its own permission, `ai:code` — Admin only by default,
 because every run costs money and writes to a repository.
 
+**CI workflows, by opt-in.** Out of the box the model cannot touch
+`.github/workflows/` — a workflow is not code awaiting review, it runs as soon
+as its pull request opens, with the repository's secrets. A project manager can
+switch it on per project for tickets like "set up CI" or "deploy on merge";
+GitHub additionally requires the app to hold the Workflows permission. Every
+workflow is then parsed and checked before it can be saved
+([`ci-workflow.ts`](src/core/domain/ci-workflow.ts)): no `pull_request_target`
+or `workflow_run`, no secret but `GITHUB_TOKEN` (bracket access, `toJSON(secrets)`
+and `secrets: inherit` included), no `write-all`, and third-party actions pinned
+to a commit sha because a tag can be moved after review. A refused workflow goes
+back to the model with the reasons; one that passes opens as a **draft** pull
+request with a warning. If a job needs a deploy token, the model names it in the
+pull request rather than wiring it in.
+
 **What it cannot do.** It cannot run the code or the tests. It says so in every
 pull request, and the repository's CI is what checks its work. Groq's free tier
 is enough for small, contained fixes; for real ones, use Anthropic.
@@ -872,7 +886,7 @@ Five suites, each catching something the others structurally cannot.
 
 ```bash
 npm run typecheck # strict, zero errors
-npm run verify    # 275 domain assertions — no DB, no network, <1s
+npm run verify    # 296 domain assertions — no DB, no network, <1s
 npm run verify:embeddings  # semantic similarity, against a real database
 npm run smoke     # signs in for real, walks every route, greps the server log
 npm run e2e       # 20 browser tests, phone to desktop
@@ -1080,7 +1094,7 @@ a decision rather than plumbing.
 
 `app/(app)/layout.tsx` is the whole app shell in 60 lines.
 `lib/safe-action.ts` turns thrown domain errors into typed `ActionResult`s, which
-is why no action needs a try/catch. `scripts/verify-domain.ts` is 275 assertions
+is why no action needs a try/catch. `scripts/verify-domain.ts` is 296 assertions
 that run with no database, no network, in under a second.
 
 ---

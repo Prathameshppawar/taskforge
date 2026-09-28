@@ -226,6 +226,40 @@ export async function setGithubAutomationAction(input: {
 }
 
 /**
+ * Lets "Fix with AI" write workflows in this project. A project manager's
+ * call, like the rest of the board's configuration — and audited, because it
+ * changes what an AI-authored pull request can do the moment it opens.
+ */
+export async function setAiWorkflowsAction(input: {
+  projectId: string
+  enabled: boolean
+}): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const data = z.object({ projectId: z.string().min(1), enabled: z.boolean() }).parse(input)
+    const { actor } = await requireProjectPermission(data.projectId, 'project:manage-config')
+
+    await prisma.$transaction(async (tx) => {
+      await tx.projectSettings.update({
+        where: { projectId: data.projectId },
+        data: { aiWorkflows: data.enabled },
+      })
+      await recordActivity(tx, {
+        action: 'UPDATED',
+        entityType: 'PROJECT',
+        entityId: data.projectId,
+        projectId: data.projectId,
+        actorId: actor.id,
+        field: 'aiWorkflows',
+        summary: `${data.enabled ? 'allowed' : 'stopped'} Fix with AI ${data.enabled ? 'to write' : 'writing'} CI workflows`,
+      })
+    })
+
+    revalidatePath(`/projects/${data.projectId}/settings`)
+    return ok()
+  })
+}
+
+/**
  * Asks GitHub for the current state of every repository linked to a project.
  * Anyone who can edit tickets may: it only records what already happened.
  */

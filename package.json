@@ -62,6 +62,7 @@
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "write-excel-file": "^2.3.2",
+    "yaml": "^2.9.1",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.25.2"
   },
