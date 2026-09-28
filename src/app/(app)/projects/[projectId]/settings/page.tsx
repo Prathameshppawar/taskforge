@@ -8,6 +8,9 @@ import { WorkflowConfig } from '@/features/projects/components/workflow-config'
 import { getProjectRepos } from '@/features/github/queries'
 import { ProjectRepositories } from '@/features/github/components/project-repos'
 import { can } from '@/features/auth/guards'
+import { ErrorIntake } from '@/features/errors/components/error-intake'
+import { prisma } from '@/infrastructure/db/prisma'
+import { headers } from 'next/headers'
 import { PageHeader } from '@/components/shared/page-header'
 import { Separator } from '@/components/ui/separator'
 
@@ -26,6 +29,9 @@ export default async function ProjectSettingsPage({
   ])
 
   if (!project) notFound()
+  const intake = await prisma.projectSettings.findUnique({ where: { projectId }, select: { errorIngestHash: true } })
+  const headerList = await headers()
+  const origin = `${headerList.get('x-forwarded-proto') ?? 'http'}://${headerList.get('host')}`
 
   return (
     <div className="h-full overflow-y-auto">
@@ -61,6 +67,15 @@ export default async function ProjectSettingsPage({
           repos={repos}
           canEdit={context.can.manageConfig}
           canManageIntegrations={can(context.actor, 'integration:manage')}
+        />
+
+        <Separator />
+
+        <ErrorIntake
+          projectId={projectId}
+          configured={Boolean(intake?.errorIngestHash)}
+          canEdit={context.can.manageConfig}
+          origin={origin}
         />
 
         <Separator />

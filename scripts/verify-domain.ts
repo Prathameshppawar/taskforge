@@ -67,6 +67,8 @@ import { annotatePatch, partitionComments } from '@/core/domain/diff'
 
 import { nextReleaseTag, renderReleaseNotes } from '@/core/domain/releases'
 
+import { fingerprintOf, maskMessage, normalizeErrorPayload } from '@/core/domain/error-events'
+
 let passed = 0
 let failed = 0
 
@@ -861,6 +863,32 @@ const day = new Date(Date.UTC(2026, 8, 30))
 check('a fresh day gets a plain calendar tag', nextReleaseTag(new Set(), day) === 'v2026.09.30')
 check('a second release that day is suffixed', nextReleaseTag(new Set(['v2026.09.30']), day) === 'v2026.09.30.2')
 check('suffixes keep counting', nextReleaseTag(new Set(['v2026.09.30', 'v2026.09.30.2']), day) === 'v2026.09.30.3')
+
+
+console.log('\n── Production errors: reading payloads and grouping them ──')
+const generic = normalizeErrorPayload({ message: 'User 1234 not found', stack: 'Error\n    at load (app/user.ts:40:3)\n    at main', level: 'error', environment: 'production' })
+check('a plain JSON error is read', generic?.message === 'User 1234 not found' && generic.environment === 'production')
+check('its top frame is the first "at" line', generic?.topFrame === 'load (app/user.ts:40:3)')
+const sentry = normalizeErrorPayload({ action: 'created', data: { event: {
+  title: 'TypeError: x is undefined', level: 'fatal', environment: 'prod', release: 'abc1234',
+  exception: { values: [{ type: 'TypeError', value: 'x is undefined', stacktrace: { frames: [
+    { filename: 'node_modules/lib.js', lineno: 1, in_app: false },
+    { filename: 'src/cart.ts', lineno: 88, function: 'total', in_app: true },
+    { filename: 'node_modules/deep.js', lineno: 9, in_app: false },
+  ] } }] },
+} } })
+check('a Sentry event is read', sentry?.title === 'TypeError: x is undefined' && sentry.level === 'fatal')
+check('the crash site is the last in-app frame', sentry?.topFrame === 'src/cart.ts:88 in total')
+check('the release is kept for suspect lookup', sentry?.release === 'abc1234')
+check('a payload with no message is refused', normalizeErrorPayload({ foo: 1 }) === null)
+check('a non-object is refused', normalizeErrorPayload('boom') === null && normalizeErrorPayload([1]) === null)
+check('volatile parts are masked',
+  maskMessage('User 42 <a@b.co> id 3f2c1a9e-1b2c-4d5e-8f90-123456789abc said "hi"') === 'User <n> <<email>> id <uuid> said <str>')
+const again = normalizeErrorPayload({ message: 'User 9999 not found', stack: 'Error\n    at load (app/user.ts:41:9)' })
+check('the same bug with a different id and line groups together', fingerprintOf(generic!) === fingerprintOf(again!))
+const other = normalizeErrorPayload({ message: 'User 1234 not found', stack: 'Error\n    at save (app/user.ts:40:3)' })
+check('the same message from a different function is a different error', fingerprintOf(generic!) !== fingerprintOf(other!))
+check('a sender fingerprint wins', fingerprintOf({ ...generic!, fingerprint: 'mine' }) === fingerprintOf({ ...other!, fingerprint: 'mine' }))
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -30,7 +30,9 @@ export default auth((request) => {
     // Bearer-token authenticated; a redirect to /login would be nonsense here.
     pathname.startsWith('/api/mcp') ||
     // Signed by GitHub with the app's webhook secret; verified in the route.
-    pathname === '/api/github/webhook'
+    pathname === '/api/github/webhook' ||
+    // Production error intake, authenticated by the secret in its path.
+    pathname.startsWith('/api/ingest/')
   ) {
     return NextResponse.next()
   }
