@@ -22,6 +22,9 @@ import { listTicketLinks } from '@/features/tickets/relations'
 import { listAttachments } from '@/features/attachments/actions'
 import { getTicketDevelopment } from '@/features/github/queries'
 import { DevelopmentPanel } from '@/features/github/components/development-panel'
+import { getAiFixPanel } from '@/features/ai-fix/queries'
+import { AiFixPanel } from '@/features/ai-fix/components/ai-fix-panel'
+import { can } from '@/features/auth/guards'
 import { prisma } from '@/infrastructure/db/prisma'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
@@ -75,6 +78,8 @@ export default async function TicketDetailPage({
   ])
 
   const canEdit = context.can.updateTicket
+  const canCode = canEdit && can(actor, 'ai:code')
+  const aiFix = canCode ? await getAiFixPanel(ticket.id, ticket.project.id) : null
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
@@ -200,6 +205,8 @@ export default async function TicketDetailPage({
             development={development}
             canSync={canEdit}
           />
+
+          {aiFix && <AiFixPanel ticketId={ticket.id} data={aiFix} />}
 
           <TicketLinks ticketKey={ticket.key} links={links} canEdit={canEdit} />
 

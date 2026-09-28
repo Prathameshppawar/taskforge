@@ -166,6 +166,17 @@ enum GitCheckState {
   FAILURE
 }
 
+/// Lifecycle of one "Fix with AI" attempt.
+enum AiFixStatus {
+  QUEUED
+  RUNNING
+  /// A pull request was opened.
+  SUCCEEDED
+  /// The model finished without changing anything.
+  NO_CHANGES
+  FAILED
+}
+
 enum NotificationType {
   MENTIONED
   ASSIGNED
@@ -376,6 +387,7 @@ model User {
   activities          ActivityLog[]     @relation("ActivityActor")
   resources           TicketResource[]
   savedFilters        SavedFilter[]
+  aiFixRuns           AiFixRun[]
   sessions            UserSession[]
   accessTokens        AccessToken[]
   notifications       Notification[]    @relation("NotificationRecipient")
@@ -960,6 +972,7 @@ model Ticket {
   activities    ActivityLog[]
   notifications Notification[]
   gitRefs       TicketGitRef[]
+  aiFixRuns     AiFixRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1308,8 +1321,9 @@ model GithubRepo {
   /// False once the install no longer grants this repository.
   isAccessible  Boolean @default(true)
 
-  projects ProjectRepo[]
-  refs     TicketGitRef[]
+  projects  ProjectRepo[]
+  refs      TicketGitRef[]
+  aiFixRuns AiFixRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1370,4 +1384,52 @@ model TicketGitRef {
   @@index([repoId, kind, externalId])
   @@index([repoId, headSha])
   @@map("ticket_git_refs")
+}
+
+/// One attempt by a model to fix a ticket in a linked repository.
+///
+/// The model never touches the repository directly. It reads and edits a
+/// staged copy through a handful of tools; when it finishes, TaskForge commits
+/// the staged changes to a fresh branch and opens a pull request. Merging is
+/// always a person's decision.
+model AiFixRun {
+  id       String     @id @default(cuid())
+  ticketId String
+  ticket   Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  repoId   String
+  repo     GithubRepo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  requestedById String?
+  requestedBy   User?   @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  /// "anthropic", "openai" or "groq", and the exact model that ran.
+  provider     String
+  model        String
+  /// Extra guidance typed by whoever started the run. Untrusted, like the ticket.
+  instructions String?
+
+  status       AiFixStatus @default(QUEUED)
+  branch       String?
+  prNumber     Int?
+  prUrl        String?
+  /// The model's own account of what it changed, used as the PR description.
+  summary      String?
+  error        String?
+  /// Paths the run changed, newline-separated. Display only.
+  changedFiles String?
+  /// Step-by-step record of the tool calls, for "why did it do that?". Plain
+  /// text rather than JSON: it is read by people, never queried.
+  transcript   String?
+  turns        Int         @default(0)
+  inputTokens  Int         @default(0)
+  outputTokens Int         @default(0)
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([ticketId, createdAt])
+  @@index([status])
+  @@map("ai_fix_runs")
 }

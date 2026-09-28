@@ -26,6 +26,15 @@ const serverSchema = z.object({
   AI_MAX_TOKENS: z.coerce.number().int().positive().default(2048),
 
   /**
+   * Engines for "Fix with AI", tried in this order: Anthropic, OpenAI, Groq.
+   * Each is available when its key is set; none is required.
+   */
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default('gpt-5'),
+
+  /**
    * Semantic similarity. Runs in-process with no API key and no per-call cost,
    * so it is on by default; 'none' falls everything back to lexical matching.
    */

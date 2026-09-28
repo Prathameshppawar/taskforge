@@ -101,7 +101,9 @@ jobs:
       AUTH_URL: http://localhost:3000
       NEXTAUTH_URL: http://localhost:3000
       # The suite signs in constantly; the default cost would dominate its runtime.
-      BCRYPT_ROUNDS: 4
+      # 8 is the floor env.ts enforces — anything lower fails validation, which is
+      # what broke every script that reads the environment in this job.
+      BCRYPT_ROUNDS: 8
       AI_PROVIDER: none
       E2E_USERNAME: admin
       E2E_PASSWORD: ChangeMe!2024

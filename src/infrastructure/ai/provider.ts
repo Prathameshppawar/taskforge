@@ -1,9 +1,9 @@
 /**
  * AI provider port.
  *
- * One interface, two adapters (Groq and Ollama). Nothing above this layer knows
- * which is in use; swapping providers is an environment variable, not a code
- * change.
+ * One interface, four adapters: Groq and Ollama for the Copilot, and Anthropic
+ * and OpenAI as well for code fixes. Nothing above this layer knows which is in
+ * use; swapping providers is an environment variable, not a code change.
  */
 
 export type AiRole = 'system' | 'user' | 'assistant' | 'tool'
@@ -23,6 +23,14 @@ export interface AiMessage {
   /** Present on tool-result turns, linking back to the call. */
   toolCallId?: string
   name?: string
+  /**
+   * Opaque, provider-specific form of an assistant turn, handed back verbatim
+   * on the next request. Anthropic needs it: with thinking on, the thinking
+   * blocks that preceded a tool call must be returned unchanged or the loop is
+   * rejected, and the neutral fields above have nowhere to carry them. Other
+   * adapters ignore it.
+   */
+  providerState?: unknown
 }
 
 export interface AiToolDefinition {
@@ -37,6 +45,8 @@ export interface AiChatRequest {
   tools?: AiToolDefinition[]
   temperature?: number
   maxTokens?: number
+  /** Tool-heavy, long-output work such as editing code. Adapters may raise effort. */
+  agentic?: boolean
 }
 
 /**
@@ -57,10 +67,16 @@ export interface AiChatResponse {
   content: string
   toolCalls: AiToolCall[]
   usage?: AiUsage
+  /** See `AiMessage.providerState`; copy it onto the assistant message you append. */
+  providerState?: unknown
+  /** True when the output was cut off by the token limit, so tool input may be partial. */
+  truncated?: boolean
 }
 
+export type AiProviderId = 'anthropic' | 'openai' | 'groq' | 'ollama'
+
 export interface AiProvider {
-  readonly id: 'groq' | 'ollama'
+  readonly id: AiProviderId
   readonly model: string
   chat(request: AiChatRequest): Promise<AiChatResponse>
 }

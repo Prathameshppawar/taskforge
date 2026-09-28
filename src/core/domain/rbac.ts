@@ -83,6 +83,13 @@ export const PERMISSIONS = [
    * names of repositories no project has been given.
    */
   'integration:manage',
+  /**
+   * Ask a model to write a fix and open a pull request. Separate from `ai:use`
+   * because it spends real money per run and writes to a repository, and
+   * separate from ticket editing because most people who edit tickets should
+   * not be able to do either.
+   */
+  'ai:code',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -190,6 +197,11 @@ export const PERMISSION_GROUPS: ReadonlyArray<{
         key: 'integration:manage',
         label: 'Manage integrations',
         note: 'Connects GitHub, and sees every repository the app can reach.',
+      },
+      {
+        key: 'ai:code',
+        label: 'Fix tickets with AI',
+        note: 'Opens pull requests written by a model. Costs money per run; never merges.',
       },
       { key: 'template:manage', label: 'Manage project templates' },
       { key: 'audit:view-all', label: 'View the full activity log' },

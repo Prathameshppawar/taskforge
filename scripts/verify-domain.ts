@@ -53,6 +53,10 @@ import { createAppJwt, verifyWebhookSignature } from '@/infrastructure/github/cl
 import { seal, unseal } from '@/infrastructure/github/secrets'
 import { createHmac, createVerify, generateKeyPairSync } from 'node:crypto'
 
+import { applyEdit, checkRepoPath, uniqueBranch } from '@/core/domain/ai-fix'
+import { codingToolDefinitions, resolveToolName } from '@/features/ai-fix/agent'
+import { echoable } from '@/infrastructure/ai/anthropic'
+
 let passed = 0
 let failed = 0
 
@@ -626,8 +630,12 @@ delete process.env.GITHUB_WEBHOOK_URL
 check('local origin registers no webhook', resolveWebhookUrl('http://localhost:3000') === null)
 check('a deployed origin registers its own', resolveWebhookUrl('https://tf.example.com') === 'https://tf.example.com/api/github/webhook')
 const manifest = buildManifest('http://localhost:3000', 'TaskForge test')
-check('manifest asks for read access only',
-  Object.values(manifest.default_permissions).every((level) => level === 'read'))
+check('manifest writes only contents and pull requests',
+  Object.entries(manifest.default_permissions)
+    .filter(([, level]) => level === 'write')
+    .map(([name]) => name).sort().join() === 'contents,pull_requests')
+check('manifest never asks for workflows or administration',
+  !('workflows' in manifest.default_permissions) && !('administration' in manifest.default_permissions))
 check('manifest webhook is active even without a URL', manifest.hook_attributes.active === true)
 check('manifest redirects back to this origin',
   manifest.redirect_url === 'http://localhost:3000/api/github/manifest/callback')
@@ -667,6 +675,56 @@ check('a tampered ciphertext refuses to open', (() => {
   parts[3] = (last[0] === 'A' ? 'B' : 'A') + last.slice(1)
   return expectThrow(() => unseal(parts.join('.')))
 })())
+
+
+console.log('\n── AI fix: what a model may touch ──')
+const pathOk = (p: string) => checkRepoPath(p).ok
+check('an ordinary file is allowed', pathOk('index.html') && pathOk('src/app/page.tsx'))
+check('./ prefixes are normalised', (checkRepoPath('./src//a.ts') as { path: string }).path === 'src/a.ts')
+check('.. cannot escape the repository', !pathOk('../secrets.txt') && !pathOk('src/../../x'))
+check('absolute paths are refused', !pathOk('/etc/passwd'))
+check('git internals are refused', !pathOk('.git/config'))
+check('CI workflows are refused', !pathOk('.github/workflows/deploy.yml') && !pathOk('.GitHub/Workflows/ci.yml'))
+check('other .github files are allowed', pathOk('.github/CODEOWNERS'))
+check('.env and .env.local are refused', !pathOk('.env') && !pathOk('apps/web/.env.local'))
+check('.env.example is allowed', pathOk('.env.example'))
+check('an empty path is refused', !pathOk('   ') && !pathOk('./'))
+
+console.log('\n── AI fix: exact edits ──')
+const edited = applyEdit('a hello b', 'hello', 'bye')
+check('a unique match is replaced', edited.ok && edited.content === 'a bye b')
+check('a missing match is refused', !applyEdit('abc', 'zzz', 'y').ok)
+check('an ambiguous match is refused', !applyEdit('x x', 'x', 'y').ok)
+check('empty old text is refused', !applyEdit('abc', '', 'y').ok)
+check('replacement text containing the old text is fine', (() => {
+  const r = applyEdit('one', 'one', 'one two')
+  return r.ok && r.content === 'one two'
+})())
+
+console.log('\n── AI fix: branches and tools ──')
+check('a free branch name is used as is', uniqueBranch('fix/rc-1', new Set()) === 'fix/rc-1')
+check('a taken branch gets a suffix', uniqueBranch('fix/rc-1', new Set(['fix/rc-1', 'fix/rc-1-2'])) === 'fix/rc-1-3')
+const codingTools = codingToolDefinitions()
+check('seven coding tools', codingTools.length === 7)
+check('there is a finish tool', codingTools.some((tool) => tool.name === 'finish'))
+check('no coding tool can commit, push or merge',
+  !codingTools.some((tool) => /commit|push|merge|run|exec|shell/i.test(tool.name)))
+check('a namespaced tool call resolves (gpt-oss: repo_browser.read_file)',
+  resolveToolName('repo_browser.read_file') === 'read_file' && resolveToolName('functions.finish') === 'finish')
+check('a namespace cannot smuggle in an unknown tool', resolveToolName('repo_browser.exec') === null)
+check('no $schema leaks into coding tools', codingTools.every((tool) => !('$schema' in tool.parameters)))
+
+console.log('\n── AI fix: echoing Anthropic fallbacks ──')
+type AnyBlock = Parameters<typeof echoable>[0][number]
+const blocks = (list: Array<Record<string, unknown>>) => list as unknown as AnyBlock[]
+const plain = blocks([{ type: 'thinking' }, { type: 'text' }, { type: 'tool_use' }])
+check('with no fallback, content is echoed unchanged', echoable(plain).length === 3)
+const afterFallback = echoable(blocks([
+  { type: 'thinking' }, { type: 'text', text: 'partial' }, { type: 'tool_use' },
+  { type: 'fallback' }, { type: 'thinking' }, { type: 'tool_use' },
+]))
+check('pre-boundary thinking and tool_use are dropped',
+  afterFallback.map((b) => b.type).join() === 'text,thinking,tool_use')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

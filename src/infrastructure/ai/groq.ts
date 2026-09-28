@@ -20,13 +20,13 @@ export class GroqProvider implements AiProvider {
   readonly model: string
   private readonly client: Groq
 
-  constructor() {
+  constructor(model?: string) {
     const config = env()
     if (!config.GROQ_API_KEY) {
       throw new AiProviderError('GROQ_API_KEY is not set.', 'groq', 'unauthorized')
     }
 
-    this.model = config.GROQ_MODEL
+    this.model = model ?? config.GROQ_MODEL
     this.client = new Groq({ apiKey: config.GROQ_API_KEY })
   }
 
@@ -104,6 +104,7 @@ export class GroqProvider implements AiProvider {
         content: choice?.message?.content ?? '',
         toolCalls,
         usage,
+        truncated: choice?.finish_reason === 'length',
       }
     } catch (error) {
       if (error instanceof AiProviderError) throw error
@@ -143,7 +144,13 @@ function classifyGroqError(error: unknown, model: string): AiProviderError {
     )
   }
 
-  if (status === 400 && /tool call validation|did not match schema/i.test(raw)) {
+  // All of these are Groq rejecting what the model generated — a tool that does
+  // not exist, arguments that fail the schema, output it could not parse at
+  // all. The request was fine; the sample was not, and a retry usually works.
+  if (
+    status === 400 &&
+    /tool call validation|did not match schema|tool_use_failed|parsing failed|failed_generation/i.test(raw)
+  ) {
     return new AiProviderError(
       'The model produced an invalid tool call and Groq rejected it. Rephrasing the request usually clears it.',
       'groq',

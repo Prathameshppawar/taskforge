@@ -9,15 +9,15 @@
  */
 
 /**
- * Read-only on purpose. Phase one only observes: it links work to tickets and
- * moves them along. Anything that writes to a repository — an AI fix opening a
- * pull request — will ask for more, and GitHub will show the account owner
- * exactly what changed before they accept it.
+ * Write access to contents and pull requests is what lets "Fix with AI" push a
+ * branch and open a pull request. Nothing else writes: status automation only
+ * reads, and no code path merges or pushes to a default branch. `workflows` is
+ * deliberately absent, so even a compromised run cannot change CI.
  */
 export const APP_PERMISSIONS = {
   metadata: 'read',
-  contents: 'read',
-  pull_requests: 'read',
+  contents: 'write',
+  pull_requests: 'write',
   checks: 'read',
 } as const
 
