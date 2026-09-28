@@ -9,7 +9,7 @@ import {
   ticketVisibilityFilter,
   can,
 } from '@/features/auth/guards'
-import { isAiEnabled } from '@/lib/env'
+import { isCopilotAvailable } from '@/features/ai-admin/engines'
 import { AiProviderError } from '@/infrastructure/ai'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { runAction } from '@/lib/safe-action'
@@ -34,7 +34,7 @@ export async function copilotAction(
   return runAction(async () => {
     const actor = await requirePermission('ai:use')
 
-    if (!isAiEnabled()) {
+    if (!(await isCopilotAvailable())) {
       return fail(
         'The AI Copilot is not configured. Set AI_PROVIDER to "groq" or "ollama" and add the matching credentials.',
         { code: 'AI_DISABLED' },
@@ -134,7 +134,7 @@ export async function getAiStatusAction(): Promise<
   return runAction(async () => {
     await requireActor()
     return ok({
-      enabled: isAiEnabled(),
+      enabled: (await isCopilotAvailable()),
       provider: process.env.AI_PROVIDER ?? 'none',
     })
   })
@@ -159,14 +159,14 @@ export async function captureAction(
   input: CaptureRequest,
 ): Promise<ActionResult<CaptureResult>> {
   return runAction(async () => {
-    await requirePermission('ai:use')
+    const actor = await requirePermission('ai:use')
 
-    if (!isAiEnabled()) {
+    if (!(await isCopilotAvailable())) {
       return fail('The AI Copilot is not configured.', { code: 'AI_DISABLED' })
     }
 
     try {
-      const result = await extractBreakdown(input.text, input.projectCode)
+      const result = await extractBreakdown(input.text, input.projectCode, { userId: actor.id })
       if (!result.ok) return fail(result.reason)
 
       return ok({ breakdown: result.breakdown, rawArguments: result.rawArguments })

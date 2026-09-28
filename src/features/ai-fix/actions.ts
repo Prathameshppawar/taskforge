@@ -5,7 +5,8 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { listCodingEngines } from '@/infrastructure/ai'
+import { listCodingEngines } from '@/features/ai-admin/engines'
+import { assertWithinBudget } from '@/features/ai-admin/usage'
 import { can, requireProjectPermission } from '@/features/auth/guards'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/errors'
@@ -53,8 +54,10 @@ export async function startAiFixAction(
     if (!link) throw new BusinessRuleError('That repository is not linked to this project.')
     if (!link.repo.isAccessible) throw new BusinessRuleError('The GitHub App no longer has access to that repository.')
 
-    const engine = listCodingEngines().find((candidate) => candidate.id === data.engine)
+    const engine = (await listCodingEngines()).find((candidate) => candidate.id === data.engine)
     if (!engine) throw new BusinessRuleError(`The ${data.engine} engine is not configured on this server.`)
+
+    await assertWithinBudget({ projectId: ticket.projectId, provider: engine.id })
 
     const active = await prisma.aiFixRun.count({
       where: { ticketId: ticket.id, status: { in: ['QUEUED', 'RUNNING'] } },

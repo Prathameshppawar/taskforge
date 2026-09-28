@@ -177,6 +177,30 @@ enum AiFixStatus {
   FAILED
 }
 
+/// What a model call was for, so usage can be reported by feature.
+enum AiFeature {
+  COPILOT
+  AI_FIX
+  CAPTURE
+  FILTER
+  WEEKLY_UPDATE
+}
+
+/// What a budget caps: everything, one project, or one provider.
+enum AiBudgetScope {
+  WORKSPACE
+  PROJECT
+  PROVIDER
+}
+
+/// Reports someone can subscribe to, directly or through a team.
+enum ReportKind {
+  /// Monday morning: last week's AI spend by project, person and provider.
+  AI_USAGE_WEEKLY
+  /// The moment a budget crosses 80% and again at 100%.
+  AI_BUDGET_ALERT
+}
+
 enum NotificationType {
   MENTIONED
   ASSIGNED
@@ -273,8 +297,9 @@ model Team {
   name        String  @unique
   description String?
 
-  members  TeamMember[]
-  projects ProjectTeam[]
+  reportSubscriptions ReportSubscription[]
+  members             TeamMember[]
+  projects            ProjectTeam[]
 
   createdById String?
   createdBy   User?   @relation("TeamCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -374,27 +399,30 @@ model User {
   createdTeams    Team[]             @relation("TeamCreatedBy")
 
   // --- reverse relations -----------------------------------------------------
-  ownedProjects       Project[]         @relation("ProjectOwner")
-  createdProjects     Project[]         @relation("ProjectCreatedBy")
-  defaultForSettings  ProjectSettings[] @relation("ProjectDefaultAssignee")
-  memberships         ProjectMember[]   @relation("ProjectMemberUser")
-  membershipsAdded    ProjectMember[]   @relation("ProjectMemberAddedBy")
-  assignedTickets     Ticket[]          @relation("TicketAssignee")
-  reportedTickets     Ticket[]          @relation("TicketReporter")
-  createdTickets      Ticket[]          @relation("TicketCreatedBy")
+  ownedProjects       Project[]            @relation("ProjectOwner")
+  createdProjects     Project[]            @relation("ProjectCreatedBy")
+  defaultForSettings  ProjectSettings[]    @relation("ProjectDefaultAssignee")
+  memberships         ProjectMember[]      @relation("ProjectMemberUser")
+  membershipsAdded    ProjectMember[]      @relation("ProjectMemberAddedBy")
+  assignedTickets     Ticket[]             @relation("TicketAssignee")
+  reportedTickets     Ticket[]             @relation("TicketReporter")
+  createdTickets      Ticket[]             @relation("TicketCreatedBy")
   comments            Comment[]
   mentions            CommentMention[]
-  activities          ActivityLog[]     @relation("ActivityActor")
+  activities          ActivityLog[]        @relation("ActivityActor")
   resources           TicketResource[]
   savedFilters        SavedFilter[]
   aiFixRuns           AiFixRun[]
+  aiUsage             AiUsageEvent[]
+  reportSubscriptions ReportSubscription[] @relation("ReportSubscriber")
+  reportSubsCreated   ReportSubscription[] @relation("ReportSubscriptionCreatedBy")
   sessions            UserSession[]
   accessTokens        AccessToken[]
-  notifications       Notification[]    @relation("NotificationRecipient")
-  notificationsCaused Notification[]    @relation("NotificationActor")
+  notifications       Notification[]       @relation("NotificationRecipient")
+  notificationsCaused Notification[]       @relation("NotificationActor")
   createdTemplates    ProjectTemplate[]
-  recurringTickets    RecurringTicket[] @relation("RecurringCreatedBy")
-  recurringAssignee   RecurringTicket[] @relation("RecurringAssignee")
+  recurringTickets    RecurringTicket[]    @relation("RecurringCreatedBy")
+  recurringAssignee   RecurringTicket[]    @relation("RecurringAssignee")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -656,6 +684,8 @@ model Project {
   recurringTickets RecurringTicket[]
   savedFilters     SavedFilter[]
   repos            ProjectRepo[]
+  aiUsage          AiUsageEvent[]
+  aiBudgets        AiBudget[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1432,4 +1462,122 @@ model AiFixRun {
   @@index([ticketId, createdAt])
   @@index([status])
   @@map("ai_fix_runs")
+}
+
+// =============================================================================
+// AI ENGINES, USAGE AND BUDGETS
+// =============================================================================
+
+/// How the workspace uses one AI provider: which model, and optionally its own
+/// key. Keyed by provider ("anthropic", "openai", "groq"). A key stored here is
+/// sealed like the GitHub App's and takes precedence over the environment, so
+/// an administrator can connect a provider without a redeploy.
+model AiEngineSetting {
+  provider  String   @id
+  model     String
+  apiKeyEnc String?
+  /// Last four characters of the stored key, so the page can say which key it is.
+  keyHint   String?
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@map("ai_engine_settings")
+}
+
+/// Workspace-wide AI choices that are not per provider.
+model AiWorkspaceSetting {
+  id              Int     @id @default(1)
+  /// The engine the Copilot, capture, filters and weekly update use. Null means
+  /// the environment's AI_PROVIDER.
+  copilotProvider String?
+  /// The engine "Fix with AI" offers first. Null means the most capable available.
+  fixProvider     String?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("ai_workspace_settings")
+}
+
+/// Price per million tokens, used to turn token counts into money. Editable,
+/// because list prices change and a company may have negotiated its own.
+model AiModelPrice {
+  provider      String
+  model         String
+  inputPerMTok  Decimal @db.Decimal(10, 4)
+  outputPerMTok Decimal @db.Decimal(10, 4)
+
+  updatedAt DateTime @updatedAt
+
+  @@id([provider, model])
+  @@map("ai_model_prices")
+}
+
+/// One model call. The ledger every usage report and budget is computed from.
+model AiUsageEvent {
+  id       String    @id @default(cuid())
+  provider String
+  model    String
+  feature  AiFeature
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Set for AI fixes; not a relation, so deleting a ticket keeps its spend.
+  ticketKey String?
+
+  inputTokens  Int
+  outputTokens Int
+  /// Cost at the time of the call, in millionths of a US dollar. Snapshotted, so
+  /// editing a price later does not rewrite what last month cost.
+  costMicros   BigInt @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
+  @@index([provider, createdAt])
+  @@map("ai_usage_events")
+}
+
+/// A monthly spending limit. Warns at 80% and 100%; blocks new runs only if
+/// `hardStop` is set.
+model AiBudget {
+  id        String        @id @default(cuid())
+  scope     AiBudgetScope
+  projectId String?
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  provider  String?
+
+  monthlyLimitUsd Decimal @db.Decimal(10, 2)
+  hardStop        Boolean @default(false)
+
+  /// "2026-09:80" — the highest alert already sent this month, so each
+  /// threshold is announced once rather than on every call past it.
+  lastAlert String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scope, projectId, provider])
+  @@map("ai_budgets")
+}
+
+/// Who receives which report: a person, or everyone in a team.
+model ReportSubscription {
+  id     String     @id @default(cuid())
+  kind   ReportKind
+  userId String?
+  user   User?      @relation("ReportSubscriber", fields: [userId], references: [id], onDelete: Cascade)
+  teamId String?
+  team   Team?      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   User?    @relation("ReportSubscriptionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@unique([kind, userId])
+  @@unique([kind, teamId])
+  @@map("report_subscriptions")
 }

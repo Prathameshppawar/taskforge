@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import zodToJsonSchema from 'zod-to-json-schema'
 
-import { getAiProvider, type AiMessage } from '@/infrastructure/ai'
+import { type AiMessage } from '@/infrastructure/ai'
 import { allowNulls, dropNulls } from '@/features/ai/tools'
 import type { Actor } from '@/features/auth/guards'
 import {
@@ -13,6 +13,8 @@ import {
   daysFromNow,
 } from '@/features/ai/resolver'
 import { EMPTY_FILTERS, type TicketFilters } from './types'
+import { resolveCopilotProvider } from '@/features/ai-admin/engines'
+import { metered } from '@/features/ai-admin/usage'
 
 /**
  * "Everything Prakhar is blocked on this month" as a real filter.
@@ -72,7 +74,7 @@ export async function interpretFilter(
   actor: Actor,
   projectId: string,
 ): Promise<FilterInterpretation | { error: string }> {
-  const provider = getAiProvider()
+  const provider = metered(await resolveCopilotProvider(), { feature: 'FILTER', userId: actor.id, projectId })
 
   const messages: AiMessage[] = [
     { role: 'system', content: systemPrompt(new Date().toISOString().slice(0, 10)) },

@@ -1,12 +1,12 @@
 import { prisma } from '@/infrastructure/db/prisma'
-import { listCodingEngines } from '@/infrastructure/ai'
+import { listCodingEngines } from '@/features/ai-admin/engines'
 import { expireStaleRuns } from './service'
 
 /** What the ticket page's "Fix with AI" panel needs. */
 export async function getAiFixPanel(ticketId: string, projectId: string) {
   await expireStaleRuns(ticketId)
 
-  const [repos, runs] = await Promise.all([
+  const [repos, runs, engines] = await Promise.all([
     prisma.projectRepo.findMany({
       where: { projectId, repo: { isAccessible: true } },
       orderBy: { createdAt: 'asc' },
@@ -36,10 +36,11 @@ export async function getAiFixPanel(ticketId: string, projectId: string) {
         repo: { select: { fullName: true } },
       },
     }),
+    listCodingEngines(),
   ])
 
   return {
-    engines: listCodingEngines(),
+    engines,
     repos: repos.map((link) => ({ id: link.repo.id, fullName: link.repo.fullName, role: link.role })),
     runs,
   }

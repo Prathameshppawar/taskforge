@@ -20,14 +20,15 @@ export class GroqProvider implements AiProvider {
   readonly model: string
   private readonly client: Groq
 
-  constructor(model?: string) {
+  constructor(model?: string, apiKey?: string) {
     const config = env()
-    if (!config.GROQ_API_KEY) {
+    const key = apiKey ?? config.GROQ_API_KEY
+    if (!key) {
       throw new AiProviderError('GROQ_API_KEY is not set.', 'groq', 'unauthorized')
     }
 
     this.model = model ?? config.GROQ_MODEL
-    this.client = new Groq({ apiKey: config.GROQ_API_KEY })
+    this.client = new Groq({ apiKey: key })
   }
 
   async chat(request: AiChatRequest): Promise<AiChatResponse> {

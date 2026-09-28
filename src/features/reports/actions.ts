@@ -1,11 +1,13 @@
 'use server'
 
 import { requirePermission } from '@/features/auth/guards'
-import { isAiEnabled } from '@/lib/env'
-import { AiProviderError, getAiProvider } from '@/infrastructure/ai'
+import { isCopilotAvailable } from '@/features/ai-admin/engines'
+import { AiProviderError } from '@/infrastructure/ai'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { runAction } from '@/lib/safe-action'
 import { factsToPrompt, gatherFacts, isQuietPeriod, type ReportFacts } from './service'
+import { resolveCopilotProvider } from '@/features/ai-admin/engines'
+import { metered } from '@/features/ai-admin/usage'
 
 export interface StatusReport {
   prose: string
@@ -48,12 +50,16 @@ export async function generateStatusReportAction(
       })
     }
 
-    if (!isAiEnabled()) {
+    if (!(await isCopilotAvailable())) {
       return fail('The AI Copilot is not configured.', { code: 'AI_DISABLED' })
     }
 
     try {
-      const provider = getAiProvider()
+      const provider = metered(await resolveCopilotProvider(), {
+        feature: 'WEEKLY_UPDATE',
+        userId: actor.id,
+        projectId,
+      })
       const response = await provider.chat({
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },

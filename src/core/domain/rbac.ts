@@ -90,6 +90,12 @@ export const PERMISSIONS = [
    * not be able to do either.
    */
   'ai:code',
+  /**
+   * Choose AI engines and models, store provider keys, set budgets, and see
+   * what everyone has spent. Sees usage by person, so it is not handed out
+   * with `ai:use`.
+   */
+  'ai:manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -202,6 +208,11 @@ export const PERMISSION_GROUPS: ReadonlyArray<{
         key: 'ai:code',
         label: 'Fix tickets with AI',
         note: 'Opens pull requests written by a model. Costs money per run; never merges.',
+      },
+      {
+        key: 'ai:manage',
+        label: 'Manage AI engines and budgets',
+        note: 'Models, provider keys, spending limits, and usage by person and project.',
       },
       { key: 'template:manage', label: 'Manage project templates' },
       { key: 'audit:view-all', label: 'View the full activity log' },

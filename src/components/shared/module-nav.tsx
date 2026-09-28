@@ -11,6 +11,7 @@ import {
   MonitorSmartphone,
   Plug,
   ShieldCheck,
+  Sparkles,
   User,
   Users,
   UsersRound,
@@ -31,6 +32,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   template: LayoutTemplate,
   monitor: MonitorSmartphone,
   plug: Plug,
+  sparkles: Sparkles,
 }
 
 /**

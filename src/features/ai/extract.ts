@@ -1,5 +1,7 @@
-import { getAiProvider, type AiMessage } from '@/infrastructure/ai'
+import { type AiMessage } from '@/infrastructure/ai'
 import { bulkCreateTool, dropNulls, getToolDefinitions } from './tools'
+import { resolveCopilotProvider } from '@/features/ai-admin/engines'
+import { metered } from '@/features/ai-admin/usage'
 
 /**
  * Turning notes into a ticket breakdown.
@@ -50,13 +52,18 @@ export type ExtractResult =
 export async function extractBreakdown(
   text: string,
   projectCode?: string,
+  usage?: { userId: string; projectId?: string | null },
 ): Promise<ExtractResult> {
   const trimmed = text.trim()
   if (trimmed.length < 20) {
     return { ok: false, reason: 'Paste a bit more text — there is not enough here to break down.' }
   }
 
-  const provider = getAiProvider()
+  const provider = metered(await resolveCopilotProvider(), {
+    feature: 'CAPTURE',
+    userId: usage?.userId ?? null,
+    projectId: usage?.projectId ?? null,
+  })
   const today = new Date().toISOString().slice(0, 10)
 
   const messages: AiMessage[] = [

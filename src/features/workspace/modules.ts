@@ -46,6 +46,13 @@ export const WORKSPACE_SECTIONS: NavSection[] = [
         anyOf: ['template:manage'],
       },
       {
+        href: '/workspace/ai',
+        label: 'AI',
+        description: 'Engines and models, usage by person and project, budgets and reports.',
+        icon: 'sparkles',
+        anyOf: ['ai:manage'],
+      },
+      {
         href: '/workspace/integrations',
         label: 'Integrations',
         description: 'GitHub: repositories, pull requests and CI.',

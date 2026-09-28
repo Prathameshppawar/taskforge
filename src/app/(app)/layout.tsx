@@ -1,5 +1,5 @@
 import { requireUser } from "@/features/auth/guards";
-import { isAiEnabled } from "@/lib/env";
+import { isCopilotAvailable } from '@/features/ai-admin/engines'
 import { getSidebarProjects } from "@/features/projects/queries";
 import { AppSidebar } from "@/components/shared/app-sidebar";
 import { MobileNav } from "@/components/shared/mobile-nav";
@@ -24,7 +24,7 @@ export default async function AppLayout({
     getUnreadCount(actor),
     getNotificationPreferences(actor),
   ]);
-  const aiEnabled = isAiEnabled();
+  const aiEnabled = (await isCopilotAvailable());
 
   return (
     <AppShellClient permissions={actor.permissions} aiEnabled={aiEnabled}>

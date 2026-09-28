@@ -1,7 +1,9 @@
-import { AiProviderError, getAiProvider, type AiMessage } from '@/infrastructure/ai'
+import { AiProviderError, type AiChatRequest, type AiMessage, type AiProvider } from '@/infrastructure/ai'
 import type { Actor } from '@/features/auth/guards'
 import { executeTool, type ToolResult } from './executor'
 import { getToolDefinitions, isToolName } from './tools'
+import { resolveCopilotProvider } from '@/features/ai-admin/engines'
+import { assertWithinBudget, metered } from '@/features/ai-admin/usage'
 
 /**
  * Copilot orchestration.
@@ -110,8 +112,8 @@ function screenLines(context: CopilotContext): string[] {
 
 /** Retries once on a rate limit, since the free tier throttles per minute. */
 async function chatWithRetry(
-  provider: ReturnType<typeof getAiProvider>,
-  request: Parameters<ReturnType<typeof getAiProvider>['chat']>[0],
+  provider: AiProvider,
+  request: AiChatRequest,
 ) {
   try {
     return await provider.chat(request)
@@ -134,7 +136,13 @@ export async function runCopilotTurn(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   userMessage: string,
 ): Promise<CopilotTurn> {
-  const provider = getAiProvider()
+  const base = await resolveCopilotProvider()
+  await assertWithinBudget({ projectId: context.projectId ?? null, provider: base.id })
+  const provider = metered(base, {
+    feature: 'COPILOT',
+    userId: context.actor.id,
+    projectId: context.projectId ?? null,
+  })
   const tools = getToolDefinitions()
 
   const messages: AiMessage[] = [

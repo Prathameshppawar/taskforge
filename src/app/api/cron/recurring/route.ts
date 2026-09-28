@@ -5,6 +5,7 @@ import { generateDueTickets } from '@/features/recurring/service'
 import { sweepEmbeddings } from '@/features/tickets/embeddings'
 import { reconcileAllLinked } from '@/features/github/service'
 import { loadCredentials } from '@/infrastructure/github/client'
+import { sendWeeklyUsageReport } from '@/features/ai-admin/reports'
 
 /**
  * Recurring ticket scheduler.
@@ -73,9 +74,19 @@ export async function GET(request: NextRequest) {
         })
       : null
 
+    // The cron runs daily; the usage report is weekly, so it goes on Mondays.
+    const usageReport =
+      new Date().getUTCDay() === 1
+        ? await sendWeeklyUsageReport().catch((error) => {
+            console.error('[cron/recurring] weekly usage report failed:', error)
+            return { sent: false, recipients: 0 }
+          })
+        : null
+
     return NextResponse.json({
       ok: true,
       github,
+      usageReport,
       generated: result.generated.length,
       tickets: result.generated.map((entry) => entry.ticketKey),
       deactivated: result.deactivated.length,

@@ -31,6 +31,12 @@ import { Separator } from '@/components/ui/separator'
 import { UserAvatar } from '@/components/shared/user-avatar'
 import { TypeBadge } from '@/components/shared/badges'
 
+// Server Actions run inside this page's function, and "Fix with AI" keeps
+// working after its action has answered (see `after()` in its action). A run
+// on Groq's free tier can spend two or three minutes waiting out rate limits,
+// so the default ceiling would kill it mid-change.
+export const maxDuration = 300
+
 export async function generateMetadata({
   params,
 }: {

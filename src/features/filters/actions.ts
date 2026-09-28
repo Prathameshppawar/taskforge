@@ -12,7 +12,7 @@ import { ticketFiltersSchema, type TicketFilters } from './types'
 import { fromCriteria, toCriteria } from './criteria'
 import { interpretFilter } from './nl'
 import { AiProviderError } from '@/infrastructure/ai'
-import { isAiEnabled } from '@/lib/env'
+import { isCopilotAvailable } from '@/features/ai-admin/engines'
 
 const saveFilterSchema = z.object({
   name: z.string().trim().min(1, 'Name this filter set.').max(60),
@@ -146,7 +146,7 @@ export async function interpretFilterAction(input: {
     if (!can(actor, 'ai:use')) {
       return fail('You do not have access to the AI features.')
     }
-    if (!isAiEnabled()) {
+    if (!(await isCopilotAvailable())) {
       return fail('The AI Copilot is not configured.', { code: 'AI_DISABLED' })
     }
 

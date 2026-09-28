@@ -1,5 +1,7 @@
 import { prisma } from '@/infrastructure/db/prisma'
-import { getCodingProvider, type CodingEngineId, AiProviderError } from '@/infrastructure/ai'
+import { type CodingEngineId, AiProviderError } from '@/infrastructure/ai'
+import { getEngineProvider } from '@/features/ai-admin/engines'
+import { metered } from '@/features/ai-admin/usage'
 import { asInstallation, GithubApiError } from '@/infrastructure/github/client'
 import { recordActivity } from '@/features/activity/service'
 import { branchNameFor, TICKET_KIND_LABELS } from '@/core/domain/git-refs'
@@ -51,7 +53,12 @@ export async function executeFixRun(runId: string): Promise<void> {
   const installationId = repo.installation.installationId
 
   try {
-    const provider = getCodingProvider(run.provider as CodingEngineId)
+    const provider = metered(await getEngineProvider(run.provider as CodingEngineId), {
+      feature: 'AI_FIX',
+      userId: run.requestedById,
+      projectId: ticket.projectId,
+      ticketKey: ticket.key,
+    })
     const workspace = await RepoWorkspace.open(installationId, repo.fullName, repo.defaultBranch)
 
     const result = await runFixAgent({

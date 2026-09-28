@@ -5,7 +5,7 @@ import { getProjectViewContext } from '@/features/projects/project-context'
 import { TicketTable } from '@/features/tickets/components/ticket-table'
 import { TicketToolbar } from '@/features/filters/components/ticket-toolbar'
 import { parseFiltersFromParams } from '@/features/filters/types'
-import { isAiEnabled } from '@/lib/env'
+import { isCopilotAvailable } from '@/features/ai-admin/engines'
 
 export const metadata: Metadata = { title: 'Table' }
 
@@ -25,7 +25,7 @@ export default async function TablePage({
 
   return (
     <div className="flex h-full flex-col">
-      <TicketToolbar context={context} filters={filters} total={total} aiEnabled={isAiEnabled()} />
+      <TicketToolbar context={context} filters={filters} total={total} aiEnabled={(await isCopilotAvailable())} />
       <div className="min-h-0 flex-1">
         <TicketTable tickets={items} context={context} />
       </div>

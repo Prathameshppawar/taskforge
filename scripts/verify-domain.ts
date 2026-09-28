@@ -57,6 +57,8 @@ import { applyEdit, checkRepoPath, uniqueBranch } from '@/core/domain/ai-fix'
 import { codingToolDefinitions, resolveToolName } from '@/features/ai-fix/agent'
 import { echoable } from '@/infrastructure/ai/anthropic'
 
+import { costMicros, lastWeekRange, monthKey, monthStart, thresholdToAlert } from '@/core/domain/ai-budget'
+
 let passed = 0
 let failed = 0
 
@@ -725,6 +727,28 @@ const afterFallback = echoable(blocks([
 ]))
 check('pre-boundary thinking and tool_use are dropped',
   afterFallback.map((b) => b.type).join() === 'text,thinking,tool_use')
+
+
+console.log('\n── AI budgets: money and thresholds ──')
+check('cost is exact in micro-dollars', costMicros(1_000_000, 0, 5, 25) === BigInt(5_000_000))
+check('a small Opus call', costMicros(12_000, 800, 5, 25) === BigInt(80_000))
+check('an unpriced model costs nothing', costMicros(50_000, 5_000, 0, 0) === BigInt(0))
+const sep = new Date(Date.UTC(2026, 8, 29, 12))
+check('month starts on the 1st, UTC', monthStart(sep).toISOString() === '2026-09-01T00:00:00.000Z')
+check('month key is zero-padded', monthKey(new Date(Date.UTC(2026, 0, 5))) === '2026-01')
+const $ = (d: number) => BigInt(Math.round(d * 1_000_000))
+check('under 80% alerts nothing', thresholdToAlert($(39), 50, null, sep) === null)
+check('crossing 80% alerts 80', thresholdToAlert($(40), 50, null, sep) === 80)
+check('80 is not repeated in the same month', thresholdToAlert($(45), 50, '2026-09:80', sep) === null)
+check('100 still fires after 80', thresholdToAlert($(50), 50, '2026-09:80', sep) === 100)
+check('jumping past 100 sends only 100', thresholdToAlert($(70), 50, null, sep) === 100)
+check('a new month resets alerts', thresholdToAlert($(45), 50, '2026-08:100', sep) === 80)
+check('a zero limit never alerts', thresholdToAlert($(5), 0, null, sep) === null)
+const week = lastWeekRange(new Date(Date.UTC(2026, 8, 30, 9))) // a Wednesday
+check('last week starts on a Monday', week.from.toISOString() === '2026-09-21T00:00:00.000Z')
+check('last week ends where this one begins', week.to.toISOString() === '2026-09-28T00:00:00.000Z')
+check('on a Monday, "last week" is the week just ended',
+  lastWeekRange(new Date(Date.UTC(2026, 8, 28, 6))).from.toISOString() === '2026-09-21T00:00:00.000Z')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

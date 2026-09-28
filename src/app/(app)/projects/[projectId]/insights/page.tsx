@@ -20,7 +20,7 @@ import {
 } from '@/features/dashboard/components/charts'
 import { WorkloadTable } from '@/features/dashboard/components/workload-table'
 import { PageHeader } from '@/components/shared/page-header'
-import { isAiEnabled } from '@/lib/env'
+import { isCopilotAvailable } from '@/features/ai-admin/engines'
 import { StatusReportCard } from '@/features/reports/components/status-report'
 
 export const metadata: Metadata = { title: 'Insights' }
@@ -44,7 +44,7 @@ export default async function InsightsPage({
     getTeamWorkload(context.actor, scope),
   ])
 
-  const aiEnabled = isAiEnabled()
+  const aiEnabled = (await isCopilotAvailable())
 
   return (
     <div className="h-full overflow-y-auto">
