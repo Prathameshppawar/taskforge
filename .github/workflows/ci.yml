@@ -129,8 +129,12 @@ jobs:
       - name: Apply migrations
         run: npx prisma migrate deploy
 
+      # With demo data: the similarity check below writes into an existing
+      # project, and was quietly depending on one being there.
       - name: Seed
         run: npm run db:seed
+        env:
+          SEED_DEMO: 'true'
 
       # Downloads a 33MB model on first run, so it is its own step rather than
       # hidden inside the browser suite's timing.
