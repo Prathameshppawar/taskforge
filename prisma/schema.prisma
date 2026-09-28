@@ -1777,3 +1777,17 @@ model MonitorCheck {
   @@index([monitorId, checkedAt])
   @@map("monitor_checks")
 }
+
+/// A credential for an integration that has no row of its own — a Vercel API
+/// token, for instance. Sealed like the GitHub App's key; only the last four
+/// characters are kept in the clear, so the page can say which token it is.
+model IntegrationSecret {
+  key       String   @id
+  valueEnc  String
+  hint      String
+  /// Non-secret settings that travel with it, such as a Vercel team id.
+  meta      String?
+  updatedAt DateTime @updatedAt
+
+  @@map("integration_secrets")
+}

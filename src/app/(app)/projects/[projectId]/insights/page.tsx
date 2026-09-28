@@ -22,6 +22,8 @@ import { WorkloadTable } from '@/features/dashboard/components/workload-table'
 import { PageHeader } from '@/components/shared/page-header'
 import { isCopilotAvailable } from '@/features/ai-admin/engines'
 import { StatusReportCard } from '@/features/reports/components/status-report'
+import { getDeliveryMetrics } from '@/features/delivery/queries'
+import { DeliveryMetrics } from '@/features/delivery/components/delivery-metrics'
 
 export const metadata: Metadata = { title: 'Insights' }
 
@@ -34,7 +36,7 @@ export default async function InsightsPage({
   const context = await getProjectViewContext(projectId)
   const scope = { projectId }
 
-  const [stats, completion, trend, priorities, labels, statuses, workload] = await Promise.all([
+  const [stats, completion, trend, priorities, labels, statuses, workload, delivery] = await Promise.all([
     getStatCounts(context.actor, scope),
     getCompletionRate(context.actor, scope),
     getTicketTrend(context.actor, scope, 30),
@@ -42,6 +44,7 @@ export default async function InsightsPage({
     getLabelDistribution(context.actor, scope),
     getStatusDistribution(context.actor, scope),
     getTeamWorkload(context.actor, scope),
+    getDeliveryMetrics(projectId),
   ])
 
   const aiEnabled = (await isCopilotAvailable())
@@ -54,6 +57,8 @@ export default async function InsightsPage({
         <StatTiles stats={stats} basePath={`/projects/${projectId}/table`} />
 
         {aiEnabled && <StatusReportCard projectId={projectId} />}
+
+        <DeliveryMetrics metrics={delivery} />
 
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <CompletionCard

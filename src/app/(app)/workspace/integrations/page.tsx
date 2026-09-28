@@ -3,6 +3,8 @@ import type { Metadata } from 'next'
 import { requirePermissionPage } from '@/features/auth/guards'
 import { getIntegrationOverview } from '@/features/github/queries'
 import { GithubIntegration } from '@/features/github/components/github-integration'
+import { vercelStatus } from '@/features/vercel/service'
+import { VercelCard } from '@/features/vercel/components/vercel-card'
 import { PageHeader } from '@/components/shared/page-header'
 
 export const metadata: Metadata = { title: 'Integrations' }
@@ -25,9 +27,10 @@ export default async function IntegrationsPage({
   searchParams: Promise<{ error?: string; installed?: string }>
 }) {
   await requirePermissionPage('integration:manage')
-  const [{ error, installed }, overview] = await Promise.all([
+  const [{ error, installed }, overview, vercel] = await Promise.all([
     searchParams,
     getIntegrationOverview(),
+    vercelStatus(),
   ])
 
   return (
@@ -49,6 +52,7 @@ export default async function IntegrationsPage({
           </p>
         )}
         <GithubIntegration overview={overview} />
+        <VercelCard status={vercel} />
       </div>
     </div>
   )

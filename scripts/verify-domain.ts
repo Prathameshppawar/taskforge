@@ -71,6 +71,8 @@ import { fingerprintOf, maskMessage, normalizeErrorPayload } from '@/core/domain
 
 import { checkMonitorUrl, describeDuration, isPrivateAddress, uptimePercent } from '@/core/domain/network'
 
+import { changeFailureRate, failureRateBand, formatSpan, frequencyBand, leadTimeBand, median, recoveryBand } from '@/core/domain/dora'
+
 let passed = 0
 let failed = 0
 
@@ -909,6 +911,23 @@ check('credentials in the URL are refused', !checkMonitorUrl('https://user:pw@ex
 check('uptime is a percentage to one place', uptimePercent([{ ok: true }, { ok: true }, { ok: false }]) === 66.7)
 check('no checks means unknown, not 100%', uptimePercent([]) === null)
 check('durations read naturally', describeDuration(4 * 60_000) === '4 minutes' && describeDuration(125 * 60_000) === '2 hours 5 minutes')
+
+
+console.log('\n── Delivery: DORA metrics and bands ──')
+check('median of an odd list', median([5, 1, 3]) === 3)
+check('median of an even list averages the middle', median([1, 2, 3, 10]) === 2.5)
+check('median of nothing is unknown, not zero', median([]) === null)
+check('daily deploys are elite', frequencyBand(7) === 'elite' && frequencyBand(1) === 'high' && frequencyBand(0.3) === 'medium' && frequencyBand(0.1) === 'low')
+check('lead time under a day is elite', leadTimeBand(3_600_000) === 'elite' && leadTimeBand(3 * 86_400_000) === 'high')
+check('failure rate bands', failureRateBand(0.04) === 'elite' && failureRateBand(0.1) === 'high' && failureRateBand(0.5) === 'low')
+check('recovery under an hour is elite', recoveryBand(30 * 60_000) === 'elite' && recoveryBand(2 * 86_400_000) === 'medium')
+const d = (h: number) => new Date(Date.UTC(2026, 8, 1, h))
+check('a deploy followed by an incident within a day failed',
+  changeFailureRate([d(0), d(48)], [d(5)]) === 0.5)
+check('an incident before a deploy does not blame it', changeFailureRate([d(10)], [d(5)]) === 0)
+check('one deploy with two incidents counts once', changeFailureRate([d(0)], [d(1), d(2)]) === 1)
+check('no deploys is unknown, not zero', changeFailureRate([], [d(1)]) === null)
+check('spans read at DORA scale', formatSpan(45 * 60_000) === '45 min' && formatSpan(3 * 3_600_000) === '3 h' && formatSpan(4 * 86_400_000) === '4 days')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

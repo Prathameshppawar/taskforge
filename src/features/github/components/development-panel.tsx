@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { syncProjectReposAction } from '../actions'
+import { rollbackAction } from '@/features/vercel/actions'
 import type { TicketDevelopment } from '../queries'
 
 const KIND_LABEL: Record<GitRefKind, string> = {
@@ -93,10 +94,15 @@ export function DevelopmentPanel({
   projectId,
   development,
   canSync,
+  canRollback = false,
+  ticketKey,
 }: {
   projectId: string
   development: TicketDevelopment
   canSync: boolean
+  /** Project configuration rights and a connected Vercel token. */
+  canRollback?: boolean
+  ticketKey?: string
 }) {
   const router = useRouter()
   const [copied, setCopied] = React.useState(false)
@@ -205,6 +211,28 @@ export function DevelopmentPanel({
                   </a>
                 )}
                 {!deployment.url && <span className="flex-1" />}
+                {canRollback && ticketKey && deployment.isProduction && deployment.state === 'SUCCESS' && deployment.id === live?.id && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                    disabled={isPending}
+                    onClick={() => {
+                      if (!window.confirm(`Roll ${deployment.environment} back to the previous successful deploy? This change will no longer be live.`)) return
+                      startTransition(async () => {
+                        const result = await rollbackAction({ deploymentId: deployment.id, ticketKey })
+                        if (!result.success) {
+                          toast.error(result.error)
+                          return
+                        }
+                        toast.success(`Rolled back to ${result.data.sha.slice(0, 7)}.`)
+                        router.refresh()
+                      })
+                    }}
+                  >
+                    Roll back
+                  </Button>
+                )}
                 <span className="hidden shrink-0 text-[10px] text-muted-foreground sm:inline">
                   {formatDistanceToNow(deployment.createdAt, { addSuffix: true })}
                 </span>
