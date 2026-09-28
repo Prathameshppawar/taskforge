@@ -24,6 +24,8 @@ import { getTicketDevelopment } from '@/features/github/queries'
 import { DevelopmentPanel } from '@/features/github/components/development-panel'
 import { getAiFixPanel } from '@/features/ai-fix/queries'
 import { AiFixPanel } from '@/features/ai-fix/components/ai-fix-panel'
+import { releaseContents } from '@/features/releases/service'
+import { ReleasePanel } from '@/features/releases/components/release-panel'
 import { can } from '@/features/auth/guards'
 import { prisma } from '@/infrastructure/db/prisma'
 import { Progress } from '@/components/ui/progress'
@@ -86,6 +88,8 @@ export default async function TicketDetailPage({
   const canEdit = context.can.updateTicket
   const canCode = canEdit && can(actor, 'ai:code')
   const aiFix = canCode ? await getAiFixPanel(ticket.id, ticket.project.id) : null
+  const kind = await prisma.ticketType.findUnique({ where: { id: ticket.type.id }, select: { kind: true } })
+  const release = kind?.kind === 'DEPLOYMENT' ? await releaseContents(ticket.id) : null
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
@@ -213,6 +217,15 @@ export default async function TicketDetailPage({
           />
 
           {aiFix && <AiFixPanel ticketId={ticket.id} data={aiFix} />}
+
+          {release && canEdit && (
+            <ReleasePanel
+              ticketId={ticket.id}
+              pending={release.tickets.map((entry) => ({ key: entry.key, title: entry.title }))}
+              since={release.previousKey ?? release.since.toISOString().slice(0, 10)}
+              canPublish={context.can.manageConfig}
+            />
+          )}
 
           <TicketLinks ticketKey={ticket.key} links={links} canEdit={canEdit} />
 

@@ -65,6 +65,8 @@ import { isProductionEnvironment } from '@/features/github/deployments'
 
 import { annotatePatch, partitionComments } from '@/core/domain/diff'
 
+import { nextReleaseTag, renderReleaseNotes } from '@/core/domain/releases'
+
 let passed = 0
 let failed = 0
 
@@ -844,6 +846,21 @@ const parts = partitionComments(
 )
 check('a valid line stays inline', parts.inline.length === 1 && parts.inline[0].line === 4)
 check('an invalid line or file is kept as a general note, not dropped', parts.general.length === 2)
+
+
+console.log('\n── Releases: notes and tags ──')
+const notes = renderReleaseNotes('A tidy release.', [
+  { key: 'RC-2', kind: 'BUG', line: 'Sync no longer drops orders offline' },
+  { key: 'RC-1', kind: 'FEATURE', line: 'Batch numbers on delivery notes' },
+  { key: 'RC-3', kind: 'TASK', line: 'Dependencies updated' },
+])
+check('sections follow a fixed order, not input order', notes.indexOf('### New') < notes.indexOf('### Fixed') && notes.indexOf('### Fixed') < notes.indexOf('### Other changes'))
+check('empty sections are left out', !notes.includes('### Improved'))
+check('each line keeps its key', notes.includes('(RC-2)') && notes.includes('(RC-1)'))
+const day = new Date(Date.UTC(2026, 8, 30))
+check('a fresh day gets a plain calendar tag', nextReleaseTag(new Set(), day) === 'v2026.09.30')
+check('a second release that day is suffixed', nextReleaseTag(new Set(['v2026.09.30']), day) === 'v2026.09.30.2')
+check('suffixes keep counting', nextReleaseTag(new Set(['v2026.09.30', 'v2026.09.30.2']), day) === 'v2026.09.30.3')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)
