@@ -20,6 +20,7 @@ import {
   type StatusInput,
   type TicketTypeInput,
 } from './schemas'
+import { inferTicketKind } from '@/core/domain/git-refs'
 
 /**
  * Project workflow configuration.
@@ -369,6 +370,7 @@ export async function upsertTicketTypeAction(
             color: data.color,
             icon: data.icon,
             isDefault: data.isDefault,
+            ...(data.kind ? { kind: data.kind } : {}),
           },
         })
       } else {
@@ -385,6 +387,7 @@ export async function upsertTicketTypeAction(
             color: data.color,
             icon: data.icon,
             isDefault: data.isDefault,
+            kind: data.kind ?? inferTicketKind(data.name),
             position: (last?.position ?? -1) + 1,
           },
         })

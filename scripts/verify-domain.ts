@@ -40,6 +40,19 @@ import {
   type Permission,
 } from '@/core/domain/rbac'
 
+import {
+  branchNameFor,
+  extractTicketKeys,
+  inferTicketKind,
+  mayAdvance,
+  targetCategoryFor,
+} from '@/core/domain/git-refs'
+import { rollupChecks, toCheckState } from '@/features/github/service'
+import { buildManifest, isPublicUrl, resolveWebhookUrl } from '@/features/github/manifest'
+import { createAppJwt, verifyWebhookSignature } from '@/infrastructure/github/client'
+import { seal, unseal } from '@/infrastructure/github/secrets'
+import { createHmac, createVerify, generateKeyPairSync } from 'node:crypto'
+
 let passed = 0
 let failed = 0
 
@@ -530,6 +543,130 @@ const nested = dropNulls({ children: [{ title: 'a', assignee: null }] }) as {
 }
 check('nulls inside array members are dropped too',
   !('assignee' in nested.children[0]) && nested.children[0].title === 'a')
+
+
+console.log('\n── GitHub: ticket keys in git text ──')
+const codes = new Set(['RC', 'AUTH'])
+check('finds a key in a PR title', extractTicketKeys(['RC-14: fix sync'], codes).join() === 'RC-14')
+check('finds a lower-case key in a branch name',
+  extractTicketKeys(['fix/rc-14-tablet-sync'], codes).join() === 'RC-14')
+check('ignores codes of projects the repo is not linked to',
+  extractTicketKeys(['OPS-3 and RC-2'], codes).join() === 'RC-2')
+check('ignores look-alikes: utf-8, sha-256, iso-8601',
+  extractTicketKeys(['utf-8 sha-256 iso-8601'], new Set(['UTF', 'SHA', 'ISO'])).length === 3,
+  'the allow-list is what rejects them; with the codes allowed they match, proving the filter matters')
+check('…and rejects them once the codes are not real projects',
+  extractTicketKeys(['utf-8 sha-256 iso-8601'], codes).length === 0)
+check('de-duplicates across texts and zero padding',
+  extractTicketKeys(['RC-14', 'rc-014', 'Closes RC-14'], codes).join() === 'RC-14')
+check('keeps several distinct keys in order',
+  extractTicketKeys(['RC-2 then AUTH-9 then RC-1'], codes).join() === 'RC-2,AUTH-9,RC-1')
+check('does not read a key out of the middle of a word',
+  extractTicketKeys(['ARC-14 XRC-2'], codes).length === 0)
+check('does not truncate a longer number', extractTicketKeys(['RC-145'], codes).join() === 'RC-145')
+check('null and empty texts are skipped', extractTicketKeys([null, undefined, ''], codes).length === 0)
+
+console.log('\n── GitHub: branch names ──')
+check('bug fix gets fix/', branchNameFor('RC-14', 'Tablet loses sync', 'BUG') === 'fix/rc-14-tablet-loses-sync')
+check('production issue gets hotfix/', branchNameFor('RC-3', 'Checkout 500s', 'PRODUCTION') === 'hotfix/rc-3-checkout-500s')
+check('deployment gets release/', branchNameFor('RC-9', 'v2.1', 'DEPLOYMENT') === 'release/rc-9-v2-1')
+check('punctuation and accents collapse to hyphens',
+  branchNameFor('RC-1', 'Café — “menu” / nav!!', 'FEATURE') === 'feat/rc-1-cafe-menu-nav')
+check('a long title is cut without a trailing hyphen', (() => {
+  const name = branchNameFor('RC-1', 'a'.repeat(39) + ' bcdef', 'TASK')
+  return !name.endsWith('-') && name.length <= 'chore/rc-1-'.length + 40
+})())
+check('a long title is cut at a word, not mid-word',
+  branchNameFor('DEMO-2', 'Contact email link points to a placeholder address', 'BUG') ===
+    'fix/demo-2-contact-email-link-points-to-a')
+check('a single over-long word is hard-cut', branchNameFor('RC-1', 'x'.repeat(60), 'TASK') === 'chore/rc-1-' + 'x'.repeat(40))
+check('an all-symbol title leaves just the key', branchNameFor('RC-1', '!!!', 'TASK') === 'chore/rc-1')
+check('the branch name round-trips to its ticket',
+  extractTicketKeys([branchNameFor('AUTH-77', 'Login', 'BUG')], codes).join() === 'AUTH-77')
+
+console.log('\n── GitHub: status automation ──')
+check('opening a PR moves Todo to Review', mayAdvance('TODO', targetCategoryFor({ kind: 'pull_request', state: 'OPEN' })!))
+check('a draft PR only reaches In Progress', targetCategoryFor({ kind: 'pull_request', state: 'DRAFT' }) === 'IN_PROGRESS')
+check('merging moves Review to Done', mayAdvance('REVIEW', targetCategoryFor({ kind: 'pull_request', state: 'MERGED' })!))
+check('closing unmerged moves nothing', targetCategoryFor({ kind: 'pull_request', state: 'CLOSED' }) === null)
+check('a new branch moves Backlog to In Progress', mayAdvance('BACKLOG', targetCategoryFor({ kind: 'branch_created' })!))
+check('a merged fix finishes a blocked ticket', mayAdvance('BLOCKED', 'DONE'))
+check('never backwards: Review stays when a draft appears', !mayAdvance('REVIEW', 'IN_PROGRESS'))
+check('never re-applies the same category', !mayAdvance('REVIEW', 'REVIEW'))
+check('never reopens Done', !mayAdvance('DONE', 'REVIEW'))
+check('never touches Cancelled', !mayAdvance('CANCELLED', 'DONE'))
+
+console.log('\n── GitHub: CI rollup ──')
+check('success, neutral and skipped pass', ['success', 'neutral', 'skipped'].every((c) => toCheckState('completed', c) === 'SUCCESS'))
+check('failure, timed_out and cancelled fail', ['failure', 'timed_out', 'cancelled'].every((c) => toCheckState('completed', c) === 'FAILURE'))
+check('anything not completed is pending', toCheckState('in_progress', null) === 'PENDING')
+check('one failure fails the lot', rollupChecks([
+  { status: 'completed', conclusion: 'success' },
+  { status: 'completed', conclusion: 'failure' },
+]) === 'FAILURE')
+check('one running suite keeps it pending', rollupChecks([
+  { status: 'completed', conclusion: 'success' },
+  { status: 'queued', conclusion: null },
+]) === 'PENDING')
+check('no suites is no CI, not a pass', rollupChecks([]) === null)
+
+console.log('\n── GitHub: ticket kinds ──')
+check('Hotfix reads as production before its "fix" reads as a bug', inferTicketKind('Hotfix') === 'PRODUCTION')
+check('Bug and Defect are bug fixes', inferTicketKind('Bug') === 'BUG' && inferTicketKind('Defect') === 'BUG')
+check('Release is a deployment', inferTicketKind('Release') === 'DEPLOYMENT')
+check('Improvement is an enhancement', inferTicketKind('Improvement') === 'ENHANCEMENT')
+check('Story is a feature', inferTicketKind('Story') === 'FEATURE')
+check('anything else is a task', inferTicketKind('Chore') === 'TASK')
+
+console.log('\n── GitHub: app manifest ──')
+check('localhost is not a webhook target', !isPublicUrl('http://localhost:3000/api/github/webhook'))
+check('plain http is not a webhook target', !isPublicUrl('http://example.com/x'))
+check('a public https URL is', isPublicUrl('https://taskforge.example.com/api/github/webhook'))
+delete process.env.GITHUB_WEBHOOK_URL
+check('local origin registers no webhook', resolveWebhookUrl('http://localhost:3000') === null)
+check('a deployed origin registers its own', resolveWebhookUrl('https://tf.example.com') === 'https://tf.example.com/api/github/webhook')
+const manifest = buildManifest('http://localhost:3000', 'TaskForge test')
+check('manifest asks for read access only',
+  Object.values(manifest.default_permissions).every((level) => level === 'read'))
+check('manifest webhook is active even without a URL', manifest.hook_attributes.active === true)
+check('manifest redirects back to this origin',
+  manifest.redirect_url === 'http://localhost:3000/api/github/manifest/callback')
+
+console.log('\n── GitHub: webhook signatures ──')
+const hookSecret = 'shh-its-a-secret'
+const body = JSON.stringify({ action: 'opened', number: 1 })
+const goodSig = `sha256=${createHmac('sha256', hookSecret).update(body).digest('hex')}`
+check('a correct signature verifies', verifyWebhookSignature(body, goodSig, hookSecret))
+check('a changed body is refused', !verifyWebhookSignature(body + ' ', goodSig, hookSecret))
+check('the wrong secret is refused', !verifyWebhookSignature(body, goodSig, 'other'))
+check('a missing header is refused', !verifyWebhookSignature(body, null, hookSecret))
+check('the legacy sha1 header is refused', !verifyWebhookSignature(body, 'sha1=abc', hookSecret))
+
+console.log('\n── GitHub: app JWT ──')
+const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+const pem = privateKey.export({ type: 'pkcs1', format: 'pem' }).toString()
+const now = Date.UTC(2026, 8, 29, 12, 0, 0)
+const jwt = createAppJwt(12345, pem, now)
+const [h, p, sig] = jwt.split('.')
+const claims = JSON.parse(Buffer.from(p, 'base64url').toString())
+check('the JWT verifies with the app public key',
+  createVerify('RSA-SHA256').update(`${h}.${p}`).verify(publicKey, sig, 'base64url'))
+check('issuer is the app id', claims.iss === '12345')
+check('issued-at is backdated for clock drift', claims.iat === now / 1000 - 60)
+check('it lives under GitHub\'s ten-minute ceiling', claims.exp - claims.iat <= 600)
+
+console.log('\n── GitHub: sealed credentials ──')
+process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'verify-domain-auth-secret-0123456789'
+const sealed = seal(pem)
+check('sealing round-trips', unseal(sealed) === pem)
+check('the sealed value does not contain the key', !sealed.includes('PRIVATE KEY'))
+check('sealing twice gives different ciphertext', seal(pem) !== sealed)
+check('a tampered ciphertext refuses to open', (() => {
+  const parts = sealed.split('.')
+  const last = parts[3]
+  parts[3] = (last[0] === 'A' ? 'B' : 'A') + last.slice(1)
+  return expectThrow(() => unseal(parts.join('.')))
+})())
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

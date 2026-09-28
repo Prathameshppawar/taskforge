@@ -76,6 +76,7 @@ export async function instantiateTemplate(
       icon: t.icon,
       position: t.position,
       isDefault: t.isDefault,
+      kind: t.kind,
     })),
   })
 

@@ -137,6 +137,7 @@ async function seedTemplates(adminId: string) {
             icon: t.icon,
             position: t.position,
             isDefault: t.isDefault ?? false,
+            kind: t.kind,
           })),
         },
         labels: {

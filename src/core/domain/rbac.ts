@@ -77,6 +77,12 @@ export const PERMISSIONS = [
   // Automation & AI
   'recurring:manage',
   'ai:use',
+  /**
+   * Connect the workspace to GitHub and see every repository it can reach. A
+   * workspace-level grant, not a project one: whoever holds it can read the
+   * names of repositories no project has been given.
+   */
+  'integration:manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -180,6 +186,11 @@ export const PERMISSION_GROUPS: ReadonlyArray<{
     permissions: [
       { key: 'recurring:manage', label: 'Manage recurring tickets' },
       { key: 'ai:use', label: 'Use the AI Copilot' },
+      {
+        key: 'integration:manage',
+        label: 'Manage integrations',
+        note: 'Connects GitHub, and sees every repository the app can reach.',
+      },
       { key: 'template:manage', label: 'Manage project templates' },
       { key: 'audit:view-all', label: 'View the full activity log' },
     ],

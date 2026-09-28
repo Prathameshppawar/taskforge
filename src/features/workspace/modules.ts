@@ -46,6 +46,13 @@ export const WORKSPACE_SECTIONS: NavSection[] = [
         anyOf: ['template:manage'],
       },
       {
+        href: '/workspace/integrations',
+        label: 'Integrations',
+        description: 'GitHub: repositories, pull requests and CI.',
+        icon: 'plug',
+        anyOf: ['integration:manage'],
+      },
+      {
         href: '/workspace/sessions',
         label: 'Sessions',
         description: 'Who is signed in, and revoking access.',

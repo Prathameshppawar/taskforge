@@ -2,12 +2,13 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import type { StatusCategory } from '@prisma/client'
+import type { StatusCategory, TicketKind } from '@prisma/client'
 import { Loader2, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { cn } from '@/lib/utils'
 import { CATEGORY_LABELS } from '@/core/domain/ticket-rules'
+import { TICKET_KINDS, TICKET_KIND_LABELS, inferTicketKind } from '@/core/domain/git-refs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -49,6 +50,8 @@ export interface ConfigRow {
   category?: StatusCategory
   level?: number
   icon?: string
+  /** Ticket types only: what the type means, see TicketKind. */
+  ticketKind?: TicketKind
 }
 
 type ConfigKind = 'status' | 'priority' | 'type'
@@ -67,7 +70,7 @@ const KIND_LABELS: Record<ConfigKind, { singular: string; plural: string; hint: 
   type: {
     singular: 'ticket type',
     plural: 'Ticket types',
-    hint: 'Task, Bug, Story and anything else this team tracks.',
+    hint: 'Task, Bug, Story and anything else this team tracks. The kind is what automation reads, so a rename never changes behaviour.',
   },
 }
 
@@ -120,6 +123,11 @@ export function WorkflowConfig({
             {row.category && (
               <Badge variant="outline" className="text-[10px]">
                 {CATEGORY_LABELS[row.category]}
+              </Badge>
+            )}
+            {row.ticketKind && (
+              <Badge variant="outline" className="text-[10px]">
+                {TICKET_KIND_LABELS[row.ticketKind].label}
               </Badge>
             )}
             {row.isInitial && (
@@ -206,6 +214,7 @@ function ConfigDialog({
   const [color, setColor] = React.useState('blue')
   const [category, setCategory] = React.useState<StatusCategory>('TODO')
   const [level, setLevel] = React.useState(1)
+  const [ticketKind, setTicketKind] = React.useState<TicketKind | null>(null)
   const [flag, setFlag] = React.useState(false)
   const [isPending, startTransition] = React.useTransition()
 
@@ -215,6 +224,8 @@ function ConfigDialog({
     setColor(row?.color ?? 'blue')
     setCategory(row?.category ?? 'TODO')
     setLevel(row?.level ?? 1)
+    // Null on a new type means "follow the name" until someone picks one.
+    setTicketKind(row?.ticketKind ?? null)
     setFlag(Boolean(row?.isDefault ?? row?.isInitial))
   }, [open, row])
 
@@ -246,6 +257,7 @@ function ConfigDialog({
                 color,
                 icon: row?.icon ?? 'circle-dot',
                 isDefault: flag,
+                kind: ticketKind ?? inferTicketKind(name),
               })
 
       if (!result.success) {
@@ -319,6 +331,34 @@ function ConfigDialog({
                 value={level}
                 onChange={(event) => setLevel(Number(event.target.value))}
               />
+            </div>
+          )}
+
+          {kind === 'type' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="config-kind">Kind</Label>
+              <Select
+                value={ticketKind ?? inferTicketKind(name)}
+                onValueChange={(value) => setTicketKind(value as TicketKind)}
+              >
+                <SelectTrigger id="config-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TICKET_KINDS.map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {TICKET_KIND_LABELS[key].label}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {TICKET_KIND_LABELS[key].hint}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Decides how GitHub treats this work — a bug fix gets a <code>fix/</code> branch,
+                a production issue <code>hotfix/</code>.
+              </p>
             </div>
           )}
 

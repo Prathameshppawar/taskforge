@@ -126,6 +126,10 @@ export const ticketTypeSchema = z.object({
   color: z.string().min(1),
   icon: z.string().min(1).default('circle-dot'),
   isDefault: z.boolean().default(false),
+  /** Omitted: inferred from the name, exactly as the migration backfilled. */
+  kind: z
+    .enum(['TASK', 'FEATURE', 'ENHANCEMENT', 'BUG', 'PRODUCTION', 'DEPLOYMENT', 'RESEARCH'])
+    .optional(),
 })
 export type TicketTypeInput = z.infer<typeof ticketTypeSchema>
 

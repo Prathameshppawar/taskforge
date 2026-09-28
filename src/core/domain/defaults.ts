@@ -1,4 +1,4 @@
-import type { StatusCategory } from '@prisma/client'
+import type { StatusCategory, TicketKind } from '@prisma/client'
 
 /**
  * Workspace defaults.
@@ -52,15 +52,17 @@ export interface TicketTypeSeed {
   icon: string
   position: number
   isDefault?: boolean
+  kind: TicketKind
 }
 
 export const DEFAULT_TICKET_TYPES: TicketTypeSeed[] = [
-  { name: 'Task', color: 'blue', icon: 'circle-check', position: 0, isDefault: true },
-  { name: 'Bug', color: 'red', icon: 'bug', position: 1 },
-  { name: 'Story', color: 'emerald', icon: 'bookmark', position: 2 },
-  { name: 'Improvement', color: 'violet', icon: 'trending-up', position: 3 },
-  { name: 'Research', color: 'cyan', icon: 'microscope', position: 4 },
-  { name: 'Hotfix', color: 'orange', icon: 'flame', position: 5 },
+  { name: 'Task', color: 'blue', icon: 'circle-check', position: 0, isDefault: true, kind: 'TASK' },
+  { name: 'Bug', color: 'red', icon: 'bug', position: 1, kind: 'BUG' },
+  { name: 'Story', color: 'emerald', icon: 'bookmark', position: 2, kind: 'FEATURE' },
+  { name: 'Improvement', color: 'violet', icon: 'trending-up', position: 3, kind: 'ENHANCEMENT' },
+  { name: 'Research', color: 'cyan', icon: 'microscope', position: 4, kind: 'RESEARCH' },
+  { name: 'Hotfix', color: 'orange', icon: 'flame', position: 5, kind: 'PRODUCTION' },
+  { name: 'Deployment', color: 'teal', icon: 'rocket', position: 6, kind: 'DEPLOYMENT' },
 ]
 
 export interface LabelSeed {

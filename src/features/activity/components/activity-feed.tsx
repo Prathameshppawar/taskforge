@@ -1,11 +1,12 @@
 import { formatDistanceToNow } from 'date-fns'
-import type { ActivityAction } from '@prisma/client'
+import type { ActivityAction, ActivityEntity } from '@prisma/client'
 import {
   Activity,
   ArrowRight,
   CircleCheck,
   CirclePlus,
   Flag,
+  Github,
   Link2,
   MessageSquare,
   Pencil,
@@ -21,6 +22,8 @@ import { EmptyState } from '@/components/shared/page-header'
 export interface ActivityItem {
   id: string
   action: ActivityAction
+  /** Optional so older callers compile; used to name GitHub as the actor. */
+  entityType?: ActivityEntity
   entityLabel: string | null
   field: string | null
   oldValue: string | null
@@ -75,7 +78,10 @@ export function ActivityFeed({
   return (
     <ol className="space-y-0.5">
       {items.map((item) => {
-        const Icon = ICONS[item.action] ?? Activity
+        // No person did it. Integration entries were caused by GitHub, and say
+        // so rather than blaming an anonymous "System".
+        const fromGithub = !item.actor && item.entityType === 'INTEGRATION'
+        const Icon = fromGithub ? Github : (ICONS[item.action] ?? Activity)
 
         return (
           <li key={item.id} className="flex gap-3 rounded-lg px-2 py-2 hover:bg-accent/40">
@@ -95,7 +101,9 @@ export function ActivityFeed({
 
             <div className="min-w-0 flex-1">
               <p className="text-sm leading-snug">
-                <span className="font-medium">{item.actor?.name ?? 'System'}</span>{' '}
+                <span className="font-medium">
+                  {item.actor?.name ?? (fromGithub ? 'GitHub' : 'System')}
+                </span>{' '}
                 <span className="text-muted-foreground">
                   {item.summary ?? describeFallback(item)}
                 </span>

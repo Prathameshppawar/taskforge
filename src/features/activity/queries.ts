@@ -5,6 +5,7 @@ import { projectVisibilityFilter, type Actor } from '@/features/auth/guards'
 const ACTIVITY_SELECT = {
   id: true,
   action: true,
+  entityType: true,
   entityLabel: true,
   field: true,
   oldValue: true,

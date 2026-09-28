@@ -88,6 +88,7 @@ enum ActivityEntity {
   RECURRING_TICKET
   ROLE
   TEAM
+  INTEGRATION
 }
 
 enum ActivityAction {
@@ -125,6 +126,44 @@ enum TicketLinkType {
   BLOCKS
   RELATES_TO
   DUPLICATES
+}
+
+/// What a ticket type *means*, independent of what a project calls it.
+///
+/// Type names are free text — one team says "Bug", another "Defect" — so
+/// anything that has to behave differently for a bug fix than for a deployment
+/// reads this instead of the name. Renaming a type never changes its kind.
+enum TicketKind {
+  TASK
+  FEATURE
+  ENHANCEMENT
+  BUG
+  PRODUCTION
+  DEPLOYMENT
+  RESEARCH
+}
+
+/// The three kinds of development artefact that can mention a ticket.
+enum GitRefKind {
+  BRANCH
+  PULL_REQUEST
+  COMMIT
+}
+
+/// Lifecycle of a branch or pull request as GitHub last reported it. Commits
+/// have no lifecycle and leave it null.
+enum GitRefState {
+  OPEN
+  DRAFT
+  MERGED
+  CLOSED
+}
+
+/// Rolled-up CI result for a pull request's head commit.
+enum GitCheckState {
+  PENDING
+  SUCCESS
+  FAILURE
 }
 
 enum NotificationType {
@@ -508,10 +547,11 @@ model TemplateTicketType {
   template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   name      String
-  color     String  @default("slate")
-  icon      String  @default("circle-dot")
+  color     String     @default("slate")
+  icon      String     @default("circle-dot")
   position  Int
-  isDefault Boolean @default(false)
+  isDefault Boolean    @default(false)
+  kind      TicketKind @default(TASK)
 
   @@unique([templateId, name])
   @@index([templateId])
@@ -603,6 +643,7 @@ model Project {
   activities       ActivityLog[]
   recurringTickets RecurringTicket[]
   savedFilters     SavedFilter[]
+  repos            ProjectRepo[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -637,6 +678,9 @@ model ProjectSettings {
   requireDueDate   Boolean @default(false)
   /// Only members of the project may view it.
   isPrivate        Boolean @default(false)
+  /// Let linked GitHub activity move tickets forward: a pull request opened
+  /// moves one to Review, merged moves it to Done. Never moves one backward.
+  githubAutomation Boolean @default(true)
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
@@ -792,10 +836,12 @@ model TicketType {
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   name      String
-  color     String  @default("slate")
-  icon      String  @default("circle-dot")
-  position  Int     @default(0)
-  isDefault Boolean @default(false)
+  color     String     @default("slate")
+  icon      String     @default("circle-dot")
+  position  Int        @default(0)
+  isDefault Boolean    @default(false)
+  /// Semantic category, see TicketKind. Drives behaviour; the name is display.
+  kind      TicketKind @default(TASK)
 
   tickets          Ticket[]
   recurringTickets RecurringTicket[]
@@ -913,6 +959,7 @@ model Ticket {
   attachments   TicketAttachment[]
   activities    ActivityLog[]
   notifications Notification[]
+  gitRefs       TicketGitRef[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1181,4 +1228,146 @@ model SavedFilterCriterion {
 
   @@index([savedFilterId])
   @@map("saved_filter_criteria")
+}
+
+// =============================================================================
+// GITHUB INTEGRATION
+// =============================================================================
+
+/// The workspace's own GitHub App. There is exactly one, so the primary key is
+/// pinned to 1.
+///
+/// Created through GitHub's manifest flow, which hands the credentials back to
+/// us rather than to a person — nobody ever copies a private key out of a
+/// browser. The secrets are sealed with AES-256-GCM before they are written;
+/// see `src/infrastructure/github/secrets.ts`. Environment variables, when set,
+/// take precedence over this row.
+model GithubApp {
+  id               Int    @id @default(1)
+  appId            Int    @unique
+  slug             String
+  name             String
+  ownerLogin       String
+  htmlUrl          String
+  clientId         String
+  /// Sealed. Kept for a later user-to-server flow; unused today.
+  clientSecretEnc  String
+  privateKeyEnc    String
+  webhookSecretEnc String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("github_apps")
+}
+
+/// One install of the app on a GitHub account — a personal account or an
+/// organisation. Each carries its own repository grant.
+model GithubInstallation {
+  id                  String    @id @default(cuid())
+  /// GitHub's id. BigInt because GitHub's ids have already passed 2^31 in
+  /// places, and an install id is not a number anything should overflow on.
+  installationId      BigInt    @unique
+  accountLogin        String
+  /// "User" or "Organization", as GitHub reports it.
+  accountType         String
+  avatarUrl           String?
+  /// "all" or "selected" — whether new repositories are granted automatically.
+  repositorySelection String
+  suspendedAt         DateTime?
+  /// Set when the app is uninstalled from this account. The row is kept, with
+  /// its repositories marked inaccessible, so the tickets that point at them
+  /// keep their history; reinstalling clears it.
+  removedAt           DateTime?
+
+  repos GithubRepo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("github_installations")
+}
+
+/// A repository the app can see, mirrored so a picker does not need a round
+/// trip to GitHub. Rows are never deleted when access is withdrawn — they are
+/// marked inaccessible — so the ticket history that points at them survives.
+model GithubRepo {
+  id             String             @id @default(cuid())
+  githubId       BigInt             @unique
+  installationId String
+  installation   GithubInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+
+  /// "owner/name", the form every GitHub API path uses.
+  fullName      String
+  name          String
+  ownerLogin    String
+  isPrivate     Boolean @default(false)
+  defaultBranch String  @default("main")
+  htmlUrl       String
+  description   String?
+  /// False once the install no longer grants this repository.
+  isAccessible  Boolean @default(true)
+
+  projects ProjectRepo[]
+  refs     TicketGitRef[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([installationId])
+  @@index([fullName])
+  @@map("github_repos")
+}
+
+/// Which repositories a project's work lands in. Many-to-many: a project can
+/// span an app, an API and a CMS, and a shared library can serve several
+/// projects.
+model ProjectRepo {
+  projectId String
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  repoId    String
+  repo      GithubRepo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  /// What this repository is to the project — "Tablet app", "API". Optional.
+  role String?
+
+  createdAt DateTime @default(now())
+
+  @@id([projectId, repoId])
+  @@index([repoId])
+  @@map("project_repos")
+}
+
+/// A branch, pull request or commit that mentions a ticket by key.
+///
+/// Written by the webhook and by reconciliation, both through the same upsert,
+/// so a redelivered event or a sweep that overlaps a webhook changes nothing.
+model TicketGitRef {
+  id       String     @id @default(cuid())
+  ticketId String
+  ticket   Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  repoId   String
+  repo     GithubRepo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  kind       GitRefKind
+  /// Branch name, pull request number, or commit sha — unique within a kind.
+  externalId String
+
+  title       String
+  url         String
+  state       GitRefState?
+  checkState  GitCheckState?
+  authorLogin String?
+  /// For pull requests: the head commit, which is what CI reports against.
+  headSha     String?
+  headBranch  String?
+  mergedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ticketId, repoId, kind, externalId])
+  @@index([repoId, kind, externalId])
+  @@index([repoId, headSha])
+  @@map("ticket_git_refs")
 }

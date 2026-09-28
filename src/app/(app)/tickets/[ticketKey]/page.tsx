@@ -20,6 +20,8 @@ import { TicketAttachments } from '@/features/tickets/components/ticket-attachme
 import { WatchButton } from '@/features/tickets/components/watch-button'
 import { listTicketLinks } from '@/features/tickets/relations'
 import { listAttachments } from '@/features/attachments/actions'
+import { getTicketDevelopment } from '@/features/github/queries'
+import { DevelopmentPanel } from '@/features/github/components/development-panel'
 import { prisma } from '@/infrastructure/db/prisma'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
@@ -48,7 +50,7 @@ export default async function TicketDetailPage({
 
   const context = await getProjectViewContext(ticket.project.id)
 
-  const [activity, links, attachments, watchers, estimate] = await Promise.all([
+  const [activity, links, attachments, watchers, estimate, development] = await Promise.all([
     getTicketActivity(ticket.id),
     listTicketLinks(ticket.id),
     listAttachments(ticket.id),
@@ -63,6 +65,13 @@ export default async function TicketDetailPage({
       `${ticket.title}\n\n${ticket.description ?? ''}`,
       ticket.id,
     ).catch(() => null),
+    getTicketDevelopment({
+      id: ticket.id,
+      key: ticket.key,
+      title: ticket.title,
+      projectId: ticket.project.id,
+      typeId: ticket.type.id,
+    }),
   ])
 
   const canEdit = context.can.updateTicket
@@ -185,6 +194,12 @@ export default async function TicketDetailPage({
           />
 
           <HistoricalEstimate estimate={estimate} />
+
+          <DevelopmentPanel
+            projectId={ticket.project.id}
+            development={development}
+            canSync={canEdit}
+          />
 
           <TicketLinks ticketKey={ticket.key} links={links} canEdit={canEdit} />
 

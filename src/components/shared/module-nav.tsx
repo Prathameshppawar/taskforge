@@ -9,6 +9,7 @@ import {
   LayoutTemplate,
   Lock,
   MonitorSmartphone,
+  Plug,
   ShieldCheck,
   User,
   Users,
@@ -29,6 +30,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   usersRound: UsersRound,
   template: LayoutTemplate,
   monitor: MonitorSmartphone,
+  plug: Plug,
 }
 
 /**

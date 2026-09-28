@@ -5,6 +5,9 @@ import { getProjectDetail } from '@/features/projects/queries'
 import { getProjectViewContext } from '@/features/projects/project-context'
 import { ProjectSettingsForm } from '@/features/projects/components/project-settings-form'
 import { WorkflowConfig } from '@/features/projects/components/workflow-config'
+import { getProjectRepos } from '@/features/github/queries'
+import { ProjectRepositories } from '@/features/github/components/project-repos'
+import { can } from '@/features/auth/guards'
 import { PageHeader } from '@/components/shared/page-header'
 import { Separator } from '@/components/ui/separator'
 
@@ -17,7 +20,10 @@ export default async function ProjectSettingsPage({
 }) {
   const { projectId } = await params
   const context = await getProjectViewContext(projectId)
-  const project = await getProjectDetail(projectId)
+  const [project, repos] = await Promise.all([
+    getProjectDetail(projectId),
+    getProjectRepos(projectId),
+  ])
 
   if (!project) notFound()
 
@@ -45,6 +51,16 @@ export default async function ProjectSettingsPage({
             isArchived: project.isArchived,
             settings: project.settings,
           }}
+        />
+
+        <Separator />
+
+        <ProjectRepositories
+          projectId={projectId}
+          projectCode={project.code}
+          repos={repos}
+          canEdit={context.can.manageConfig}
+          canManageIntegrations={can(context.actor, 'integration:manage')}
         />
 
         <Separator />
@@ -87,6 +103,7 @@ export default async function ProjectSettingsPage({
             color: type.color,
             icon: type.icon,
             isDefault: type.isDefault,
+            ticketKind: type.kind,
             ticketCount: type._count.tickets,
           }))}
         />

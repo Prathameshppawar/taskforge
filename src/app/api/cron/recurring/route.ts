@@ -3,6 +3,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { prisma } from '@/infrastructure/db/prisma'
 import { generateDueTickets } from '@/features/recurring/service'
 import { sweepEmbeddings } from '@/features/tickets/embeddings'
+import { reconcileAllLinked } from '@/features/github/service'
+import { loadCredentials } from '@/infrastructure/github/client'
 
 /**
  * Recurring ticket scheduler.
@@ -58,8 +60,22 @@ export async function GET(request: NextRequest) {
       return { embedded: 0, remaining: -1 }
     })
 
+    /*
+     * The safety net under the GitHub webhook: anything a delivery missed — the
+     * deployment was down, a tunnel had closed — is picked up here. Skipped
+     * entirely when GitHub is not connected, and failure is swallowed for the
+     * same reason the embedding sweep's is.
+     */
+    const github = (await loadCredentials().catch(() => null))
+      ? await reconcileAllLinked().catch((error) => {
+          console.error('[cron/recurring] GitHub reconcile failed:', error)
+          return { repos: 0, tickets: -1 }
+        })
+      : null
+
     return NextResponse.json({
       ok: true,
+      github,
       generated: result.generated.length,
       tickets: result.generated.map((entry) => entry.ticketKey),
       deactivated: result.deactivated.length,
