@@ -635,6 +635,13 @@ export async function handleWebhook(event: string, payload: any): Promise<Webhoo
         where: { repoId: repo.id, kind: 'PULL_REQUEST', headSha: suite.head_sha },
         data: { checkState },
       })
+      if (checkState === 'FAILURE') {
+        const prNumbers = ((payload.check_suite.pull_requests ?? []) as Array<{ number: number }>).map((pr) => pr.number)
+        if (prNumbers.length > 0) {
+          const { maybeAutoHeal } = await import('@/features/ai-fix/auto-heal')
+          await maybeAutoHeal(repo.id, prNumbers)
+        }
+      }
       return { handled: true, tickets: [], note: `${updated.count} pull request refs` }
     }
 

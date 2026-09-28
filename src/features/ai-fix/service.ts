@@ -1,3 +1,5 @@
+import type { Prisma } from '@prisma/client'
+
 import { prisma } from '@/infrastructure/db/prisma'
 import { type CodingEngineId, AiProviderError } from '@/infrastructure/ai'
 import { getEngineProvider } from '@/features/ai-admin/engines'
@@ -6,6 +8,8 @@ import { asInstallation, GithubApiError } from '@/infrastructure/github/client'
 import { recordActivity } from '@/features/activity/service'
 import { branchNameFor, TICKET_KIND_LABELS } from '@/core/domain/git-refs'
 import { uniqueBranch } from '@/core/domain/ai-fix'
+import { agentComment, agentUserId } from '@/features/agents/service'
+import { describeFailures } from './ci-failures'
 import { runFixAgent } from './agent'
 import { RepoWorkspace } from './workspace'
 
@@ -21,9 +25,12 @@ export async function executeFixRun(runId: string): Promise<void> {
     where: { id: runId },
     select: {
       id: true,
+      mode: true,
       provider: true,
       model: true,
       instructions: true,
+      targetPrNumber: true,
+      planRunId: true,
       requestedById: true,
       requestedBy: { select: { name: true } },
       ticket: {
@@ -52,6 +59,7 @@ export async function executeFixRun(runId: string): Promise<void> {
 
   const { ticket, repo } = run
   const installationId = repo.installation.installationId
+  const byline = `${run.provider} · ${run.model}`
 
   try {
     const provider = metered(await getEngineProvider(run.provider as CodingEngineId), {
@@ -61,28 +69,56 @@ export async function executeFixRun(runId: string): Promise<void> {
       ticketKey: ticket.key,
     })
     const allowWorkflows = ticket.project.settings?.aiWorkflows ?? false
-    const workspace = await RepoWorkspace.open(installationId, repo.fullName, repo.defaultBranch, { allowWorkflows })
+    const agentTicket = {
+      key: ticket.key,
+      title: ticket.title,
+      description: ticket.description,
+      kindLabel: TICKET_KIND_LABELS[ticket.type.kind].label,
+    }
+    // Written every turn, so a run that fails midway still shows what it did
+    // and what it cost.
+    const onProgress = async (progress: { turns: number; transcript: string[]; inputTokens: number; outputTokens: number }) => {
+      await prisma.aiFixRun.update({
+        where: { id: runId },
+        data: {
+          turns: progress.turns,
+          transcript: progress.transcript.join('\n'),
+          inputTokens: progress.inputTokens,
+          outputTokens: progress.outputTokens,
+        },
+      })
+    }
 
+    // --- HEAL_CI: work on the pull request's own branch ----------------------
+    let baseBranch = repo.defaultBranch
+    let ciFailures: string | null = null
+    let pullForHeal: { number: number; html_url: string; head: { ref: string; sha: string } } | null = null
+    if (run.mode === 'HEAL_CI') {
+      if (!run.targetPrNumber) throw new Error('No pull request was given to heal.')
+      pullForHeal = await asInstallation(installationId, `/repos/${repo.fullName}/pulls/${run.targetPrNumber}`)
+      ciFailures = await describeFailures(installationId, repo.fullName, pullForHeal!.head.sha)
+      if (!ciFailures) {
+        await finish(runId, { status: 'NO_CHANGES', summary: `The checks on #${run.targetPrNumber} are not failing any more.` })
+        return
+      }
+      baseBranch = pullForHeal!.head.ref
+    }
+
+    const approvedPlan = run.planRunId
+      ? ((await prisma.aiFixRun.findUnique({ where: { id: run.planRunId }, select: { summary: true } }))?.summary ?? null)
+      : null
+
+    const workspace = await RepoWorkspace.open(installationId, repo.fullName, baseBranch, { allowWorkflows })
     const result = await runFixAgent({
       provider,
       workspace,
-      ticket: {
-        key: ticket.key,
-        title: ticket.title,
-        description: ticket.description,
-        kindLabel: TICKET_KIND_LABELS[ticket.type.kind].label,
-      },
+      ticket: agentTicket,
       instructions: run.instructions,
-      // Written every turn, so a run that fails midway still shows what it
-      // did and what it cost.
-      onProgress: async ({ turns, transcript, inputTokens, outputTokens }) => {
-        await prisma.aiFixRun.update({
-          where: { id: runId },
-          data: { turns, transcript: transcript.join('\n'), inputTokens, outputTokens },
-        })
-      },
+      mode: run.mode,
+      ciFailures,
+      approvedPlan,
+      onProgress,
     })
-
     const usage = {
       turns: result.turns,
       inputTokens: result.inputTokens,
@@ -90,15 +126,75 @@ export async function executeFixRun(runId: string): Promise<void> {
       transcript: result.transcript.join('\n'),
     }
 
-    const changes = await workspace.changes()
-    if (changes.length === 0) {
-      await prisma.aiFixRun.update({
-        where: { id: runId },
-        data: { ...usage, status: 'NO_CHANGES', summary: result.summary, finishedAt: new Date() },
+    // --- PLAN: post it, change nothing ----------------------------------------
+    if (run.mode === 'PLAN') {
+      await agentComment(
+        'planner',
+        ticket.id,
+        `**Plan: ${result.title}**\n\n${result.summary}\n\n_Written by ${byline}${
+          run.requestedBy ? ` for ${run.requestedBy.name}` : ''
+        }. Nothing has been changed yet — approve it from **Fix with AI** to have it built._`,
+      )
+      await finish(runId, { ...usage, status: 'SUCCEEDED', summary: result.summary })
+      await recordActivity(prisma, {
+        action: 'AI_GENERATED',
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        entityLabel: ticket.key,
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actorId: await agentUserId('planner'),
+        summary: `posted an implementation plan for ${ticket.key} (${byline})`,
       })
       return
     }
 
+    const changes = await workspace.changes()
+    if (changes.length === 0) {
+      await finish(runId, { ...usage, status: 'NO_CHANGES', summary: result.summary })
+      return
+    }
+
+    const footer = `Generated by TaskForge's AI fix (${byline}) for ${ticket.key}${
+      run.requestedBy ? `, requested by ${run.requestedBy.name}` : ''
+    }.`
+
+    // --- HEAL_CI: a new commit on the existing branch -------------------------
+    if (run.mode === 'HEAL_CI' && pullForHeal) {
+      const commit = await workspace.commit(
+        baseBranch,
+        `${ticket.key}: fix failing checks\n\n${result.summary}\n\n${footer}`,
+        { onto: true },
+      )
+      await asInstallation(installationId, `/repos/${repo.fullName}/issues/${pullForHeal.number}/comments`, {
+        method: 'POST',
+        body: {
+          body: `🔧 Pushed ${commit.sha.slice(0, 7)} to fix the failing checks.\n\n${result.summary}\n\n_${footer}_`,
+        },
+      })
+      await finish(runId, {
+        ...usage,
+        status: 'SUCCEEDED',
+        branch: baseBranch,
+        prNumber: pullForHeal.number,
+        prUrl: pullForHeal.html_url,
+        summary: result.summary,
+        changedFiles: commit.files.join('\n'),
+      })
+      await recordActivity(prisma, {
+        action: 'AI_GENERATED',
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        entityLabel: ticket.key,
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actorId: await agentUserId('coder'),
+        summary: `pushed a fix for failing checks to pull request #${pullForHeal.number} (${byline})`,
+      })
+      return
+    }
+
+    // --- FIX: a new branch and a pull request ---------------------------------
     // The ticket's own branch name, so the existing integration links it —
     // suffixed if a person (or an earlier run) already has that branch.
     const base = branchNameFor(ticket.key, ticket.title, ticket.type.kind)
@@ -108,14 +204,8 @@ export async function executeFixRun(runId: string): Promise<void> {
     )
     const branch = uniqueBranch(base, new Set(existing.map((ref) => ref.ref.replace('refs/heads/', ''))))
 
-    const footer = `Generated by TaskForge's AI fix (${run.provider} · ${run.model}) for ${ticket.key}${
-      run.requestedBy ? `, requested by ${run.requestedBy.name}` : ''
-    }.`
     const workflows = await workspace.touchesWorkflows()
-    const commit = await workspace.commit(
-      branch,
-      `${ticket.key}: ${result.title}\n\n${result.summary}\n\n${footer}`,
-    )
+    const commit = await workspace.commit(branch, `${ticket.key}: ${result.title}\n\n${result.summary}\n\n${footer}`)
 
     const pull = await asInstallation<{ number: number; html_url: string }>(
       installationId,
@@ -137,6 +227,7 @@ export async function executeFixRun(runId: string): Promise<void> {
                   '',
                 ]
               : []),
+            ...(approvedPlan ? ['Built from the plan approved on the ticket.', ''] : []),
             result.summary,
             '',
             '---',
@@ -147,38 +238,72 @@ export async function executeFixRun(runId: string): Promise<void> {
       },
     )
 
-    await prisma.$transaction(async (tx) => {
-      await tx.aiFixRun.update({
-        where: { id: runId },
-        data: {
-          ...usage,
-          status: 'SUCCEEDED',
-          branch,
-          prNumber: pull.number,
-          prUrl: pull.html_url,
-          summary: result.summary,
-          changedFiles: commit.files.join('\n'),
-          finishedAt: new Date(),
-        },
-      })
-      await recordActivity(tx, {
-        action: 'AI_GENERATED',
-        entityType: 'TICKET',
-        entityId: ticket.id,
-        entityLabel: ticket.key,
-        projectId: ticket.projectId,
-        ticketId: ticket.id,
-        actorId: run.requestedById,
-        summary: `had AI open pull request #${pull.number} in ${repo.fullName} (${run.provider} · ${run.model}, ${commit.files.length} ${commit.files.length === 1 ? 'file' : 'files'})`,
-      })
+    await finish(runId, {
+      ...usage,
+      status: 'SUCCEEDED',
+      branch,
+      prNumber: pull.number,
+      prUrl: pull.html_url,
+      summary: result.summary,
+      changedFiles: commit.files.join('\n'),
     })
+    await recordActivity(prisma, {
+      action: 'AI_GENERATED',
+      entityType: 'TICKET',
+      entityId: ticket.id,
+      entityLabel: ticket.key,
+      projectId: ticket.projectId,
+      ticketId: ticket.id,
+      actorId: await agentUserId('coder'),
+      summary: `opened pull request #${pull.number} in ${repo.fullName} (${byline}, ${commit.files.length} ${
+        commit.files.length === 1 ? 'file' : 'files'
+      }${run.requestedBy ? `, for ${run.requestedBy.name}` : ''})`,
+    })
+
+    // A second pair of eyes before any person looks: the Reviewer reads the
+    // Coder's pull request against the ticket. Best effort — a failed review
+    // must not turn a successful fix into a failed run.
+    await autoReview(ticket.id, repo.fullName, pull.number, run.provider as CodingEngineId, run.model, run.requestedById)
   } catch (error) {
     console.error(`[ai-fix] run ${runId} failed:`, error)
-    await prisma.aiFixRun.update({
-      where: { id: runId },
-      data: { status: 'FAILED', error: explain(error), finishedAt: new Date() },
-    })
+    await finish(runId, { status: 'FAILED', error: explain(error) })
   }
+}
+
+async function autoReview(
+  ticketId: string,
+  fullName: string,
+  prNumber: number,
+  engine: CodingEngineId,
+  model: string,
+  requestedById: string | null,
+) {
+  try {
+    // The webhook may not have recorded the pull request yet; wait briefly.
+    let ref = null
+    for (let attempt = 0; attempt < 5 && !ref; attempt++) {
+      ref = await prisma.ticketGitRef.findFirst({
+        where: { ticketId, kind: 'PULL_REQUEST', externalId: String(prNumber), repo: { fullName } },
+        select: { id: true },
+      })
+      if (!ref) await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
+    if (!ref) return
+    const { reviewPullRequest } = await import('@/features/ai-review/service')
+    await reviewPullRequest({
+      ticketId,
+      refId: ref.id,
+      engine,
+      engineModel: model,
+      requestedById: requestedById ?? (await agentUserId('coder')),
+    })
+  } catch (error) {
+    console.error('[ai-fix] automatic review failed:', error)
+  }
+}
+
+async function finish(runId: string, data: Prisma.AiFixRunUpdateInput) {
+  await prisma.aiFixRun.update({ where: { id: runId }, data: { ...data, finishedAt: new Date() } })
 }
 
 /** A failure a person can act on, rather than a stack trace. */
@@ -187,6 +312,9 @@ function explain(error: unknown): string {
   if (error instanceof GithubApiError) {
     if (/workflow/i.test(error.message) && error.status >= 400 && error.status < 500) {
       return 'GitHub refused to write a workflow file. The TaskForge app needs the Workflows permission (Read and write) — add it in the app’s settings on GitHub and accept it on the installation.'
+    }
+    if (error.status === 422 && /reference|fast.?forward|update is not a/i.test(error.message)) {
+      return 'Someone pushed to the pull request while the fix was being written, so it was not applied. Run it again.'
     }
     if (error.status === 403 || error.status === 404) {
       return 'GitHub refused the write. The TaskForge app needs read & write access to Contents and Pull requests on this repository — update its permissions on GitHub and accept them on the installation.'

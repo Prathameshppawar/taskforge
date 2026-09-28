@@ -26,7 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { startAiFixAction } from '../actions'
+import { healPullRequestAction, startAiFixAction } from '../actions'
+import { reviewPullRequestAction } from '@/features/ai-review/actions'
 import type { AiFixPanelData } from '../queries'
 
 const ACTIVE: ReadonlySet<AiFixStatus> = new Set<AiFixStatus>(['QUEUED', 'RUNNING'])
@@ -51,6 +52,7 @@ export function AiFixPanel({ ticketId, data }: { ticketId: string; data: AiFixPa
   const [engine, setEngine] = React.useState<string>(data.engines[0]?.id ?? '')
   const [repoId, setRepoId] = React.useState(data.repos[0]?.id ?? '')
   const [instructions, setInstructions] = React.useState('')
+  const [mode, setMode] = React.useState<'FIX' | 'PLAN'>('FIX')
   const [open, setOpen] = React.useState(false)
   const [isPending, startTransition] = React.useTransition()
 
@@ -67,19 +69,40 @@ export function AiFixPanel({ ticketId, data }: { ticketId: string; data: AiFixPa
 
   const selected = data.engines.find((candidate) => candidate.id === engine)
 
+  const engineId = engine as 'anthropic' | 'openai' | 'groq'
+
+  function launch(work: () => Promise<{ success: true; data: unknown } | { success: false; error: string }>, message: string) {
+    startTransition(async () => {
+      const result = await work()
+      if (!result.success) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(message)
+      setOpen(false)
+      setInstructions('')
+      router.refresh()
+    })
+  }
+
   function start() {
     startTransition(async () => {
       const result = await startAiFixAction({
         ticketId,
         repoId,
-        engine: engine as 'anthropic' | 'openai' | 'groq',
+        engine: engineId,
+        mode,
         instructions: instructions.trim() || undefined,
       })
       if (!result.success) {
         toast.error(result.error)
         return
       }
-      toast.success('Started. The pull request will appear here and under Development.')
+      toast.success(
+        mode === 'PLAN'
+          ? 'Planning. The plan will be posted as a comment for you to approve.'
+          : 'Started. The pull request will appear here and under Development.',
+      )
       setOpen(false)
       setInstructions('')
       router.refresh()
@@ -144,6 +167,27 @@ export function AiFixPanel({ ticketId, data }: { ticketId: string; data: AiFixPa
               </Select>
             </div>
           </div>
+          <div className="flex gap-1 rounded-md border bg-background p-0.5 text-xs">
+            {(
+              [
+                ['FIX', 'Write the fix', 'Opens a pull request.'],
+                ['PLAN', 'Plan first', 'Posts a plan to approve; changes nothing.'],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMode(value)}
+                className={cn(
+                  'flex-1 rounded px-2 py-1 text-left',
+                  mode === value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted',
+                )}
+              >
+                <span className="font-medium">{label}</span>
+                <span className={cn('block text-[10px]', mode === value ? 'opacity-80' : 'text-muted-foreground')}>{hint}</span>
+              </button>
+            ))}
+          </div>
           <div className="space-y-1">
             <Label htmlFor="ai-instructions" className="text-xs">
               Extra guidance <span className="text-muted-foreground">(optional)</span>
@@ -173,10 +217,84 @@ export function AiFixPanel({ ticketId, data }: { ticketId: string; data: AiFixPa
         </div>
       )}
 
+      {data.failing.length > 0 && data.engines.length > 0 && (
+        <ul className="divide-y rounded-md border border-destructive/40">
+          {data.failing.map((ref) => (
+            <li key={ref.id} className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 text-xs">
+              <span className="text-destructive">Checks failing</span>
+              <span className="min-w-0 flex-1 truncate">
+                #{ref.externalId} {ref.title}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                disabled={running || isPending}
+                onClick={() =>
+                  launch(
+                    () => healPullRequestAction({ ticketId, refId: ref.id, engine: engineId }),
+                    `The Coder is reading #${ref.externalId}'s failures.`,
+                  )
+                }
+              >
+                Fix failing checks
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {data.openPrs.length > 0 && data.engines.length > 0 && (
+        <ul className="divide-y rounded-md border">
+          {data.openPrs.map((ref) => (
+            <li key={ref.id} className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 text-xs">
+              <span className="text-muted-foreground">Open</span>
+              <span className="min-w-0 flex-1 truncate">
+                #{ref.externalId} {ref.title}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7"
+                disabled={isPending}
+                onClick={() =>
+                  startTransition(async () => {
+                    const result = await reviewPullRequestAction({ ticketId, refId: ref.id, engine: engineId })
+                    if (!result.success) {
+                      toast.error(result.error)
+                      return
+                    }
+                    toast.success(
+                      `Reviewed #${ref.externalId}: ${result.data.inline + result.data.general} comments posted on GitHub.`,
+                    )
+                    router.refresh()
+                  })
+                }
+              >
+                {isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                AI review
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {data.runs.length > 0 && (
         <ul className="divide-y rounded-md border">
           {data.runs.map((run) => (
-            <RunRow key={run.id} run={run} />
+            <RunRow
+              key={run.id}
+              run={run}
+              onBuild={
+                run.mode === 'PLAN' && run.status === 'SUCCEEDED' && !running
+                  ? () =>
+                      launch(
+                        () => startAiFixAction({ ticketId, repoId, engine: engineId, mode: 'FIX', planRunId: run.id }),
+                        'Building the approved plan.',
+                      )
+                  : undefined
+              }
+            />
           ))}
         </ul>
       )}
@@ -184,7 +302,9 @@ export function AiFixPanel({ ticketId, data }: { ticketId: string; data: AiFixPa
   )
 }
 
-function RunRow({ run }: { run: AiFixPanelData['runs'][number] }) {
+const MODE_LABEL = { FIX: 'Fix', PLAN: 'Plan', HEAL_CI: 'Heal CI' } as const
+
+function RunRow({ run, onBuild }: { run: AiFixPanelData['runs'][number]; onBuild?: () => void }) {
   const [expanded, setExpanded] = React.useState(ACTIVE.has(run.status))
   const status = STATUS[run.status]
   const Icon = status.icon
@@ -193,7 +313,18 @@ function RunRow({ run }: { run: AiFixPanelData['runs'][number] }) {
     <li className="px-2.5 py-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <Icon className={cn('size-3.5 shrink-0', status.className, ACTIVE.has(run.status) && 'animate-spin')} />
-        <span className="font-medium">{status.label}</span>
+        <span className="rounded bg-muted px-1 text-[10px]">
+          {MODE_LABEL[run.mode]}
+          {run.targetPrNumber ? ` #${run.targetPrNumber}` : ''}
+        </span>
+        <span className="font-medium">
+          {run.mode === 'PLAN' && run.status === 'SUCCEEDED' ? 'Plan posted' : status.label}
+        </span>
+        {onBuild && (
+          <Button size="sm" className="h-6 px-2 text-[11px]" onClick={onBuild}>
+            Build this plan
+          </Button>
+        )}
         {run.prUrl && (
           <a href={run.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-primary hover:underline">
             #{run.prNumber} <ExternalLink className="size-3" />

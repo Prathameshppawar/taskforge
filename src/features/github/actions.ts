@@ -233,15 +233,19 @@ export async function setGithubAutomationAction(input: {
 export async function setAiWorkflowsAction(input: {
   projectId: string
   enabled: boolean
+  /** Which switch: workflow writing (default) or automatic CI healing. */
+  setting?: 'aiWorkflows' | 'aiAutoHeal'
 }): Promise<ActionResult<void>> {
   return runAction(async () => {
-    const data = z.object({ projectId: z.string().min(1), enabled: z.boolean() }).parse(input)
+    const data = z
+      .object({ projectId: z.string().min(1), enabled: z.boolean(), setting: z.enum(['aiWorkflows', 'aiAutoHeal']).default('aiWorkflows') })
+      .parse(input)
     const { actor } = await requireProjectPermission(data.projectId, 'project:manage-config')
 
     await prisma.$transaction(async (tx) => {
       await tx.projectSettings.update({
         where: { projectId: data.projectId },
-        data: { aiWorkflows: data.enabled },
+        data: { [data.setting]: data.enabled },
       })
       await recordActivity(tx, {
         action: 'UPDATED',
@@ -249,8 +253,11 @@ export async function setAiWorkflowsAction(input: {
         entityId: data.projectId,
         projectId: data.projectId,
         actorId: actor.id,
-        field: 'aiWorkflows',
-        summary: `${data.enabled ? 'allowed' : 'stopped'} Fix with AI ${data.enabled ? 'to write' : 'writing'} CI workflows`,
+        field: data.setting,
+        summary:
+          data.setting === 'aiAutoHeal'
+            ? `${data.enabled ? 'enabled' : 'disabled'} automatic fixing of failing CI on AI pull requests`
+            : `${data.enabled ? 'allowed' : 'stopped'} Fix with AI ${data.enabled ? 'to write' : 'writing'} CI workflows`,
       })
     })
 

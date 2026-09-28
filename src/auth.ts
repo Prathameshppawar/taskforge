@@ -78,13 +78,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             sessionVersion: true,
             failedLoginAttempts: true,
             lockedUntil: true,
+            isAgent: true,
             role: { select: { key: true } },
           },
         })
 
         // Spend equivalent time on a missing user so timing cannot be used to
-        // enumerate valid usernames.
-        if (!user) {
+        // enumerate valid usernames. AI agent accounts are treated exactly as
+        // missing: they hold no usable password, and must never hold a session.
+        if (!user || user.isAgent) {
           await fakeVerify()
           return null
         }

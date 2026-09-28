@@ -6,7 +6,7 @@ import { expireStaleRuns } from './service'
 export async function getAiFixPanel(ticketId: string, projectId: string) {
   await expireStaleRuns(ticketId)
 
-  const [repos, runs, engines] = await Promise.all([
+  const [repos, runs, engines, failing, openPrs] = await Promise.all([
     prisma.projectRepo.findMany({
       where: { projectId, repo: { isAccessible: true } },
       orderBy: { createdAt: 'asc' },
@@ -18,6 +18,8 @@ export async function getAiFixPanel(ticketId: string, projectId: string) {
       take: 5,
       select: {
         id: true,
+        mode: true,
+        targetPrNumber: true,
         provider: true,
         model: true,
         status: true,
@@ -37,10 +39,22 @@ export async function getAiFixPanel(ticketId: string, projectId: string) {
       },
     }),
     listCodingEngines(),
+    // Open pull requests with red checks: each can be handed to the Coder.
+    prisma.ticketGitRef.findMany({
+      where: { ticketId, kind: 'PULL_REQUEST', state: { in: ['OPEN', 'DRAFT'] }, checkState: 'FAILURE' },
+      select: { id: true, externalId: true, title: true, repo: { select: { fullName: true } } },
+    }),
+    prisma.ticketGitRef.findMany({
+      where: { ticketId, kind: 'PULL_REQUEST', state: { in: ['OPEN', 'DRAFT'] } },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, externalId: true, title: true },
+    }),
   ])
 
   return {
     engines,
+    failing,
+    openPrs,
     repos: repos.map((link) => ({ id: link.repo.id, fullName: link.repo.fullName, role: link.role })),
     runs,
   }

@@ -63,6 +63,8 @@ import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
 
 import { isProductionEnvironment } from '@/features/github/deployments'
 
+import { annotatePatch, partitionComments } from '@/core/domain/diff'
+
 let passed = 0
 let failed = 0
 
@@ -818,6 +820,30 @@ check('Vercel\'s "Preview" is not', !isProductionEnvironment({ environment: 'Pre
 check('"Production – taskforge" (Vercel per-project name) reads its original environment',
   isProductionEnvironment({ environment: 'Production – taskforge', original_environment: 'Production' }))
 check('staging is not production', !isProductionEnvironment({ environment: 'staging' }))
+
+
+console.log('\n── AI runs: planning cannot change anything ──')
+const planTools = codingToolDefinitions('PLAN').map((tool) => tool.name)
+check('a plan run is offered only read tools and finish',
+  planTools.sort().join() === 'finish,list_files,read_file,search_code')
+check('a fix run keeps every tool', codingToolDefinitions('FIX').length === 7)
+check('a heal run keeps every tool', codingToolDefinitions('HEAL_CI').length === 7)
+
+
+console.log('\n── AI review: which diff lines GitHub accepts comments on ──')
+const patch = '@@ -3,4 +3,5 @@ header\n a\n-b\n+B\n+C\n d\n\\ No newline at end of file'
+const annotated = annotatePatch(patch)
+check('context and added lines are commentable', [3, 4, 5, 6].every((n) => annotated.commentable.has(n)))
+check('the removed line has no new-side number', annotated.commentable.size === 4)
+check('numbers are printed beside the lines', annotated.text.includes('   4 | +B') && annotated.text.includes('     | -b'))
+const second = annotatePatch('@@ -1,2 +1,2 @@\n x\n@@ -40,2 +41,3 @@\n y\n+z')
+check('a second hunk restarts numbering at its header', second.commentable.has(41) && second.commentable.has(42) && !second.commentable.has(3))
+const parts = partitionComments(
+  [{ path: 'a.ts', line: 4, body: 'ok' }, { path: 'a.ts', line: 99, body: 'off the diff' }, { path: 'b.ts', line: 1, body: 'unknown file' }],
+  new Map([['a.ts', annotated.commentable]]),
+)
+check('a valid line stays inline', parts.inline.length === 1 && parts.inline[0].line === 4)
+check('an invalid line or file is kept as a general note, not dropped', parts.general.length === 2)
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

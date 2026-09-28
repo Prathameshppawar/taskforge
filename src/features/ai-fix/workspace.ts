@@ -201,8 +201,13 @@ export class RepoWorkspace {
     return out.sort((a, b) => a.path.localeCompare(b.path))
   }
 
-  /** One commit containing every change, on a new branch cut from the base. */
-  async commit(branch: string, message: string): Promise<{ sha: string; files: string[] }> {
+  /**
+   * One commit containing every change. By default on a new branch cut from
+   * the base; with `onto`, on top of the branch the workspace was opened from
+   * (healing a pull request). Never forced: if someone pushed to that branch
+   * meanwhile, GitHub refuses the update rather than losing their commit.
+   */
+  async commit(branch: string, message: string, options: { onto?: boolean } = {}): Promise<{ sha: string; files: string[] }> {
     const changes = await this.changes()
     if (changes.length === 0) throw new WorkspaceError('Nothing to commit.')
     // Belt and braces: every workflow is re-checked at the last moment, so no
@@ -242,10 +247,17 @@ export class RepoWorkspace {
       method: 'POST',
       body: { message, tree: newTree.sha, parents: [this.baseSha] },
     })
-    await asInstallation(this.installationId, `${repo}/git/refs`, {
-      method: 'POST',
-      body: { ref: `refs/heads/${branch}`, sha: commit.sha },
-    })
+    if (options.onto) {
+      await asInstallation(this.installationId, `${repo}/git/refs/heads/${branch}`, {
+        method: 'PATCH',
+        body: { sha: commit.sha, force: false },
+      })
+    } else {
+      await asInstallation(this.installationId, `${repo}/git/refs`, {
+        method: 'POST',
+        body: { ref: `refs/heads/${branch}`, sha: commit.sha },
+      })
+    }
 
     return { sha: commit.sha, files: changes.map((change) => change.path) }
   }

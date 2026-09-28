@@ -18,6 +18,12 @@ const startSchema = z.object({
   repoId: z.string().min(1),
   engine: z.enum(['anthropic', 'openai', 'groq']),
   instructions: z.string().trim().max(2000).optional(),
+  /** PLAN posts a plan for approval; FIX writes the change. */
+  mode: z.enum(['FIX', 'PLAN']).default('FIX'),
+  /** Build the plan from this PLAN run. */
+  planRunId: z.string().optional(),
+  /** HEAL_CI: the pull request to fix. Set by healPullRequestAction. */
+  targetPrNumber: z.number().int().positive().optional(),
 })
 
 /**
@@ -33,7 +39,7 @@ const startSchema = z.object({
  * was never given.
  */
 export async function startAiFixAction(
-  input: z.infer<typeof startSchema>,
+  input: z.input<typeof startSchema>,
 ): Promise<ActionResult<{ runId: string }>> {
   return runAction(async () => {
     const data = startSchema.parse(input)
@@ -64,6 +70,14 @@ export async function startAiFixAction(
     })
     if (active > 0) throw new BusinessRuleError('A fix is already running for this ticket.')
 
+    if (data.planRunId) {
+      const plan = await prisma.aiFixRun.findFirst({
+        where: { id: data.planRunId, ticketId: ticket.id, mode: 'PLAN', status: 'SUCCEEDED' },
+        select: { id: true },
+      })
+      if (!plan) throw new BusinessRuleError('That plan is not available to build.')
+    }
+
     const run = await prisma.aiFixRun.create({
       data: {
         ticketId: ticket.id,
@@ -72,6 +86,9 @@ export async function startAiFixAction(
         provider: engine.id,
         model: engine.model,
         instructions: data.instructions || null,
+        mode: data.targetPrNumber ? 'HEAL_CI' : data.mode,
+        planRunId: data.planRunId ?? null,
+        targetPrNumber: data.targetPrNumber ?? null,
       },
       select: { id: true },
     })
@@ -80,5 +97,29 @@ export async function startAiFixAction(
 
     revalidatePath(`/tickets/${ticket.key}`)
     return ok({ runId: run.id })
+  })
+}
+
+/**
+ * "Fix failing checks" on one of the ticket's open pull requests — any pull
+ * request, not only one an AI opened, because a person's red build is just as
+ * worth a first attempt.
+ */
+export async function healPullRequestAction(input: {
+  ticketId: string
+  refId: string
+  engine: 'anthropic' | 'openai' | 'groq'
+}): Promise<ActionResult<{ runId: string }>> {
+  const ref = await prisma.ticketGitRef.findFirst({
+    where: { id: input.refId, ticketId: input.ticketId, kind: 'PULL_REQUEST', state: { in: ['OPEN', 'DRAFT'] } },
+    select: { repoId: true, externalId: true },
+  })
+  if (!ref) return { success: false, error: 'That pull request is not open on this ticket.' }
+  return startAiFixAction({
+    ticketId: input.ticketId,
+    repoId: ref.repoId,
+    engine: input.engine,
+    mode: 'FIX',
+    targetPrNumber: Number(ref.externalId),
   })
 }

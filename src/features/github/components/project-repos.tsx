@@ -264,6 +264,21 @@ export function ProjectRepositories({
                 onCheckedChange={(enabled) => run(() => setAiWorkflowsAction({ projectId, enabled }))}
               />
             </div>
+            <div className="flex items-center justify-between gap-4 border-t pt-2">
+              <div className="space-y-0.5">
+                <Label htmlFor="ai-auto-heal">Fix failing CI on AI pull requests automatically</Label>
+                <p className="text-xs text-muted-foreground">
+                  When checks on a pull request the Coder opened go red, it reads the failure and pushes a fix to the
+                  same branch — at most twice per pull request.
+                </p>
+              </div>
+              <Switch
+                id="ai-auto-heal"
+                checked={repos.aiAutoHeal}
+                disabled={!canEdit || isPending}
+                onCheckedChange={(enabled) => run(() => setAiWorkflowsAction({ projectId, enabled, setting: 'aiAutoHeal' }))}
+              />
+            </div>
             {repos.aiWorkflows && (
               <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px]">
                 GitHub also requires the app to hold the <strong>Workflows: Read and write</strong> permission.{' '}

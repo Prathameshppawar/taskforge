@@ -166,6 +166,16 @@ enum GitCheckState {
   FAILURE
 }
 
+/// What an AI run was asked to do.
+enum AiFixMode {
+  /// Write a change and open a pull request.
+  FIX
+  /// Read the code and post an implementation plan for approval. No commit.
+  PLAN
+  /// Push a fix for failing CI onto an existing pull request's branch.
+  HEAL_CI
+}
+
 /// Lifecycle of one "Fix with AI" attempt.
 enum AiFixStatus {
   QUEUED
@@ -184,6 +194,10 @@ enum AiFeature {
   CAPTURE
   FILTER
   WEEKLY_UPDATE
+  PR_REVIEW
+  RELEASE_NOTES
+  TRIAGE
+  POSTMORTEM
 }
 
 /// What a budget caps: everything, one project, or one provider.
@@ -387,6 +401,10 @@ model User {
   isActive           Boolean @default(true)
   /// Forces a password change on next sign-in. Set by admin password resets.
   mustChangePassword Boolean @default(false)
+  /// An AI agent account (TaskForge Coder, Planner…). It authors comments and
+  /// appears in history under its own name, and can never sign in: `authorize`
+  /// refuses it before a password is even compared.
+  isAgent            Boolean @default(false)
   /// Bumped on deactivation / password reset to invalidate every issued JWT.
   sessionVersion     Int     @default(1)
 
@@ -739,6 +757,10 @@ model ProjectSettings {
   /// deliberate per-project choice, and every workflow written is checked by
   /// `checkWorkflow` before it is committed.
   aiWorkflows      Boolean @default(false)
+  /// When an AI-authored pull request's CI fails, let the Coder push a fix to
+  /// it — at most twice per pull request, so a problem it cannot solve does
+  /// not become an endless, billable loop.
+  aiAutoHeal       Boolean @default(false)
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
@@ -1459,6 +1481,16 @@ model AiFixRun {
   model        String
   /// Extra guidance typed by whoever started the run. Untrusted, like the ticket.
   instructions String?
+
+  mode AiFixMode @default(FIX)
+
+  /// HEAL_CI: the pull request whose branch is being fixed.
+
+  targetPrNumber Int?
+
+  /// A FIX built from an approved PLAN points at that plan.
+
+  planRunId String?
 
   status       AiFixStatus @default(QUEUED)
   branch       String?

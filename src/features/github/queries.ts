@@ -105,7 +105,7 @@ export async function getProjectRepos(projectId: string) {
     }),
     prisma.projectSettings.findUnique({
       where: { projectId },
-      select: { githubAutomation: true, aiWorkflows: true },
+      select: { githubAutomation: true, aiWorkflows: true, aiAutoHeal: true },
     }),
     prisma.githubApp.findUnique({ where: { id: 1 }, select: { slug: true, ownerLogin: true } }),
   ])
@@ -117,6 +117,7 @@ export async function getProjectRepos(projectId: string) {
     available: available.filter((repo) => !linkedIds.has(repo.id)),
     automation: settings?.githubAutomation ?? true,
     aiWorkflows: settings?.aiWorkflows ?? false,
+    aiAutoHeal: settings?.aiAutoHeal ?? false,
     /** Where the app's permissions are edited — needed to grant Workflows. */
     appPermissionsUrl: app ? `https://github.com/settings/apps/${app.slug}/permissions` : null,
     hasGithub: available.length > 0 || linked.length > 0,
