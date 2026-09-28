@@ -73,6 +73,7 @@ test('the sidebar scrolls internally when it is taller than the window', async (
     return {
       visible: Math.round(element.clientHeight),
       content: Math.round(nav.getBoundingClientRect().height),
+      overflowY: getComputedStyle(element).overflowY,
       scrollable: element.scrollHeight > element.clientHeight,
     }
   })
@@ -82,5 +83,11 @@ test('the sidebar scrolls internally when it is taller than the window', async (
     sidebar!.visible,
     'the sidebar pane grew past the window instead of scrolling inside it',
   ).toBeLessThanOrEqual(500)
-  expect(sidebar!.scrollable, 'sidebar content overflows but the pane does not scroll').toBe(true)
+  // The property is "a bounded pane that scrolls", not "there is enough data to
+  // overflow" — the latter made this pass or fail on how many projects the
+  // database happened to hold. A pane that clips (`hidden`) is the regression.
+  expect(['auto', 'scroll'], 'the sidebar pane clips instead of scrolling').toContain(sidebar!.overflowY)
+  if (sidebar!.content > sidebar!.visible) {
+    expect(sidebar!.scrollable, 'sidebar content overflows but the pane does not scroll').toBe(true)
+  }
 })

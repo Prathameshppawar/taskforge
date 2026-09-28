@@ -80,6 +80,11 @@ test('setting a new password releases the gate and the new password works', asyn
     .toBe(false)
 
   // And the session must be usable immediately, without a forced sign-out.
+  // The form clears the flag on the live token and *then* navigates, so wait
+  // for that navigation: jumping to /dashboard as soon as the database changes
+  // races the token refresh and lands back on the gate — a race in the test,
+  // not in the product, which only ever navigates after the refresh.
+  await page.waitForURL(/\/dashboard/, { timeout: 15_000 })
   await page.goto('/dashboard')
   await expect(page).toHaveURL(/\/dashboard/)
 
