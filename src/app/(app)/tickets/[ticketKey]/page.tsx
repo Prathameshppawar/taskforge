@@ -26,6 +26,7 @@ import { getAiFixPanel } from '@/features/ai-fix/queries'
 import { AiFixPanel } from '@/features/ai-fix/components/ai-fix-panel'
 import { releaseContents } from '@/features/releases/service'
 import { ReleasePanel } from '@/features/releases/components/release-panel'
+import { PostmortemButton } from '@/features/incidents/components/postmortem-button'
 import { can } from '@/features/auth/guards'
 import { prisma } from '@/infrastructure/db/prisma'
 import { Progress } from '@/components/ui/progress'
@@ -217,6 +218,10 @@ export default async function TicketDetailPage({
           />
 
           {aiFix && <AiFixPanel ticketId={ticket.id} data={aiFix} />}
+
+          {kind?.kind === 'PRODUCTION' && canEdit && aiFix && aiFix.engines.length > 0 && (
+            <PostmortemButton ticketId={ticket.id} />
+          )}
 
           {release && canEdit && (
             <ReleasePanel

@@ -69,6 +69,8 @@ import { nextReleaseTag, renderReleaseNotes } from '@/core/domain/releases'
 
 import { fingerprintOf, maskMessage, normalizeErrorPayload } from '@/core/domain/error-events'
 
+import { checkMonitorUrl, describeDuration, isPrivateAddress, uptimePercent } from '@/core/domain/network'
+
 let passed = 0
 let failed = 0
 
@@ -889,6 +891,24 @@ check('the same bug with a different id and line groups together', fingerprintOf
 const other = normalizeErrorPayload({ message: 'User 1234 not found', stack: 'Error\n    at save (app/user.ts:40:3)' })
 check('the same message from a different function is a different error', fingerprintOf(generic!) !== fingerprintOf(other!))
 check('a sender fingerprint wins', fingerprintOf({ ...generic!, fingerprint: 'mine' }) === fingerprintOf({ ...other!, fingerprint: 'mine' }))
+
+
+console.log('\n── Uptime: what the server may be asked to fetch ──')
+check('public addresses are allowed', !isPrivateAddress('93.184.216.34') && !isPrivateAddress('2606:4700::1111'))
+check('loopback is refused', isPrivateAddress('127.0.0.1') && isPrivateAddress('::1'))
+check('cloud metadata is refused', isPrivateAddress('169.254.169.254'))
+check('private ranges are refused', ['10.1.2.3', '172.16.0.1', '172.31.9.9', '192.168.1.1', '100.64.0.1'].every(isPrivateAddress))
+check('172.32.x is public, not private', !isPrivateAddress('172.32.0.1'))
+check('IPv6 private and link-local are refused', isPrivateAddress('fd00::1') && isPrivateAddress('fe80::1'))
+check('IPv4-mapped IPv6 loopback is refused', isPrivateAddress('::ffff:127.0.0.1'))
+check('an https URL to a public host is accepted', checkMonitorUrl('https://example.com/health').ok)
+check('localhost is refused', !checkMonitorUrl('http://localhost:3000').ok)
+check('a literal private IP is refused', !checkMonitorUrl('http://169.254.169.254/latest/meta-data').ok)
+check('file: and other schemes are refused', !checkMonitorUrl('file:///etc/passwd').ok && !checkMonitorUrl('ftp://example.com').ok)
+check('credentials in the URL are refused', !checkMonitorUrl('https://user:pw@example.com').ok)
+check('uptime is a percentage to one place', uptimePercent([{ ok: true }, { ok: true }, { ok: false }]) === 66.7)
+check('no checks means unknown, not 100%', uptimePercent([]) === null)
+check('durations read naturally', describeDuration(4 * 60_000) === '4 minutes' && describeDuration(125 * 60_000) === '2 hours 5 minutes')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -9,6 +9,8 @@ import { getProjectRepos } from '@/features/github/queries'
 import { ProjectRepositories } from '@/features/github/components/project-repos'
 import { can } from '@/features/auth/guards'
 import { ErrorIntake } from '@/features/errors/components/error-intake'
+import { getProjectMonitors } from '@/features/monitors/queries'
+import { Monitors } from '@/features/monitors/components/monitors'
 import { prisma } from '@/infrastructure/db/prisma'
 import { headers } from 'next/headers'
 import { PageHeader } from '@/components/shared/page-header'
@@ -29,7 +31,10 @@ export default async function ProjectSettingsPage({
   ])
 
   if (!project) notFound()
-  const intake = await prisma.projectSettings.findUnique({ where: { projectId }, select: { errorIngestHash: true } })
+  const [intake, monitors] = await Promise.all([
+    prisma.projectSettings.findUnique({ where: { projectId }, select: { errorIngestHash: true } }),
+    getProjectMonitors(projectId),
+  ])
   const headerList = await headers()
   const origin = `${headerList.get('x-forwarded-proto') ?? 'http'}://${headerList.get('host')}`
 
@@ -68,6 +73,10 @@ export default async function ProjectSettingsPage({
           canEdit={context.can.manageConfig}
           canManageIntegrations={can(context.actor, 'integration:manage')}
         />
+
+        <Separator />
+
+        <Monitors projectId={projectId} monitors={monitors} canEdit={context.can.manageConfig} />
 
         <Separator />
 

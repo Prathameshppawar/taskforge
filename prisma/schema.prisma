@@ -226,6 +226,13 @@ enum DeploymentState {
   INACTIVE
 }
 
+/// What an uptime monitor last saw.
+enum MonitorState {
+  UNKNOWN
+  UP
+  DOWN
+}
+
 enum NotificationType {
   MENTIONED
   ASSIGNED
@@ -715,6 +722,7 @@ model Project {
   repos            ProjectRepo[]
   aiUsage          AiUsageEvent[]
   aiBudgets        AiBudget[]
+  monitors         Monitor[]
   errorGroups      ErrorGroup[]
 
   createdAt DateTime @default(now())
@@ -1712,4 +1720,60 @@ model ErrorGroup {
   @@unique([projectId, fingerprint])
   @@index([ticketId])
   @@map("error_groups")
+}
+
+/// An uptime check on a URL a project depends on.
+///
+/// Checked every few minutes by a scheduler outside Vercel (a GitHub Actions
+/// workflow), because Vercel's own cron runs daily on the hobby plan. After
+/// `failureThreshold` failures in a row it opens an incident ticket; on
+/// recovery it says how long the outage lasted.
+model Monitor {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name             String
+  url              String
+  expectedStatus   Int     @default(200)
+  /// Text the response body must contain, to catch a page that answers 200
+  /// while showing an error.
+  keyword          String?
+  intervalMinutes  Int     @default(5)
+  failureThreshold Int     @default(2)
+  isActive         Boolean @default(true)
+
+  state               MonitorState @default(UNKNOWN)
+  lastCheckedAt       DateTime?
+  lastLatencyMs       Int?
+  lastError           String?
+  consecutiveFailures Int          @default(0)
+  /// When the current outage began, while one is in progress.
+  downSince           DateTime?
+  incidentTicketId    String?
+
+  checks MonitorCheck[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([isActive, lastCheckedAt])
+  @@map("monitors")
+}
+
+/// One check. Kept for a week — enough for uptime percentages and an incident
+/// timeline, not an ever-growing log.
+model MonitorCheck {
+  id        String   @id @default(cuid())
+  monitorId String
+  monitor   Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  ok        Boolean
+  status    Int?
+  latencyMs Int?
+  error     String?
+  checkedAt DateTime @default(now())
+
+  @@index([monitorId, checkedAt])
+  @@map("monitor_checks")
 }
