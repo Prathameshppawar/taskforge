@@ -63,6 +63,7 @@ export interface GhPull {
   draft?: boolean
   merged?: boolean
   merged_at: string | null
+  merge_commit_sha?: string | null
   user: { login: string } | null
   head: { ref: string; sha: string }
 }
@@ -233,6 +234,7 @@ interface RefInput {
   headSha?: string | null
   headBranch?: string | null
   mergedAt?: Date | null
+  mergeCommitSha?: string | null
 }
 
 /** Project codes of every project this repository is linked to. */
@@ -312,6 +314,7 @@ async function recordRef(
           headSha: ref.headSha ?? null,
           headBranch: ref.headBranch ?? null,
           mergedAt: ref.mergedAt ?? null,
+          mergeCommitSha: ref.mergeCommitSha ?? null,
         },
         update: {
           title: ref.title,
@@ -323,6 +326,7 @@ async function recordRef(
           headSha: ref.headSha ?? undefined,
           headBranch: ref.headBranch ?? undefined,
           mergedAt: ref.mergedAt ?? undefined,
+          mergeCommitSha: ref.mergeCommitSha ?? undefined,
         },
       })
 
@@ -415,6 +419,9 @@ function pullRef(pull: GhPull, checkState?: GitCheckState | null): RefInput {
     headSha: pull.head.sha,
     headBranch: pull.head.ref,
     mergedAt: pull.merged_at ? new Date(pull.merged_at) : null,
+    // GitHub fills this in for open pull requests too (a test merge); only a
+    // merged one's is a commit that exists on the base branch.
+    mergeCommitSha: pull.merged_at ? (pull.merge_commit_sha ?? null) : null,
   }
 }
 
@@ -603,6 +610,18 @@ export async function handleWebhook(event: string, payload: any): Promise<Webhoo
       return { handled: true, tickets }
     }
 
+    case 'deployment_status': {
+      const repo = await repoFromPayload(payload)
+      if (!repo) return { handled: false, tickets: [] }
+      const full = await prisma.githubRepo.findUniqueOrThrow({
+        where: { id: repo.id },
+        select: { id: true, fullName: true, defaultBranch: true, installation: { select: { installationId: true } } },
+      })
+      const { recordDeployment } = await import('./deployments')
+      const result = await recordDeployment(full, payload.deployment, payload.deployment_status)
+      return { handled: true, tickets: result.tickets }
+    }
+
     case 'check_suite': {
       const repo = await repoFromPayload(payload)
       if (!repo) return { handled: false, tickets: [] }
@@ -701,6 +720,14 @@ export async function reconcileRepo(repoId: string) {
     const ref = pullRef(pull, checkState)
     add(await recordRef(repo, keys, ref, { kind: 'pull_request', state: ref.state! }))
   }
+
+  // --- deployments ---------------------------------------------------------------
+  const { reconcileDeployments } = await import('./deployments')
+  const full = await prisma.githubRepo.findUniqueOrThrow({
+    where: { id: repo.id },
+    select: { id: true, fullName: true, defaultBranch: true, installation: { select: { installationId: true } } },
+  })
+  add(await reconcileDeployments(full))
 
   // --- commits on the default branch ------------------------------------------
   const commits = await asInstallation<

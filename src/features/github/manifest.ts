@@ -19,6 +19,10 @@ export const APP_PERMISSIONS = {
   contents: 'write',
   pull_requests: 'write',
   checks: 'read',
+  // What shipped where: Vercel, Netlify and others report deploys here.
+  deployments: 'read',
+  // Failing CI logs, so a red pull request can be fixed from its own output.
+  actions: 'read',
 } as const
 
 /**
@@ -31,6 +35,7 @@ export const APP_EVENTS = [
   'push',
   'pull_request',
   'check_suite',
+  'deployment_status',
   'repository',
 ] as const
 

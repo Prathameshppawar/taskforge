@@ -2,6 +2,7 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { loadCredentials } from '@/infrastructure/github/client'
 import { branchNameFor } from '@/core/domain/git-refs'
 import { getWebhookUrl } from './service'
+import { ticketDeployments } from './deployments'
 
 /**
  * Read models for the three places GitHub shows up: the workspace integrations
@@ -132,7 +133,7 @@ export async function getTicketDevelopment(ticket: {
   projectId: string
   typeId: string
 }) {
-  const [refs, repos, type] = await Promise.all([
+  const [refs, repos, type, deployments] = await Promise.all([
     prisma.ticketGitRef.findMany({
       where: { ticketId: ticket.id },
       orderBy: [{ kind: 'asc' }, { updatedAt: 'desc' }],
@@ -153,10 +154,12 @@ export async function getTicketDevelopment(ticket: {
     }),
     prisma.projectRepo.count({ where: { projectId: ticket.projectId } }),
     prisma.ticketType.findUnique({ where: { id: ticket.typeId }, select: { kind: true } }),
+    ticketDeployments(ticket.id),
   ])
 
   return {
     refs,
+    deployments,
     hasRepos: repos > 0,
     branchName: branchNameFor(ticket.key, ticket.title, type?.kind ?? 'TASK'),
   }

@@ -61,6 +61,8 @@ import { costMicros, lastWeekRange, monthKey, monthStart, thresholdToAlert } fro
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
 
+import { isProductionEnvironment } from '@/features/github/deployments'
+
 let passed = 0
 let failed = 0
 
@@ -805,6 +807,17 @@ check('workflows stay refused unless the project allows them', !checkRepoPath('.
 check('an allowing project may write one', checkRepoPath('.github/workflows/ci.yml', { allowWorkflows: true }).ok)
 check('…but not a stray file in the workflows folder',
   !checkRepoPath('.github/workflows/notes.txt', { allowWorkflows: true }).ok)
+
+
+console.log('\n── Deployments: which environment is production ──')
+check('the provider flag wins', isProductionEnvironment({ environment: 'live', production_environment: true }))
+check('a flag of false wins over the name', !isProductionEnvironment({ environment: 'Production', production_environment: false }))
+check('Vercel\'s "Production" is production', isProductionEnvironment({ environment: 'Production' }))
+check('"prod" is production', isProductionEnvironment({ environment: 'prod' }))
+check('Vercel\'s "Preview" is not', !isProductionEnvironment({ environment: 'Preview' }))
+check('"Production – taskforge" (Vercel per-project name) reads its original environment',
+  isProductionEnvironment({ environment: 'Production – taskforge', original_environment: 'Production' }))
+check('staging is not production', !isProductionEnvironment({ environment: 'staging' }))
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

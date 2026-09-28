@@ -201,6 +201,17 @@ enum ReportKind {
   AI_BUDGET_ALERT
 }
 
+/// A deployment's state as its provider last reported it to GitHub.
+enum DeploymentState {
+  PENDING
+  QUEUED
+  IN_PROGRESS
+  SUCCESS
+  FAILURE
+  ERROR
+  INACTIVE
+}
+
 enum NotificationType {
   MENTIONED
   ASSIGNED
@@ -1007,6 +1018,7 @@ model Ticket {
   activities    ActivityLog[]
   notifications Notification[]
   gitRefs       TicketGitRef[]
+  deployments   TicketDeployment[]
   aiFixRuns     AiFixRun[]
 
   createdAt DateTime @default(now())
@@ -1356,9 +1368,10 @@ model GithubRepo {
   /// False once the install no longer grants this repository.
   isAccessible  Boolean @default(true)
 
-  projects  ProjectRepo[]
-  refs      TicketGitRef[]
-  aiFixRuns AiFixRun[]
+  projects    ProjectRepo[]
+  refs        TicketGitRef[]
+  aiFixRuns   AiFixRun[]
+  deployments Deployment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1402,15 +1415,18 @@ model TicketGitRef {
   /// Branch name, pull request number, or commit sha — unique within a kind.
   externalId String
 
-  title       String
-  url         String
-  state       GitRefState?
-  checkState  GitCheckState?
-  authorLogin String?
+  title          String
+  url            String
+  state          GitRefState?
+  checkState     GitCheckState?
+  authorLogin    String?
   /// For pull requests: the head commit, which is what CI reports against.
-  headSha     String?
-  headBranch  String?
-  mergedAt    DateTime?
+  headSha        String?
+  headBranch     String?
+  mergedAt       DateTime?
+  /// The commit a merge produced on the base branch — what a production
+  /// deployment of that branch will actually contain.
+  mergeCommitSha String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1418,6 +1434,7 @@ model TicketGitRef {
   @@unique([ticketId, repoId, kind, externalId])
   @@index([repoId, kind, externalId])
   @@index([repoId, headSha])
+  @@index([repoId, mergeCommitSha])
   @@map("ticket_git_refs")
 }
 
@@ -1585,4 +1602,49 @@ model ReportSubscription {
   @@unique([kind, userId])
   @@unique([kind, teamId])
   @@map("report_subscriptions")
+}
+
+/// A deployment of a linked repository, as reported to GitHub by whatever
+/// deploys it — Vercel, Netlify, Render, a workflow. Read from GitHub's own
+/// Deployments API, so no provider token is needed to know what shipped where.
+model Deployment {
+  id       String     @id @default(cuid())
+  repoId   String
+  repo     GithubRepo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  githubId BigInt     @unique
+
+  /// As the provider names it: "Production", "Preview", "staging".
+  environment  String
+  isProduction Boolean         @default(false)
+  state        DeploymentState @default(PENDING)
+  /// Where the deployment can be opened — the preview link a client clicks.
+  url          String?
+  /// Where its build log lives.
+  logUrl       String?
+  sha          String
+  ref          String
+  creatorLogin String?
+  description  String?
+
+  tickets TicketDeployment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([repoId, sha])
+  @@index([repoId, isProduction, state, createdAt])
+  @@map("deployments")
+}
+
+/// Which tickets a deployment shipped.
+model TicketDeployment {
+  ticketId     String
+  ticket       Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  deploymentId String
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([ticketId, deploymentId])
+  @@index([deploymentId])
+  @@map("ticket_deployments")
 }

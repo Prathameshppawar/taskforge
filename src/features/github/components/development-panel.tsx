@@ -17,6 +17,7 @@ import {
   GitPullRequestDraft,
   Loader2,
   RefreshCw,
+  Rocket,
 } from 'lucide-react'
 import type { GitCheckState, GitRefKind, GitRefState } from '@prisma/client'
 import { toast } from 'sonner'
@@ -100,9 +101,10 @@ export function DevelopmentPanel({
   const router = useRouter()
   const [copied, setCopied] = React.useState(false)
   const [isPending, startTransition] = React.useTransition()
-  const { refs, hasRepos, branchName } = development
+  const { refs, deployments, hasRepos, branchName } = development
 
   if (!hasRepos && refs.length === 0) return null
+  const live = deployments.find((deployment) => deployment.isProduction && deployment.state === 'SUCCESS')
 
   const groups = (['PULL_REQUEST', 'BRANCH', 'COMMIT'] as const)
     .map((kind) => [kind, refs.filter((ref) => ref.kind === kind)] as const)
@@ -124,6 +126,16 @@ export function DevelopmentPanel({
         <h2 id="development-heading" className="flex items-center gap-1.5 text-sm font-medium">
           <GitPullRequest className="size-4 text-muted-foreground" />
           Development
+          {live && (
+            <a
+              href={live.url ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-1 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-px text-[10px] font-medium text-emerald-700 dark:text-emerald-400"
+            >
+              <Rocket className="size-3" /> Live in {live.environment}
+            </a>
+          )}
         </h2>
         {canSync && hasRepos && (
           <Button
@@ -161,6 +173,46 @@ export function DevelopmentPanel({
           {copied ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
         </Button>
       </div>
+
+      {deployments.length > 0 && (
+        <div>
+          <p className="pb-0.5 text-[11px] text-muted-foreground">Deployments</p>
+          <ul className="divide-y rounded-md border">
+            {deployments.map((deployment) => (
+              <li key={deployment.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                <Rocket
+                  className={cn(
+                    'size-3.5 shrink-0',
+                    deployment.state === 'SUCCESS'
+                      ? 'text-emerald-600'
+                      : deployment.state === 'FAILURE' || deployment.state === 'ERROR'
+                        ? 'text-destructive'
+                        : 'text-muted-foreground',
+                  )}
+                />
+                <span className="text-xs font-medium">{deployment.environment}</span>
+                <span className="text-[10px] text-muted-foreground">
+                  {deployment.state.toLowerCase().replace('_', ' ')} · {deployment.sha.slice(0, 7)}
+                </span>
+                {deployment.url && (
+                  <a
+                    href={deployment.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 flex-1 truncate text-right text-xs text-primary hover:underline"
+                  >
+                    {deployment.isProduction ? 'Open' : 'Open preview'}
+                  </a>
+                )}
+                {!deployment.url && <span className="flex-1" />}
+                <span className="hidden shrink-0 text-[10px] text-muted-foreground sm:inline">
+                  {formatDistanceToNow(deployment.createdAt, { addSuffix: true })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {groups.length === 0 ? (
         <p className="text-xs text-muted-foreground">
