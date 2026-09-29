@@ -2,9 +2,10 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { runDueMonitors } from '@/features/monitors/service'
+import { sweepSlaAlerts } from '@/features/tickets/flow'
 
 /**
- * Uptime checks, every five minutes.
+ * Uptime checks and SLA alerts, every five minutes.
  *
  * Driven by `.github/workflows/uptime.yml` rather than Vercel Cron, which runs
  * at most daily on the hobby plan. Guarded by the same CRON_SECRET as the
@@ -26,6 +27,13 @@ export async function GET(request: NextRequest) {
   }
 
   const started = Date.now()
-  const result = await runDueMonitors()
-  return NextResponse.json({ ok: true, ...result, durationMs: Date.now() - started })
+  const [result, sla] = await Promise.all([
+    runDueMonitors(),
+    // A failed sweep must not hide the monitors' result, or the reverse.
+    sweepSlaAlerts().catch((error) => {
+      console.error('[cron] SLA sweep failed:', error)
+      return { checked: 0, sent: 0, error: true }
+    }),
+  ])
+  return NextResponse.json({ ok: true, ...result, sla, durationMs: Date.now() - started })
 }

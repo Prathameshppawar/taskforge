@@ -240,6 +240,10 @@ enum NotificationType {
   ASSIGNED
   COMMENT_REPLY
   TICKET_BLOCKED
+  /// A ticket's response or resolution target is 80% spent.
+  SLA_AT_RISK
+  /// A ticket's response or resolution target has passed.
+  SLA_BREACHED
 }
 
 enum FilterField {
@@ -817,6 +821,12 @@ model ProjectSettings {
   autoMergeMaxLines Int     @default(40)
   /// Ticket kinds auto-merge may apply to, comma-separated.
   autoMergeKinds    String  @default("TASK,ENHANCEMENT")
+  /// A ticket in progress, review or blocked for longer than this is flagged
+  /// as stuck on the board. Null turns the flag off.
+  stuckAfterDays    Int?    @default(5)
+  /// Ticket kinds the priorities' response and resolution targets apply to,
+  /// comma-separated.
+  slaKinds          String  @default("PRODUCTION,BUG")
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
@@ -931,6 +941,9 @@ model Status {
   color     String         @default("slate")
   position  Int
   isInitial Boolean        @default(false)
+  /// Most tickets this column should hold at once; null means no limit. A
+  /// soft limit: the board shows it and warns, and never refuses a move.
+  wipLimit  Int?
 
   tickets          Ticket[]
   recurringTickets RecurringTicket[]
@@ -949,10 +962,14 @@ model Priority {
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  name      String
-  color     String  @default("slate")
-  level     Int
-  isDefault Boolean @default(false)
+  name               String
+  color              String  @default("slate")
+  level              Int
+  isDefault          Boolean @default(false)
+  /// Service targets for tickets of the kinds in ProjectSettings.slaKinds.
+  /// Null means no target. The resolve clock pauses while a ticket is Blocked.
+  respondWithinHours Int?
+  resolveWithinHours Int?
 
   tickets          Ticket[]
   recurringTickets RecurringTicket[]
@@ -1082,6 +1099,14 @@ model Ticket {
 
   searchVector Unsupported("tsvector")?
 
+  /// When the status last changed. Maintained by a database trigger, like
+  /// the history rows in TicketStatusChange, so no write path can forget it.
+  statusChangedAt DateTime  @default(now())
+  /// The first sign someone other than the reporter picked this up: a
+  /// comment by another person, or a move out of Backlog/To Do. Also kept by
+  /// triggers. Stops the response clock.
+  firstResponseAt DateTime?
+
   isArchived Boolean @default(false)
 
   /// Set when the ticket was materialized by a RecurringTicket schedule.
@@ -1105,6 +1130,8 @@ model Ticket {
   errorGroups   ErrorGroup[]
   aiFixRuns     AiFixRun[]
   checklist     TicketChecklistItem[]
+  statusHistory TicketStatusChange[]
+  slaAlerts     TicketSlaAlert[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1148,6 +1175,42 @@ model TicketChecklistItem {
 
   @@index([ticketId, position])
   @@map("ticket_checklist_items")
+}
+
+/// One status change: every one, from every write path.
+///
+/// Written only by a Postgres trigger on `tickets`, never by application code —
+/// status changes happen in a dozen places (the board, bulk edit, GitHub, the
+/// Copilot, rollup, the portal), and a history that depends on each of them
+/// remembering is a history with holes. The categories are snapshots, so a
+/// status later moved to another category does not rewrite the past.
+model TicketStatusChange {
+  id       String @id @default(dbgenerated("gen_random_uuid()::text"))
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  /// Plain ids, not relations: deleting a status must not touch its history.
+  fromStatusId String?
+  toStatusId   String?
+  fromCategory StatusCategory?
+  toCategory   StatusCategory
+  changedAt    DateTime        @default(now())
+
+  @@index([ticketId, changedAt])
+  @@index([changedAt])
+  @@map("ticket_status_changes")
+}
+
+/// An SLA alert already sent, so each is sent once: "respond:warn",
+/// "respond:breach", "resolve:warn", "resolve:breach".
+model TicketSlaAlert {
+  ticketId String
+  ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  kind     String
+  sentAt   DateTime @default(now())
+
+  @@id([ticketId, kind])
+  @@map("ticket_sla_alerts")
 }
 
 /// Explicit join model (rather than an implicit m-n) so the pairing carries its

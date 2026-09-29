@@ -57,6 +57,11 @@ export interface ConfigRow {
   /** Ticket types only: what a new ticket of this type starts with. */
   descriptionTemplate?: string | null
   checklistTemplate?: string[]
+  /** Statuses only: soft work-in-progress limit. */
+  wipLimit?: number | null
+  /** Priorities only: service targets, in hours. */
+  respondWithinHours?: number | null
+  resolveWithinHours?: number | null
 }
 
 type ConfigKind = 'status' | 'priority' | 'type'
@@ -145,6 +150,16 @@ export function WorkflowConfig({
                 <Star className="size-2.5" /> Default
               </Badge>
             )}
+            {row.wipLimit ? (
+              <Badge variant="outline" className="text-[10px]" title="Work-in-progress limit">
+                WIP {row.wipLimit}
+              </Badge>
+            ) : null}
+            {row.respondWithinHours || row.resolveWithinHours ? (
+              <Badge variant="outline" className="text-[10px]" title="Respond within / resolve within">
+                SLA {row.respondWithinHours ? `${row.respondWithinHours}h` : '—'} / {row.resolveWithinHours ? `${row.resolveWithinHours}h` : '—'}
+              </Badge>
+            ) : null}
 
             <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
               {row.ticketCount}
@@ -223,11 +238,17 @@ function ConfigDialog({
   const [flag, setFlag] = React.useState(false)
   const [template, setTemplate] = React.useState('')
   const [criteria, setCriteria] = React.useState('')
+  const [wipLimit, setWipLimit] = React.useState('')
+  const [respondHours, setRespondHours] = React.useState('')
+  const [resolveHours, setResolveHours] = React.useState('')
   const [isPending, startTransition] = React.useTransition()
 
   React.useEffect(() => {
     if (!open) return
     setTemplate(row?.descriptionTemplate ?? '')
+    setWipLimit(row?.wipLimit ? String(row.wipLimit) : '')
+    setRespondHours(row?.respondWithinHours ? String(row.respondWithinHours) : '')
+    setResolveHours(row?.resolveWithinHours ? String(row.resolveWithinHours) : '')
     setCriteria((row?.checklistTemplate ?? []).join('\n'))
     setName(row?.name ?? '')
     setColor(row?.color ?? 'blue')
@@ -249,6 +270,7 @@ function ConfigDialog({
               category,
               color,
               isInitial: flag,
+              wipLimit: wipLimit.trim() ? Number(wipLimit) : null,
             })
           : kind === 'priority'
             ? await upsertPriorityAction({
@@ -258,6 +280,8 @@ function ConfigDialog({
                 color,
                 level,
                 isDefault: flag,
+                respondWithinHours: respondHours.trim() ? Number(respondHours) : null,
+                resolveWithinHours: resolveHours.trim() ? Number(resolveHours) : null,
               })
             : await upsertTicketTypeAction({
                 id: row?.id,
@@ -336,6 +360,26 @@ function ConfigDialog({
             </div>
           )}
 
+          {kind === 'status' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="config-wip">Work-in-progress limit</Label>
+              <Input
+                id="config-wip"
+                type="number"
+                min={1}
+                max={999}
+                inputMode="numeric"
+                placeholder="No limit"
+                value={wipLimit}
+                onChange={(event) => setWipLimit(event.target.value)}
+                className="w-32"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                The board shows the count against it and warns when a move goes over. It never refuses the move.
+              </p>
+            </div>
+          )}
+
           {kind === 'priority' && (
             <div className="space-y-1.5">
               <Label htmlFor="config-level">Level</Label>
@@ -347,6 +391,45 @@ function ConfigDialog({
                 value={level}
                 onChange={(event) => setLevel(Number(event.target.value))}
               />
+            </div>
+          )}
+
+          {kind === 'priority' && (
+            <div className="space-y-1.5">
+              <Label>Service targets</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="config-respond" className="text-xs font-normal text-muted-foreground">
+                    First response within (hours)
+                  </Label>
+                  <Input
+                    id="config-respond"
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    placeholder="None"
+                    value={respondHours}
+                    onChange={(event) => setRespondHours(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="config-resolve" className="text-xs font-normal text-muted-foreground">
+                    Resolved within (hours)
+                  </Label>
+                  <Input
+                    id="config-resolve"
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    placeholder="None"
+                    value={resolveHours}
+                    onChange={(event) => setResolveHours(event.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                For the ticket kinds chosen under Flow. Calendar hours; the resolution clock pauses while a ticket is Blocked.
+              </p>
             </div>
           )}
 

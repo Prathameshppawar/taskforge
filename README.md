@@ -109,6 +109,8 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Writing** | Descriptions, remarks and comments in Markdown — headings, task lists, code, tables — with a toolbar, a preview, and nothing ever rendered as raw HTML |
 | **Acceptance criteria** | A checklist of what must be true for a ticket to be done. People tick them; the Coder works against them; the Reviewer judges every pull request against each one |
 | **Templates** | Each ticket type starts from its own description and criteria — a bug asks for steps to reproduce, a deployment for a rollback plan |
+| **Flow** | Every status change recorded by a database trigger: time in each status on the ticket, "where work waits" per project, stuck cards flagged on the board, soft WIP limits per column |
+| **Service targets** | Response and resolution hours per priority, for the kinds of ticket you choose. The resolution clock pauses while Blocked; alerts at 80% and on breach, once each |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
 | **Palette** | `⌘K` search and commands; `→` on a ticket for inline actions |
@@ -644,6 +646,54 @@ some other type's untouched template — so switching Bug → Task after typing
 keeps the typing. Tickets created without the dialog (the Copilot, the API, email)
 get the type's criteria but not its description skeleton: empty headings are for
 people filling in a form, not for a ticket written from a sentence.
+
+### Status history, kept by the database
+
+Status changes happen in a dozen places — the board, the sidebar, bulk edit,
+GitHub automation, parent rollup, the Copilot, the portal's Approve, a deleted
+status moving its tickets. A history that depends on each of them remembering
+to write a row is a history with holes, so none of them does: a Postgres trigger
+on `tickets` writes `ticket_status_changes` whenever `statusId` changes, and keeps
+`statusChangedAt` and `firstResponseAt` on the ticket itself. A second trigger,
+on `comments`, stops the response clock the first time someone other than the
+reporter (and not an agent) replies. Categories are stored as snapshots, so a
+status later moved to another category does not rewrite the past.
+
+The migration rebuilt the history of existing tickets from the audit log, which
+had recorded status changes by name, and closed any gap (bulk edits logged no
+names) at the ticket's last update, so every ticket's history ends where the
+ticket actually is.
+
+From that history:
+
+- **Time in status** on every ticket — a ticket that went back to In Progress adds
+  to its total instead of getting a second row.
+- **Where work waits** on Insights: the average time finished tickets spent in
+  each status over 90 days, longest first, with the median cycle time, the share of
+  service targets met, and how much is stuck now.
+- **Stuck** — a card in progress, review or blocked for longer than the project's
+  threshold (five days by default) says so. Waiting in To Do is not being stuck.
+- **WIP limits** — a column can have one; the header shows `3/4` and turns red
+  when over, counting everything in the column rather than what a filter shows.
+  The limit is soft: a move that breaks it goes ahead with a warning, because a
+  board that refuses to let you record reality is worse than one that tells you.
+
+### Service targets
+
+Each priority can carry *respond within* and *resolve within* hours, applied to
+the kinds of ticket the project chooses (production issues and bugs by default).
+The clock arithmetic is pure and tested in [`core/domain/flow.ts`](src/core/domain/flow.ts):
+the response clock stops at the first response; the resolution clock pauses while
+the ticket is Blocked — waiting on someone outside the team should not breach the
+team's target — and its due time moves out by every pause. The ticket shows both
+clocks; the board shows *SLA at risk* and *SLA breached*.
+
+Alerts come from the five-minute cron that already runs uptime checks. At 80% of
+a target and again when it passes, the assignee and the project's managers are
+notified — in the app and by email — as **TaskForge Ops**. Each alert is sent
+once: the row in `ticket_sla_alerts` is inserted before anyone is told, so two
+overlapping sweeps cannot both send it, and a breach found on the first look
+records its warning without sending it.
 
 ## Links that mean something
 
@@ -1400,6 +1450,8 @@ a decision rather than plumbing.
 |---|---|
 | [`features/tickets/queries.ts`](src/features/tickets/queries.ts) | Weighted `tsvector` search with trigram key matching, and the `Decimal` → `number` conversion that stops Prisma types crossing the server/client boundary. |
 | [`features/dashboard/queries.ts`](src/features/dashboard/queries.ts) | Every aggregate computed in the database. `getTeamWorkload` is the cautionary tale: bucketing in JS cost 133ms against 26k tickets, grouping in SQL costs 16ms. |
+| [`prisma/migrations/…_status_history_and_sla`](prisma/migrations/20261002010000_status_history_and_sla/migration.sql) | History written by triggers, so no write path can forget it — and rebuilt for existing tickets from the audit log. |
+| [`core/domain/flow.ts`](src/core/domain/flow.ts) | SLA clocks that pause while blocked, time in status, stuck and WIP — pure, and pinned by the domain suite. |
 | [`core/domain/markdown.ts`](src/core/domain/markdown.ts) | A Markdown parser that produces data, not HTML — so no ticket, email or model output is ever injected as markup. |
 | [`e2e/helpers.ts`](e2e/helpers.ts) | The overflow detector that names the element responsible instead of just reporting a number. |
 | [`prisma/migrations/…_configurable_roles_and_teams`](prisma/migrations/20260919080811_configurable_roles_and_teams/migration.sql) | Hand-written. Converts an enum column in place and reproduces the old permission matrix as data, without dropping the search indexes Prisma wants to remove on every migration. |

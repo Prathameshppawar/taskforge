@@ -14,10 +14,12 @@ export function BoardView({
   columns,
   config,
   canEdit,
+  stuckAfterDays = null,
 }: {
   columns: BoardColumn[]
   config: TicketFormConfig
   canEdit: boolean
+  stuckAfterDays?: number | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -48,6 +50,7 @@ export function BoardView({
       <KanbanBoard
         columns={columns}
         canEdit={canEdit}
+        stuckAfterDays={stuckAfterDays}
         onCreateTicket={(id) => {
           setStatusId(id)
           setDialogOpen(true)

@@ -9,6 +9,8 @@ import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
 import {
+  flowSettingsSchema,
+  type FlowSettingsInput,
   deleteConfigSchema,
   prioritySchema,
   reorderSchema,
@@ -72,6 +74,7 @@ export async function upsertStatusAction(input: StatusInput): Promise<ActionResu
             category: data.category,
             color: data.color,
             isInitial: data.isInitial,
+            ...(data.wipLimit !== undefined ? { wipLimit: data.wipLimit } : {}),
           },
         })
       } else {
@@ -88,6 +91,7 @@ export async function upsertStatusAction(input: StatusInput): Promise<ActionResu
             category: data.category,
             color: data.color,
             isInitial: data.isInitial,
+            wipLimit: data.wipLimit ?? null,
             position: (last?.position ?? -1) + 1,
           },
         })
@@ -242,6 +246,8 @@ export async function upsertPriorityAction(input: PriorityInput): Promise<Action
             color: data.color,
             level: data.level,
             isDefault: data.isDefault,
+            ...(data.respondWithinHours !== undefined ? { respondWithinHours: data.respondWithinHours } : {}),
+            ...(data.resolveWithinHours !== undefined ? { resolveWithinHours: data.resolveWithinHours } : {}),
           },
         })
       } else {
@@ -252,6 +258,8 @@ export async function upsertPriorityAction(input: PriorityInput): Promise<Action
             color: data.color,
             level: data.level,
             isDefault: data.isDefault,
+            respondWithinHours: data.respondWithinHours ?? null,
+            resolveWithinHours: data.resolveWithinHours ?? null,
           },
         })
       }
@@ -466,6 +474,35 @@ export async function deleteTicketTypeAction(
         projectId: data.projectId,
         actorId: actor.id,
         summary: `deleted the ticket type ${type.name}, moving ${moved.count} tickets to ${replacement.name}`,
+      })
+    })
+
+    revalidatePath(`/projects/${data.projectId}`, 'layout')
+    return ok()
+  })
+}
+
+// -----------------------------------------------------------------------------
+// Flow: the stuck flag and which kinds of ticket have service targets
+// -----------------------------------------------------------------------------
+
+export async function updateFlowSettingsAction(input: FlowSettingsInput): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const data = flowSettingsSchema.parse(input)
+    const { actor } = await requireProjectPermission(data.projectId, 'project:manage-config')
+
+    await prisma.$transaction(async (tx) => {
+      await tx.projectSettings.update({
+        where: { projectId: data.projectId },
+        data: { stuckAfterDays: data.stuckAfterDays, slaKinds: data.slaKinds.join(',') },
+      })
+      await recordActivity(tx, {
+        action: 'UPDATED',
+        entityType: 'PROJECT',
+        entityId: data.projectId,
+        projectId: data.projectId,
+        actorId: actor.id,
+        summary: `set flow rules: stuck after ${data.stuckAfterDays ?? 'never'} days; service targets for ${data.slaKinds.length ? data.slaKinds.join(', ').toLowerCase() : 'no'} tickets`,
       })
     })
 

@@ -158,6 +158,9 @@ const TICKET_LIST_SELECT = {
   _count: { select: { children: true, comments: true, resources: true } },
   /** Booleans only, so a card can say "2/5" without a second query. */
   checklist: { select: { isDone: true } },
+  statusChangedAt: true,
+  /** Alerts the SLA sweep has sent — the card's cheap "at risk / breached". */
+  slaAlerts: { select: { kind: true } },
 } satisfies Prisma.TicketSelect
 
 type RawTicketListItem = Prisma.TicketGetPayload<{ select: typeof TICKET_LIST_SELECT }>
@@ -266,11 +269,11 @@ export async function getBoardData(
     ? await searchTicketIds(filters.search, 1000)
     : undefined
 
-  const [statuses, tickets] = await Promise.all([
+  const [statuses, tickets, totals, settings] = await Promise.all([
     prisma.status.findMany({
       where: { projectId },
       orderBy: { position: 'asc' },
-      select: { id: true, name: true, color: true, category: true, position: true },
+      select: { id: true, name: true, color: true, category: true, position: true, wipLimit: true },
     }),
     prisma.ticket.findMany({
       where: buildTicketWhere(filters, actor, { projectId, searchIds }),
@@ -287,8 +290,12 @@ export async function getBoardData(
       ],
       take: 1000,
     }),
+    // A WIP limit is about everything in the column, not what a filter shows.
+    prisma.ticket.groupBy({ by: ['statusId'], where: { projectId, isArchived: false }, _count: { _all: true } }),
+    prisma.projectSettings.findUnique({ where: { projectId }, select: { stuckAfterDays: true } }),
   ])
 
+  const counts = new Map(totals.map((row) => [row.statusId, row._count._all]))
   const byStatus = new Map<string, TicketListItem[]>()
   for (const status of statuses) byStatus.set(status.id, [])
   for (const ticket of tickets) {
@@ -296,8 +303,10 @@ export async function getBoardData(
   }
 
   return {
+    stuckAfterDays: settings?.stuckAfterDays ?? null,
     columns: statuses.map((status) => ({
       status,
+      total: counts.get(status.id) ?? 0,
       tickets: byStatus.get(status.id) ?? [],
     })),
   }

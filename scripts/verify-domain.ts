@@ -61,6 +61,7 @@ import { parseInline, parseMarkdown, safeHref, extractTaskItems, markdownToPlain
 import { KIND_TEMPLATES, applyDescriptionTemplate, normaliseCriterion } from '@/core/domain/ticket-templates'
 import { formatCriteriaReport } from '@/features/ai-review/service'
 import { criteriaLines } from '@/features/ai-fix/agent'
+import { averageTimeInStatus, dueAlerts, formatDuration, slaApplies, slaClocks, stuckDays, timeInStatus, wipState, type StatusChange } from '@/core/domain/flow'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1079,6 +1080,43 @@ check('the review lists each criterion with its verdict', report.includes('- ✅
 check('a criterion the model skipped is shown as not judged', report.includes('- ➖ Is fast — not judged'))
 check('no criteria, no section', formatCriteriaReport([], []).length === 0)
 check('criteria are numbered for the Coder, with what is already met', criteriaLines([{ text: 'A', isDone: true }, { text: 'B', isDone: false }]).slice(-2).join('|') === '1. [x] A|2. [ ] B')
+
+console.log('\n── Flow: history, service targets, stuck work ──')
+{
+  const h = (hours: number) => new Date(Date.UTC(2026, 0, 1) + hours * 3_600_000)
+  const change = (toCategory: StatusChange['toCategory'], at: number, toStatusId: string | null = toCategory) => ({ toStatusId, toCategory, changedAt: h(at) })
+  check('durations read like a person would say them', formatDuration(0) === '<1m' && formatDuration(45 * 60_000) === '45m' && formatDuration(3.5 * 3_600_000) === '3h 30m' && formatDuration(52 * 3_600_000) === '2d 4h')
+  const revisit = timeInStatus([change('TODO', 0), change('IN_PROGRESS', 1), change('REVIEW', 3), change('IN_PROGRESS', 4), change('DONE', 6)], h(6))
+  check('returning to a status adds to its total', revisit.find((e) => e.category === 'IN_PROGRESS')?.ms === 4 * 3_600_000)
+  check('time in status is longest first', revisit[0].category === 'IN_PROGRESS')
+
+  const respondLate = slaClocks({ createdAt: h(0), firstResponseAt: h(5), completedAt: null, changes: [change('TODO', 0)], respondWithinHours: 4, resolveWithinHours: null, now: h(6) })
+  check('a first response after the target is met late', respondLate.respond?.state === 'met_late' && respondLate.resolve === null)
+  const respondRisk = slaClocks({ createdAt: h(0), firstResponseAt: null, completedAt: null, changes: [change('TODO', 0)], respondWithinHours: 10, resolveWithinHours: null, now: h(8.5) })
+  check('80% of the response target spent is at risk', respondRisk.respond?.state === 'at_risk')
+  check('no response and past the target is breached', slaClocks({ createdAt: h(0), firstResponseAt: null, completedAt: null, changes: [], respondWithinHours: 1, resolveWithinHours: null, now: h(2) }).respond?.state === 'breached')
+
+  const paused = slaClocks({ createdAt: h(0), firstResponseAt: h(1), completedAt: null, changes: [change('TODO', 0), change('IN_PROGRESS', 1), change('BLOCKED', 2)], respondWithinHours: null, resolveWithinHours: 4, now: h(30) })
+  check('the resolution clock pauses while blocked', paused.resolve?.state === 'paused' && paused.resolve.spentMs === 2 * 3_600_000)
+  check('…and its due time moves out by the pause', paused.resolve?.dueAt.getTime() === h(4 + 28).getTime())
+  const resumed = slaClocks({ createdAt: h(0), firstResponseAt: h(1), completedAt: null, changes: [change('TODO', 0), change('BLOCKED', 1), change('IN_PROGRESS', 11)], respondWithinHours: null, resolveWithinHours: 4, now: h(14) })
+  check('blocked time never counts against it', resumed.resolve?.spentMs === 4 * 3_600_000 && resumed.resolve.state === 'at_risk')
+  const done = slaClocks({ createdAt: h(0), firstResponseAt: h(1), completedAt: h(3), changes: [change('TODO', 0), change('DONE', 3)], respondWithinHours: 2, resolveWithinHours: 4, now: h(100) })
+  check('a ticket finished in time stays met however long ago', done.respond?.state === 'met' && done.resolve?.state === 'met')
+  check('service targets apply only to the chosen kinds', slaApplies('BUG', 'PRODUCTION,BUG') && !slaApplies('TASK', 'PRODUCTION,BUG'))
+  check('a breach calls for both alerts; at risk only the warning', dueAlerts('resolve', { ...paused.resolve!, state: 'breached' }).join() === 'resolve:warn,resolve:breach' && dueAlerts('respond', respondRisk.respond).join() === 'respond:warn')
+  check('met clocks call for no alert', dueAlerts('respond', respondLate.respond).length === 0)
+
+  check('in progress past the threshold is stuck', stuckDays('IN_PROGRESS', h(0), 5, h(24 * 6)) === 6)
+  check('waiting in To Do is not stuck', stuckDays('TODO', h(0), 5, h(24 * 60)) === null)
+  check('the flag can be turned off', stuckDays('REVIEW', h(0), null, h(24 * 60)) === null)
+  check('WIP: under, at and over the limit', wipState(2, 3) === 'ok' && wipState(3, 3) === 'full' && wipState(4, 3) === 'over' && wipState(9, null) === 'none')
+  const waits = averageTimeInStatus([
+    { changes: [change('TODO', 0), change('REVIEW', 2), change('DONE', 10)], completedAt: h(10) },
+    { changes: [change('TODO', 0), change('REVIEW', 4), change('DONE', 8)], completedAt: h(8) },
+  ])
+  check('where work waits averages each status and leaves Done out', waits[0].category === 'REVIEW' && waits[0].avgMs === 6 * 3_600_000 && !waits.some((w) => w.category === 'DONE'))
+}
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

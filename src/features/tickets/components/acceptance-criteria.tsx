@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowDown, ArrowUp, ListChecks, Loader2, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { format } from 'date-fns'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -182,7 +183,8 @@ export function AcceptanceCriteria({
               {item.isDone && item.doneBy && optimistic[item.id] === undefined && (
                 <p className="text-[11px] text-muted-foreground">
                   met · {item.doneBy.name}
-                  {item.doneAt ? ` · ${new Date(item.doneAt).toLocaleDateString()}` : ''}
+                  {/* A fixed format: the server and the browser must print the same thing. */}
+                  {item.doneAt ? ` · ${format(new Date(item.doneAt), 'd MMM yyyy')}` : ''}
                 </p>
               )}
             </div>

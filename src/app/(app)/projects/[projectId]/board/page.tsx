@@ -21,7 +21,7 @@ export default async function BoardPage({
 
   const context = await getProjectViewContext(projectId)
   const filters = parseFiltersFromParams(rawParams)
-  const { columns } = await getBoardData(context.actor, projectId, filters)
+  const { columns, stuckAfterDays } = await getBoardData(context.actor, projectId, filters)
 
   return (
     <div className="flex h-full flex-col">
@@ -37,6 +37,7 @@ export default async function BoardPage({
           columns={columns}
           config={context.formConfig}
           canEdit={context.can.transition}
+          stuckAfterDays={stuckAfterDays}
         />
       </div>
     </div>

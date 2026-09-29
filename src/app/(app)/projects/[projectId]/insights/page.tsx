@@ -24,6 +24,8 @@ import { isCopilotAvailable } from '@/features/ai-admin/engines'
 import { StatusReportCard } from '@/features/reports/components/status-report'
 import { getDeliveryMetrics } from '@/features/delivery/queries'
 import { DeliveryMetrics } from '@/features/delivery/components/delivery-metrics'
+import { getProjectFlow } from '@/features/tickets/flow'
+import { ProjectFlowCard } from '@/features/tickets/components/project-flow'
 
 export const metadata: Metadata = { title: 'Insights' }
 
@@ -36,7 +38,7 @@ export default async function InsightsPage({
   const context = await getProjectViewContext(projectId)
   const scope = { projectId }
 
-  const [stats, completion, trend, priorities, labels, statuses, workload, delivery] = await Promise.all([
+  const [stats, completion, trend, priorities, labels, statuses, workload, delivery, flow] = await Promise.all([
     getStatCounts(context.actor, scope),
     getCompletionRate(context.actor, scope),
     getTicketTrend(context.actor, scope, 30),
@@ -45,6 +47,7 @@ export default async function InsightsPage({
     getStatusDistribution(context.actor, scope),
     getTeamWorkload(context.actor, scope),
     getDeliveryMetrics(projectId),
+    getProjectFlow(projectId),
   ])
 
   const aiEnabled = (await isCopilotAvailable())
@@ -59,6 +62,7 @@ export default async function InsightsPage({
         {aiEnabled && <StatusReportCard projectId={projectId} />}
 
         <DeliveryMetrics metrics={delivery} />
+        <ProjectFlowCard flow={flow} />
         <p className="text-right text-xs">
           <a href={`/portal/report?project=${projectId}`} className="text-primary hover:underline">
             Monthly client report →

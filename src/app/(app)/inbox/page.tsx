@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
-import { AtSign, Bell, MessageSquare, UserPlus } from 'lucide-react'
+import { AtSign, Bell, MessageSquare, UserPlus, Timer, TimerOff } from 'lucide-react'
 
 import { requireUser } from '@/features/auth/guards'
 import { getNotifications } from '@/features/notifications/queries'
@@ -16,6 +16,8 @@ const ICONS = {
   ASSIGNED: UserPlus,
   COMMENT_REPLY: MessageSquare,
   TICKET_BLOCKED: Bell,
+  SLA_AT_RISK: Timer,
+  SLA_BREACHED: TimerOff,
 } as const
 
 export default async function InboxPage() {

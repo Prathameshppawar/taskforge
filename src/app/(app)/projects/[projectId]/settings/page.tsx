@@ -5,6 +5,7 @@ import { getProjectDetail } from '@/features/projects/queries'
 import { getProjectViewContext } from '@/features/projects/project-context'
 import { ProjectSettingsForm } from '@/features/projects/components/project-settings-form'
 import { WorkflowConfig } from '@/features/projects/components/workflow-config'
+import { FlowSettings } from '@/features/projects/components/flow-settings'
 import { getProjectRepos } from '@/features/github/queries'
 import { ProjectRepositories } from '@/features/github/components/project-repos'
 import { can } from '@/features/auth/guards'
@@ -89,6 +90,15 @@ export default async function ProjectSettingsPage({
 
         <Separator />
 
+        <FlowSettings
+          projectId={projectId}
+          stuckAfterDays={project.settings?.stuckAfterDays ?? null}
+          slaKinds={project.settings?.slaKinds ?? ''}
+          canEdit={context.can.manageConfig}
+        />
+
+        <Separator />
+
         <WorkflowConfig
           projectId={projectId}
           kind="status"
@@ -99,6 +109,7 @@ export default async function ProjectSettingsPage({
             color: status.color,
             category: status.category,
             isInitial: status.isInitial,
+            wipLimit: status.wipLimit,
             ticketCount: status._count.tickets,
           }))}
         />
@@ -113,6 +124,8 @@ export default async function ProjectSettingsPage({
             color: priority.color,
             level: priority.level,
             isDefault: priority.isDefault,
+            respondWithinHours: priority.respondWithinHours,
+            resolveWithinHours: priority.resolveWithinHours,
             ticketCount: priority._count.tickets,
           }))}
         />

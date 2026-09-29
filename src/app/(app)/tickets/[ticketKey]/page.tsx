@@ -18,6 +18,8 @@ import { HistoricalEstimate } from '@/features/tickets/components/historical-est
 import { estimateFromHistory } from '@/features/tickets/estimates'
 import { TicketAttachments } from '@/features/tickets/components/ticket-attachments'
 import { AcceptanceCriteria } from '@/features/tickets/components/acceptance-criteria'
+import { TicketFlowPanel } from '@/features/tickets/components/ticket-flow'
+import { getTicketFlow } from '@/features/tickets/flow'
 import { WatchButton } from '@/features/tickets/components/watch-button'
 import { listTicketLinks } from '@/features/tickets/relations'
 import { listAttachments } from '@/features/attachments/actions'
@@ -64,7 +66,7 @@ export default async function TicketDetailPage({
 
   const context = await getProjectViewContext(ticket.project.id)
 
-  const [activity, links, attachments, watchers, estimate, development] = await Promise.all([
+  const [activity, links, attachments, watchers, estimate, development, flow] = await Promise.all([
     getTicketActivity(ticket.id),
     listTicketLinks(ticket.id),
     listAttachments(ticket.id),
@@ -86,6 +88,7 @@ export default async function TicketDetailPage({
       projectId: ticket.project.id,
       typeId: ticket.type.id,
     }),
+    getTicketFlow(ticket.id),
   ])
 
   const canEdit = context.can.updateTicket
@@ -343,6 +346,10 @@ export default async function TicketDetailPage({
               </div>
             )}
           </div>
+
+          <Separator />
+
+          <TicketFlowPanel flow={flow} />
         </div>
       </div>
     </div>

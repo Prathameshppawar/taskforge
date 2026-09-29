@@ -106,6 +106,8 @@ export const statusSchema = z.object({
   ]),
   color: z.string().min(1),
   isInitial: z.boolean().default(false),
+  /** Soft work-in-progress limit; null for none. */
+  wipLimit: z.coerce.number().int().min(1).max(999).nullable().optional(),
 })
 export type StatusInput = z.infer<typeof statusSchema>
 
@@ -116,6 +118,9 @@ export const prioritySchema = z.object({
   color: z.string().min(1),
   level: z.coerce.number().int().min(1).max(99),
   isDefault: z.boolean().default(false),
+  /** Service targets in hours; null for none. */
+  respondWithinHours: z.coerce.number().int().min(1).max(8760).nullable().optional(),
+  resolveWithinHours: z.coerce.number().int().min(1).max(8760).nullable().optional(),
 })
 export type PriorityInput = z.infer<typeof prioritySchema>
 
@@ -157,3 +162,10 @@ export const projectTeamSchema = z.object({
   role: z.enum(['MANAGER', 'MEMBER', 'VIEWER']).default('MEMBER'),
 })
 export type ProjectTeamInput = z.infer<typeof projectTeamSchema>
+
+export const flowSettingsSchema = z.object({
+  projectId: z.string().min(1),
+  stuckAfterDays: z.coerce.number().int().min(1).max(365).nullable(),
+  slaKinds: z.array(z.enum(['TASK', 'FEATURE', 'ENHANCEMENT', 'BUG', 'PRODUCTION', 'DEPLOYMENT', 'RESEARCH'])).max(7),
+})
+export type FlowSettingsInput = z.infer<typeof flowSettingsSchema>

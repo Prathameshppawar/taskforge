@@ -29,6 +29,7 @@ import { colorClasses } from '@/core/domain/defaults'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TicketCard } from './ticket-card'
+import { wipState } from '@/core/domain/flow'
 import { moveTicketAction } from '../actions'
 import type { TicketListItem } from '../queries'
 
@@ -39,7 +40,10 @@ export interface BoardColumn {
     color: string
     category: string
     position: number
+    wipLimit?: number | null
   }
+  /** Everything in the column, filters aside — what a WIP limit counts. */
+  total?: number
   tickets: TicketListItem[]
 }
 
@@ -56,10 +60,12 @@ export interface BoardColumn {
 export function KanbanBoard({
   columns: initialColumns,
   canEdit,
+  stuckAfterDays = null,
   onCreateTicket,
 }: {
   columns: BoardColumn[]
   canEdit: boolean
+  stuckAfterDays?: number | null
   onCreateTicket?: (statusId: string) => void
 }) {
   const router = useRouter()
@@ -123,12 +129,20 @@ export function KanbanBoard({
 
     if (source.statusId === destinationStatusId && before === null && after === null) return
 
+    // A soft limit: the move goes ahead, and the person is told.
+    const limit = destination.status.wipLimit
+    if (limit && source.statusId !== destinationStatusId && (destination.total ?? destination.tickets.length) + 1 > limit) {
+      toast.warning(`${destination.status.name} is over its limit of ${limit}. Finish something there before starting more.`)
+    }
+
     const previous = columns
 
     // --- optimistic move ------------------------------------------------------
     const moved: TicketListItem = {
       ...source.ticket,
       status: { ...destination.status, category: destination.status.category as never },
+      // A new column is a fresh start for the stuck flag.
+      statusChangedAt: source.statusId === destinationStatusId ? source.ticket.statusChangedAt : new Date(),
     }
 
     setColumns((current) =>
@@ -139,12 +153,16 @@ export function KanbanBoard({
           return { ...column, tickets: rest }
         }
         if (column.status.id === source.statusId) {
-          return { ...column, tickets: column.tickets.filter((t) => t.id !== ticketId) }
+          return {
+            ...column,
+            total: column.total === undefined ? undefined : column.total - 1,
+            tickets: column.tickets.filter((t) => t.id !== ticketId),
+          }
         }
         if (column.status.id === destinationStatusId) {
           const rest = [...column.tickets]
           rest.splice(insertAt, 0, moved)
-          return { ...column, tickets: rest }
+          return { ...column, total: column.total === undefined ? undefined : column.total + 1, tickets: rest }
         }
         return column
       }),
@@ -184,6 +202,7 @@ export function KanbanBoard({
           <Column
             key={column.status.id}
             column={column}
+            stuckAfterDays={stuckAfterDays}
             canEdit={canEdit}
             onCreateTicket={onCreateTicket}
           />
@@ -204,13 +223,17 @@ export function KanbanBoard({
 function Column({
   column,
   canEdit,
+  stuckAfterDays,
   onCreateTicket,
 }: {
   column: BoardColumn
   canEdit: boolean
+  stuckAfterDays: number | null
   onCreateTicket?: (statusId: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.status.id })
+  const count = column.total ?? column.tickets.length
+  const wip = wipState(count, column.status.wipLimit ?? null)
 
   return (
     <section
@@ -223,8 +246,19 @@ function Column({
           aria-hidden
         />
         <h3 className="text-sm font-medium">{column.status.name}</h3>
-        <span className="rounded bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground tabular-nums">
-          {column.tickets.length}
+        <span
+          className={cn(
+            'rounded bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground tabular-nums',
+            wip === 'full' && 'text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-400',
+            wip === 'over' && 'bg-destructive/10 font-medium text-destructive ring-1 ring-destructive/40',
+          )}
+          title={
+            column.status.wipLimit
+              ? `${count} of a limit of ${column.status.wipLimit}${wip === 'over' ? ' — over the limit' : ''}`
+              : undefined
+          }
+        >
+          {column.status.wipLimit ? `${count}/${column.status.wipLimit}` : column.tickets.length}
         </span>
         {canEdit && onCreateTicket && (
           <Button
@@ -252,7 +286,7 @@ function Column({
             strategy={verticalListSortingStrategy}
           >
             {column.tickets.map((ticket) => (
-              <SortableTicket key={ticket.id} ticket={ticket} disabled={!canEdit} />
+              <SortableTicket key={ticket.id} ticket={ticket} disabled={!canEdit} stuckAfterDays={stuckAfterDays} />
             ))}
           </SortableContext>
 
@@ -270,9 +304,11 @@ function Column({
 function SortableTicket({
   ticket,
   disabled,
+  stuckAfterDays,
 }: {
   ticket: TicketListItem
   disabled: boolean
+  stuckAfterDays: number | null
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ticket.id,
@@ -287,7 +323,7 @@ function SortableTicket({
       {...listeners}
       className={cn(!disabled && 'cursor-grab active:cursor-grabbing', isDragging && 'opacity-40')}
     >
-      <TicketCard ticket={ticket} />
+      <TicketCard ticket={ticket} stuckAfterDays={stuckAfterDays} />
     </div>
   )
 }

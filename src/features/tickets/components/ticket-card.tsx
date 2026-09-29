@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { CalendarClock, GitBranch, ListChecks, MessageSquare, Link2 } from 'lucide-react'
+import { CalendarClock, GitBranch, Hourglass, ListChecks, MessageSquare, Link2, TimerOff, Timer } from 'lucide-react'
 
 import { cn, isOverdue } from '@/lib/utils'
 import { LabelChip, PriorityBadge } from '@/components/shared/badges'
 import { UserAvatar } from '@/components/shared/user-avatar'
 import { isTerminal } from '@/core/domain/ticket-rules'
+import { stuckDays } from '@/core/domain/flow'
 import type { TicketListItem } from '../queries'
 
 /**
@@ -20,12 +21,18 @@ export function TicketCard({
   ticket,
   isDragging,
   className,
+  stuckAfterDays = null,
 }: {
   ticket: TicketListItem
   isDragging?: boolean
   className?: string
+  /** The project's threshold; null turns the flag off. */
+  stuckAfterDays?: number | null
 }) {
   const overdue = isOverdue(ticket.dueDate, isTerminal(ticket.status.category))
+  const stuck = stuckDays(ticket.status.category, new Date(ticket.statusChangedAt), stuckAfterDays, new Date())
+  const breached = ticket.slaAlerts.some((alert) => alert.kind.endsWith(':breach'))
+  const atRisk = !breached && ticket.slaAlerts.length > 0 && !ticket.completedAt
 
   return (
     <div
@@ -53,6 +60,29 @@ export function TicketCard({
       </div>
 
       <p className="line-clamp-3 text-sm leading-snug font-medium">{ticket.title}</p>
+
+      {(stuck !== null || (breached && !ticket.completedAt) || atRisk) && (
+        <div className="flex flex-wrap gap-1">
+          {breached && !ticket.completedAt && (
+            <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+              <TimerOff className="size-3" aria-hidden /> SLA breached
+            </span>
+          )}
+          {atRisk && (
+            <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+              <Timer className="size-3" aria-hidden /> SLA at risk
+            </span>
+          )}
+          {stuck !== null && (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+              title={`In ${ticket.status.name} for ${stuck} days`}
+            >
+              <Hourglass className="size-3" aria-hidden /> stuck {stuck}d
+            </span>
+          )}
+        </div>
+      )}
 
       {ticket.labels.length > 0 && (
         <div className="flex flex-wrap gap-1">
