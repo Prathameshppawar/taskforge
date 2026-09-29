@@ -67,14 +67,7 @@ export function AiAdmin({ data }: { data: AiAdminPage }) {
       </TabsList>
       <TabsContent value="engines" className="space-y-6">
         <WorkspaceChoice data={data} />
-        {data.engines.map((engine) => (
-          <EngineCard
-            key={engine.id}
-            engine={engine}
-            catalogPage={data.priceCatalogPage}
-            price={data.prices.find((p) => p.provider === engine.id && p.model === engine.model)}
-          />
-        ))}
+        <Engines data={data} />
       </TabsContent>
       <TabsContent value="usage" className="space-y-6">
         <Usage data={data} />
@@ -149,8 +142,8 @@ function WorkspaceChoice({ data }: { data: AiAdminPage }) {
           run(
             () =>
               saveWorkspaceAiAction({
-                copilotProvider: copilot === 'env' ? null : (copilot as 'anthropic' | 'openai' | 'groq'),
-                fixProvider: fix === 'auto' ? null : (fix as 'anthropic' | 'openai' | 'groq'),
+                copilotProvider: copilot === 'env' ? null : copilot,
+                fixProvider: fix === 'auto' ? null : fix,
               }),
             () => toast.success('Saved.'),
           )
@@ -160,6 +153,74 @@ function WorkspaceChoice({ data }: { data: AiAdminPage }) {
       </Button>
       </div>
     </section>
+  )
+}
+
+/**
+ * Connected engines as full cards; everything else as a short, grouped list
+ * that says what each costs and where it runs, so choosing one is informed.
+ */
+function Engines({ data }: { data: AiAdminPage }) {
+  const [opened, setOpened] = React.useState<string[]>([])
+  const connected = data.engines.filter((engine) => engine.keySource || opened.includes(engine.id))
+  const others = data.engines.filter((engine) => !connected.includes(engine))
+  const groups = [
+    { title: 'Free', hint: 'A free tier you can use without paying — each with its own limits.', match: (e: AiAdminPage['engines'][number]) => e.definition.freeTier === 'permanent' },
+    { title: 'Free credits, then paid', hint: '', match: (e: AiAdminPage['engines'][number]) => e.definition.freeTier === 'credits' },
+    { title: 'Paid', hint: '', match: (e: AiAdminPage['engines'][number]) => !e.definition.freeTier && e.id !== 'custom' },
+    { title: 'Your own', hint: '', match: (e: AiAdminPage['engines'][number]) => e.id === 'custom' },
+  ]
+  const card = (engine: AiAdminPage['engines'][number]) => (
+    <EngineCard
+      key={engine.id}
+      engine={engine}
+      catalogPage={data.priceCatalogPage}
+      price={data.prices.find((p) => p.provider === engine.id && p.model === engine.model)}
+    />
+  )
+  return (
+    <div className="space-y-6">
+      {connected.length > 0 ? connected.map(card) : <p className="text-sm text-muted-foreground">No engine is connected yet.</p>}
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Add an engine</h2>
+          <p className="text-xs text-muted-foreground">
+            More engines mean more free capacity and cheaper fallbacks. Code and ticket text are sent to whichever engine
+            runs — mind where each processes it before pointing a client&rsquo;s repository at it.
+          </p>
+        </div>
+        {groups.map((group) => {
+          const rows = others.filter(group.match)
+          if (rows.length === 0) return null
+          return (
+            <div key={group.title} className="space-y-1">
+              <h3 className="text-xs font-medium text-muted-foreground">{group.title}{group.hint ? ` · ${group.hint}` : ''}</h3>
+              <ul className="divide-y rounded-xl border">
+                {rows.map((engine) => (
+                  <li key={engine.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 p-3 text-xs">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <p className="text-sm font-medium">
+                        {engine.label} <span className="text-xs font-normal text-muted-foreground">· {engine.definition.region}</span>
+                      </p>
+                      {engine.definition.freeNote && <p className="text-muted-foreground">{engine.definition.freeNote}</p>}
+                      {engine.definition.dataNote && (
+                        <p className="flex items-start gap-1 text-amber-700 dark:text-amber-400">
+                          <CircleAlert className="mt-px size-3 shrink-0" /> {engine.definition.dataNote}
+                        </p>
+                      )}
+                    </div>
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => setOpened((ids) => [...ids, engine.id])}>
+                      Connect
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })}
+      </section>
+    </div>
   )
 }
 
@@ -176,6 +237,8 @@ function EngineCard({
   const [model, setModel] = React.useState(engine.model)
   const [enabled, setEnabled] = React.useState(engine.enabled)
   const [plan, setPlan] = React.useState(engine.billingPlan)
+  const [baseUrl, setBaseUrl] = React.useState(engine.baseUrl ?? '')
+  const [customModel, setCustomModel] = React.useState(engine.id === 'custom' ? engine.model : '')
   const [key, setKey] = React.useState('')
   const [test, setTest] = React.useState<string | null>(null)
   // "Your rate": what the workspace actually pays, when it differs from list.
@@ -204,14 +267,39 @@ function EngineCard({
           <Badge variant="outline" className="text-[10px]">no key</Badge>
         )}
         {!engine.enabled && <Badge variant="outline" className="text-[10px]">off</Badge>}
+        <span className="text-[11px] text-muted-foreground">{engine.definition.region}</span>
         <div className="ml-auto flex items-center gap-2">
           <Label htmlFor={`on-${engine.id}`} className="text-xs text-muted-foreground">Enabled</Label>
           <Switch id={`on-${engine.id}`} checked={enabled} onCheckedChange={setEnabled} />
         </div>
       </div>
 
+      {(engine.definition.freeNote || engine.definition.dataNote) && (
+        <div className="space-y-0.5 text-[11px]">
+          {engine.definition.freeNote && <p className="text-muted-foreground">{engine.definition.freeNote}</p>}
+          {engine.definition.dataNote && (
+            <p className="flex items-start gap-1 text-amber-700 dark:text-amber-400">
+              <CircleAlert className="mt-px size-3 shrink-0" /> {engine.definition.dataNote}
+            </p>
+          )}
+        </div>
+      )}
+
+      {engine.id === 'custom' && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Base URL (OpenAI-compatible, https)</Label>
+            <Input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" className="h-8 font-mono text-xs" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Model id</Label>
+            <Input value={customModel} onChange={(event) => { setCustomModel(event.target.value); setModel(event.target.value) }} placeholder="the model name the endpoint expects" className="h-8 font-mono text-xs" />
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
+        <div className={cn('space-y-1', engine.id === 'custom' && engine.models.models.length === 0 && 'hidden')}>
           <Label className="text-xs">
             Model{' '}
             <span className="text-muted-foreground">
@@ -313,7 +401,14 @@ function EngineCard({
           disabled={isPending}
           onClick={() =>
             run(async () => {
-              const saved = await saveEngineAction({ id: engine.id, model, enabled, billingPlan: plan, apiKey: key.trim() ? key.trim() : undefined })
+              const saved = await saveEngineAction({
+                id: engine.id,
+                model: engine.id === 'custom' ? customModel || model : model,
+                enabled,
+                billingPlan: plan,
+                apiKey: key.trim() ? key.trim() : undefined,
+                ...(engine.id === 'custom' ? { baseUrl: baseUrl.trim() || null } : {}),
+              })
               if (!saved.success || !rateDirty) return saved
               if (!rateIn.trim() && !rateOut.trim()) return revertToListPriceAction({ provider: engine.id, model })
               return savePriceAction({ provider: engine.id, model, inputPerMTok: Number(rateIn) || 0, outputPerMTok: Number(rateOut) || 0 })
@@ -475,7 +570,7 @@ function Budgets({ data }: { data: AiAdminPage }) {
   const { run, isPending } = useRun()
   const [scope, setScope] = React.useState<'WORKSPACE' | 'PROJECT' | 'PROVIDER'>('WORKSPACE')
   const [projectId, setProjectId] = React.useState(data.projects[0]?.id ?? '')
-  const [provider, setProvider] = React.useState<'anthropic' | 'openai' | 'groq'>('anthropic')
+  const [provider, setProvider] = React.useState<string>(data.engines[0]?.id ?? 'anthropic')
   const [limit, setLimit] = React.useState('50')
   const [hardStop, setHardStop] = React.useState(false)
 
@@ -572,7 +667,7 @@ function Budgets({ data }: { data: AiAdminPage }) {
         {scope === 'PROVIDER' && (
           <div className="space-y-1">
             <Label className="text-xs">Engine</Label>
-            <Select value={provider} onValueChange={(value) => setProvider(value as typeof provider)}>
+            <Select value={provider} onValueChange={setProvider}>
               <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {data.engines.map((engine) => (

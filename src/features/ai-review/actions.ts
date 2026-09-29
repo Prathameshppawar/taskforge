@@ -11,12 +11,13 @@ import { assertWithinBudget } from '@/features/ai-admin/usage'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
+import { isEngineId } from '@/core/domain/engine-catalog'
 import { reviewPullRequest } from './service'
 
 const schema = z.object({
   ticketId: z.string().min(1),
   refId: z.string().min(1),
-  engine: z.enum(['anthropic', 'openai', 'groq']),
+  engine: z.string().refine(isEngineId, 'Unknown engine.'),
 })
 
 /** Same three gates as Fix with AI: edit the ticket, hold ai:code, within budget. */

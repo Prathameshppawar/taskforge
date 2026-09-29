@@ -73,7 +73,8 @@ export interface AiChatResponse {
   truncated?: boolean
 }
 
-export type AiProviderId = 'anthropic' | 'openai' | 'groq' | 'ollama'
+/** An engine id from the engine catalogue, or "ollama". Open-ended by design. */
+export type AiProviderId = string
 
 export interface AiProvider {
   readonly id: AiProviderId

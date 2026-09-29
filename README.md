@@ -816,6 +816,17 @@ is enough for small, contained fixes; for real ones, use Anthropic.
   project, engine and feature, aggregated in SQL. Costs are integers in
   millionths of a dollar and snapshotted at call time — editing a price does
   not rewrite last month.
+- **Fifteen engines, most of them cheap or free.** Anthropic, OpenAI and
+  Groq have their own adapters; everything else speaks the OpenAI protocol at
+  its own base URL, so one adapter serves Google Gemini, DeepSeek, Zhipu GLM,
+  Moonshot Kimi, Alibaba Qwen and ModelScope, SiliconFlow, OpenRouter, NVIDIA
+  NIM, Mistral, Cerebras — and any other OpenAI-compatible endpoint you enter
+  ([`engine-catalog.ts`](src/core/domain/engine-catalog.ts)). Adding a provider
+  is a row, not code. Each one states its free-tier terms, **where requests are
+  processed**, and anything about data handling a workspace should decide on
+  knowingly — code sent to a Chinese provider is processed in China, and
+  Gemini's free tier may train on prompts. A custom endpoint must be public
+  https, by the same address check as uptime monitors.
 - **What you actually pay.** Each engine has a billing plan — *free tier*
   (nothing billed), *pay as you go* (list price) or *custom rate* (what the
   workspace really pays, for a negotiated price or a subscription). Every call

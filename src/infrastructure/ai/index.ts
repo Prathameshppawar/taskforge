@@ -30,4 +30,5 @@ export function getAiProvider(): AiProvider {
 
 export { isAiEnabled }
 
-export type CodingEngineId = 'anthropic' | 'openai' | 'groq'
+/** An id from the engine catalogue (src/core/domain/engine-catalog.ts). */
+export type CodingEngineId = string

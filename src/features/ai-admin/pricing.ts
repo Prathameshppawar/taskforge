@@ -1,5 +1,6 @@
 import { prisma } from '@/infrastructure/db/prisma'
 import { parsePriceCatalog } from '@/core/domain/pricing'
+import { priceCatalogMapping } from '@/core/domain/engine-catalog'
 
 /**
  * Keeps model list prices current from the public catalogue.
@@ -20,7 +21,7 @@ export const PRICE_CATALOG_PAGE = 'https://github.com/BerriAI/litellm/blob/main/
 export async function refreshModelPrices() {
   const response = await fetch(PRICE_CATALOG_URL, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
   if (!response.ok) throw new Error(`The price catalogue could not be fetched (HTTP ${response.status}).`)
-  const catalog = parsePriceCatalog(await response.json())
+  const catalog = parsePriceCatalog(await response.json(), priceCatalogMapping())
   if (catalog.length === 0) throw new Error('The price catalogue was empty or unreadable, so no prices were changed.')
 
   // The list price is always the catalogue's; a workspace's own rate lives in

@@ -1,7 +1,7 @@
 import { prisma } from '@/infrastructure/db/prisma'
 import { isEmailConfigured } from '@/infrastructure/email/mailer'
 import { monthStart, projectMonth } from '@/core/domain/ai-budget'
-import { ENGINE_META, getWorkspaceSetting, listAvailableModels, listEngines } from './engines'
+import { getWorkspaceSetting, listAvailableModels, listEngines } from './engines'
 import { listBudgets } from './budgets'
 import { dailyUsage, usageReport } from './reports'
 import { PRICE_CATALOG_PAGE } from './pricing'
@@ -45,8 +45,8 @@ export async function getAiAdminPage() {
   return {
     engines: engines.map((engine) => ({
       ...engine,
-      keysUrl: ENGINE_META[engine.id].keysUrl,
-      envKey: ENGINE_META[engine.id].envKey,
+      keysUrl: engine.definition.keysUrl,
+      envKey: engine.definition.envKey ?? null,
       models: models[engine.id],
     })),
     workspace: { copilotProvider: workspace.copilotProvider, fixProvider: workspace.fixProvider },

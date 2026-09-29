@@ -1576,6 +1576,9 @@ model AiEngineSetting {
   /// "list" (pay as you go at list price) or "custom" (the price set by hand
   /// on the model: a negotiated rate or a subscription's effective rate).
   billingPlan String   @default("list")
+  /// The custom engine's OpenAI-compatible endpoint. Catalogue engines carry
+  /// their own, so this is null for them.
+  baseUrl     String?
   enabled     Boolean  @default(true)
   updatedAt   DateTime @updatedAt
 

@@ -76,6 +76,7 @@ import { changeFailureRate, failureRateBand, formatSpan, frequencyBand, leadTime
 import { evaluateAutoMerge, parseKinds } from '@/core/domain/auto-merge'
 
 import { parsePriceCatalog } from '@/core/domain/pricing'
+import { ENGINE_CATALOG, engineDefinition, priceCatalogMapping } from '@/core/domain/engine-catalog'
 
 let passed = 0
 let failed = 0
@@ -955,6 +956,8 @@ check('kinds parse and ignore junk', parseKinds('task, Bug,nonsense,').join() ==
 
 console.log('\n── Pricing: reading the public price catalogue ──')
 const catalog = parsePriceCatalog({
+  'zai/glm-4.7-flash': { litellm_provider: 'zai', mode: 'chat', input_cost_per_token: 0, output_cost_per_token: 0 },
+  'gemini/gemini-2.5-flash': { litellm_provider: 'gemini', mode: 'chat', input_cost_per_token: 3e-7, output_cost_per_token: 2.5e-6 },
   sample_spec: { litellm_provider: 'openai', input_cost_per_token: 'see docs' },
   'claude-opus-5': { litellm_provider: 'anthropic', mode: 'chat', input_cost_per_token: 5e-6, output_cost_per_token: 2.5e-5 },
   'groq/openai/gpt-oss-120b': { litellm_provider: 'groq', mode: 'chat', input_cost_per_token: 1.5e-7, output_cost_per_token: 6e-7 },
@@ -962,7 +965,7 @@ const catalog = parsePriceCatalog({
   'bedrock/claude': { litellm_provider: 'bedrock', mode: 'chat', input_cost_per_token: 1e-6, output_cost_per_token: 1e-6 },
   'gpt-typo': { litellm_provider: 'openai', mode: 'chat', input_cost_per_token: 5, output_cost_per_token: 5 },
   'gpt-negative': { litellm_provider: 'openai', mode: 'chat', input_cost_per_token: -1, output_cost_per_token: 1e-6 },
-})
+}, priceCatalogMapping())
 const byModel = new Map(catalog.map((price) => [`${price.provider}/${price.model}`, price]))
 check('per-token prices become per-million', byModel.get('anthropic/claude-opus-5')?.inputPerMTok === 5 && byModel.get('anthropic/claude-opus-5')?.outputPerMTok === 25)
 check('Groq keys lose their namespace', byModel.get('groq/openai/gpt-oss-120b')?.inputPerMTok === 0.15 && byModel.get('groq/openai/gpt-oss-120b')?.outputPerMTok === 0.6)
@@ -970,7 +973,19 @@ check('non-chat models are skipped', !byModel.has('openai/text-embedding-3-large
 check('other providers are skipped', !catalog.some((price) => price.model.includes('bedrock')))
 check('an implausible price is treated as a mistake', !byModel.has('openai/gpt-typo'))
 check('negative and non-numeric prices are ignored', !byModel.has('openai/gpt-negative') && !byModel.has('openai/sample_spec'))
-check('a non-object catalogue yields nothing', parsePriceCatalog(null).length === 0 && parsePriceCatalog([1]).length === 0)
+check('a non-object catalogue yields nothing', parsePriceCatalog(null, priceCatalogMapping()).length === 0 && parsePriceCatalog([1], priceCatalogMapping()).length === 0)
+check('LiteLLM "zai" prices the Zhipu engine, and GLM Flash is free', byModel.get('zhipu/glm-4.7-flash')?.inputPerMTok === 0)
+check('Gemini keys lose their prefix', byModel.get('gemini/gemini-2.5-flash')?.outputPerMTok === 2.5)
+
+console.log('\n── Engines: the catalogue ──')
+check('engine ids are unique', new Set(ENGINE_CATALOG.map((engine) => engine.id)).size === ENGINE_CATALOG.length)
+check('every OpenAI-compatible engine but custom has an https base URL',
+  ENGINE_CATALOG.filter((engine) => engine.adapter === 'openai-compatible' && engine.id !== 'custom').every((engine) => engine.baseUrl?.startsWith('https://')))
+check('every engine with a default model suggests it', ENGINE_CATALOG.filter((engine) => engine.defaultModel).every((engine) => engine.suggestedModels.includes(engine.defaultModel)))
+check('every engine processed in China says so in its data note',
+  ENGINE_CATALOG.filter((engine) => engine.region === 'China').every((engine) => /China/.test(engine.dataNote ?? '')))
+check('Anthropic ranks first for "Fix with AI"', [...ENGINE_CATALOG].sort((a, b) => a.rank - b.rank)[0].id === 'anthropic')
+check('an unknown engine is not an engine', engineDefinition('nope') === undefined)
 
 
 console.log('\n── AI spend: billing plans and the month ahead ──')

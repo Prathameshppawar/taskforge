@@ -69,7 +69,7 @@ export function AiFixPanel({ ticketId, data }: { ticketId: string; data: AiFixPa
 
   const selected = data.engines.find((candidate) => candidate.id === engine)
 
-  const engineId = engine as 'anthropic' | 'openai' | 'groq'
+  const engineId = engine
 
   function launch(work: () => Promise<{ success: true; data: unknown } | { success: false; error: string }>, message: string) {
     startTransition(async () => {

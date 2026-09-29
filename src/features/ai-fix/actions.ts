@@ -12,12 +12,13 @@ import { can, requireProjectPermission } from '@/features/auth/guards'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
+import { isEngineId } from '@/core/domain/engine-catalog'
 import { executeFixRun } from './service'
 
 const startSchema = z.object({
   ticketId: z.string().min(1),
   repoId: z.string().min(1),
-  engine: z.enum(['anthropic', 'openai', 'groq']),
+  engine: z.string().refine(isEngineId, 'Unknown engine.'),
   instructions: z.string().trim().max(2000).optional(),
   /** PLAN posts a plan for approval; FIX writes the change. */
   mode: z.enum(['FIX', 'PLAN']).default('FIX'),
@@ -134,7 +135,7 @@ export async function startAiFixAction(
 export async function healPullRequestAction(input: {
   ticketId: string
   refId: string
-  engine: 'anthropic' | 'openai' | 'groq'
+  engine: string
 }): Promise<ActionResult<{ runId: string }>> {
   const ref = await prisma.ticketGitRef.findFirst({
     where: { id: input.refId, ticketId: input.ticketId, kind: 'PULL_REQUEST', state: { in: ['OPEN', 'DRAFT'] } },

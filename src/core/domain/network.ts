@@ -57,14 +57,14 @@ export function checkMonitorUrl(raw: string): { ok: true; url: URL } | { ok: fal
   } catch {
     return { ok: false, reason: 'Enter a full URL, such as https://example.com/health.' }
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return { ok: false, reason: 'Only http and https can be monitored.' }
-  if (url.username || url.password) return { ok: false, reason: 'Do not put credentials in a monitor URL.' }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return { ok: false, reason: 'Only http and https addresses are allowed.' }
+  if (url.username || url.password) return { ok: false, reason: 'Do not put credentials in the URL.' }
   const host = url.hostname.toLowerCase()
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
-    return { ok: false, reason: 'Only public addresses can be monitored.' }
+    return { ok: false, reason: 'Only public addresses are allowed.' }
   }
   if (/^[\d.]+$/.test(host) || host.includes(':') || host.startsWith('[')) {
-    if (isPrivateAddress(host)) return { ok: false, reason: 'Only public addresses can be monitored.' }
+    if (isPrivateAddress(host)) return { ok: false, reason: 'Only public addresses are allowed.' }
   }
   return { ok: true, url }
 }

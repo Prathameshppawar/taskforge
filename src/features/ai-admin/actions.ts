@@ -10,7 +10,8 @@ import { ok, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
 import { AiProviderError } from '@/infrastructure/ai'
-import { ENGINE_META, getEngineProvider, saveEngine } from './engines'
+import { getEngineProvider, saveEngine } from './engines'
+import { engineDefinition, isEngineId } from '@/core/domain/engine-catalog'
 import { sendWeeklyUsageReport } from './reports'
 import { ensurePrice, refreshModelPrices } from './pricing'
 
@@ -19,7 +20,7 @@ import { ensurePrice, refreshModelPrices } from './pricing'
  * cost or who can see spend is written to the audit log.
  */
 
-const engineId = z.enum(['anthropic', 'openai', 'groq'])
+const engineId = z.string().refine(isEngineId, 'Unknown engine.')
 const PATH = '/workspace/ai'
 
 async function audit(actorId: string, summary: string) {
@@ -38,6 +39,8 @@ const engineSchema = z.object({
   model: z.string().trim().min(1, 'Choose a model.').max(120),
   enabled: z.boolean(),
   billingPlan: z.enum(['free', 'list', 'custom']).default('list'),
+  /** Custom engine only: its OpenAI-compatible base URL. */
+  baseUrl: z.string().trim().max(300).nullable().optional(),
   /** Omitted: keep the stored key. Empty string: remove it. */
   apiKey: z.string().trim().max(400).optional(),
 })
@@ -46,19 +49,24 @@ export async function saveEngineAction(input: z.input<typeof engineSchema>): Pro
   return runAction(async () => {
     const actor = await requirePermission('ai:manage')
     const data = engineSchema.parse(input)
+    try {
     await saveEngine({
       id: data.id,
       model: data.model,
       enabled: data.enabled,
       billingPlan: data.billingPlan,
+      baseUrl: data.baseUrl,
       apiKey: data.apiKey === undefined ? undefined : data.apiKey === '' ? null : data.apiKey,
     })
+    } catch (error) {
+      throw new BusinessRuleError((error as Error).message)
+    }
     // A newly chosen model gets its list price straight away, so spend is in
     // dollars from its first call rather than after someone remembers.
     await ensurePrice(data.id, data.model).catch(() => null)
     await audit(
       actor.id,
-      `set ${ENGINE_META[data.id].label} to ${data.model}${data.enabled ? '' : ' (off)'}${
+      `set ${engineDefinition(data.id)?.label ?? data.id} to ${data.model}${data.enabled ? '' : ' (off)'}${
         data.apiKey === undefined ? '' : data.apiKey === '' ? ', removed its key' : ', saved a new key'
       }`,
     )
@@ -87,7 +95,7 @@ export async function testEngineAction(id: string): Promise<ActionResult<{ reply
 }
 
 const workspaceSchema = z.object({
-  copilotProvider: z.enum(['anthropic', 'openai', 'groq', 'ollama']).nullable(),
+  copilotProvider: z.string().refine((id) => id === 'ollama' || isEngineId(id), 'Unknown engine.').nullable(),
   fixProvider: engineId.nullable(),
 })
 

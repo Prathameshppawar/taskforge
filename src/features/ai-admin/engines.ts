@@ -4,49 +4,23 @@ import OpenAI from 'openai'
 import { prisma } from '@/infrastructure/db/prisma'
 import { env } from '@/lib/env'
 import { seal, unseal } from '@/infrastructure/github/secrets'
-import {
-  AiProviderError,
-  type AiProvider,
-  type CodingEngineId,
-} from '@/infrastructure/ai'
+import { AiProviderError, type AiProvider, type CodingEngineId } from '@/infrastructure/ai'
 import { AnthropicProvider } from '@/infrastructure/ai/anthropic'
 import { OpenAiProvider } from '@/infrastructure/ai/openai'
 import { GroqProvider } from '@/infrastructure/ai/groq'
 import { OllamaProvider } from '@/infrastructure/ai/ollama'
+import { ENGINE_CATALOG, engineDefinition, type EngineDefinition } from '@/core/domain/engine-catalog'
+import { checkMonitorUrl } from '@/core/domain/network'
 
 /**
  * Which AI engines the workspace can use, with which model and which key.
  *
- * Settings saved on the AI page win over the environment, so an administrator
- * can connect a provider or switch model without a redeploy; with nothing
- * saved, the environment behaves exactly as it did before this page existed.
+ * The engines themselves are declared in the engine catalogue; this file joins
+ * them with what the workspace has saved. Settings saved on the AI page win
+ * over the environment, so an administrator can connect a provider or switch
+ * model without a redeploy; with nothing saved, the environment behaves as it
+ * always did.
  */
-
-export const ENGINE_IDS: readonly CodingEngineId[] = ['anthropic', 'openai', 'groq']
-
-export const ENGINE_META: Record<
-  CodingEngineId,
-  { label: string; defaultModel: string; envKey: 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'GROQ_API_KEY'; keysUrl: string }
-> = {
-  anthropic: {
-    label: 'Anthropic',
-    defaultModel: 'claude-opus-5',
-    envKey: 'ANTHROPIC_API_KEY',
-    keysUrl: 'https://console.anthropic.com/settings/keys',
-  },
-  openai: {
-    label: 'OpenAI',
-    defaultModel: 'gpt-5',
-    envKey: 'OPENAI_API_KEY',
-    keysUrl: 'https://platform.openai.com/api-keys',
-  },
-  groq: {
-    label: 'Groq',
-    defaultModel: 'openai/gpt-oss-120b',
-    envKey: 'GROQ_API_KEY',
-    keysUrl: 'https://console.groq.com/keys',
-  },
-}
 
 export interface ResolvedEngine {
   id: CodingEngineId
@@ -58,6 +32,9 @@ export interface ResolvedEngine {
   keyHint: string | null
   /** How the workspace pays: free tier, list price, or its own rate. */
   billingPlan: 'free' | 'list' | 'custom'
+  /** OpenAI-compatible engines: where requests go. Only the custom engine's is editable. */
+  baseUrl: string | null
+  definition: EngineDefinition
 }
 
 interface EngineWithKey extends ResolvedEngine {
@@ -74,10 +51,9 @@ async function loadEngines(): Promise<EngineWithKey[]> {
     config = null
   }
 
-  return ENGINE_IDS.map((id) => {
-    const meta = ENGINE_META[id]
-    const row = byId.get(id)
-    const envKey = config?.[meta.envKey] || null
+  return ENGINE_CATALOG.map((definition) => {
+    const row = byId.get(definition.id)
+    const envKey = (definition.envKey && config?.[definition.envKey]) || null
 
     let storedKey: string | null = null
     if (row?.apiKeyEnc) {
@@ -90,52 +66,69 @@ async function loadEngines(): Promise<EngineWithKey[]> {
     }
 
     const envModel =
-      id === 'anthropic' ? config?.ANTHROPIC_MODEL : id === 'openai' ? config?.OPENAI_MODEL : config?.GROQ_MODEL
-    const apiKey = storedKey ?? envKey
+      definition.id === 'anthropic'
+        ? config?.ANTHROPIC_MODEL
+        : definition.id === 'openai'
+          ? config?.OPENAI_MODEL
+          : definition.id === 'groq'
+            ? config?.GROQ_MODEL
+            : undefined
 
     return {
-      id,
-      label: meta.label,
-      model: row?.model || envModel || meta.defaultModel,
+      id: definition.id,
+      label: definition.label,
+      model: row?.model || envModel || definition.defaultModel,
       enabled: row?.enabled ?? true,
       keySource: storedKey ? 'settings' : envKey ? 'env' : null,
       keyHint: storedKey ? row!.keyHint : envKey ? envKey.slice(-4) : null,
-      billingPlan: ((row?.billingPlan as ResolvedEngine['billingPlan'] | undefined) ?? 'list'),
-      apiKey,
+      // A provider with a permanent free tier starts on it: that is how it is
+      // almost always first used, and it keeps spend honest at $0.
+      billingPlan: (row?.billingPlan as ResolvedEngine['billingPlan'] | undefined) ?? (definition.freeTier === 'permanent' ? 'free' : 'list'),
+      baseUrl: definition.id === 'custom' ? (row?.baseUrl ?? null) : (definition.baseUrl ?? null),
+      definition,
+      apiKey: storedKey ?? envKey,
     }
   })
 }
 
+/** Usable: switched on, holding a key, and — for the custom engine — pointed somewhere. */
+function usable(engine: EngineWithKey): boolean {
+  return engine.enabled && Boolean(engine.apiKey) && Boolean(engine.model) && (engine.id !== 'custom' || Boolean(engine.baseUrl))
+}
+
+const strip = ({ apiKey: _apiKey, ...engine }: EngineWithKey): ResolvedEngine => engine
+
 /** Every engine, configured or not — for the settings page. */
 export async function listEngines(): Promise<ResolvedEngine[]> {
-  return (await loadEngines()).map(({ apiKey: _apiKey, ...engine }) => engine)
+  return (await loadEngines()).map(strip)
 }
 
 /**
- * Engines that can write code for "Fix with AI": enabled and holding a key.
- * Ordered with the workspace's chosen default first, then most capable first.
+ * Engines that can do work: usable, ordered with the workspace's chosen
+ * default first and then most capable first.
  */
 export async function listCodingEngines(): Promise<ResolvedEngine[]> {
   const [engines, workspace] = await Promise.all([loadEngines(), getWorkspaceSetting()])
-  const usable = engines.filter((engine) => engine.enabled && engine.apiKey).map(({ apiKey: _k, ...e }) => e)
+  const ready = engines.filter(usable).sort((a, b) => a.definition.rank - b.definition.rank).map(strip)
   const preferred = workspace.fixProvider
-  return preferred
-    ? [...usable.filter((e) => e.id === preferred), ...usable.filter((e) => e.id !== preferred)]
-    : usable
+  return preferred ? [...ready.filter((e) => e.id === preferred), ...ready.filter((e) => e.id !== preferred)] : ready
 }
 
 export async function getEngineProvider(id: CodingEngineId): Promise<AiProvider> {
   const engine = (await loadEngines()).find((candidate) => candidate.id === id)
-  if (!engine?.apiKey || !engine.enabled) {
-    throw new AiProviderError(`The ${id} engine is not configured or is switched off.`, id, 'unauthorized')
+  if (!engine || !usable(engine)) {
+    throw new AiProviderError(`The ${engine?.label ?? id} engine is not configured or is switched off.`, id, 'unauthorized')
   }
-  switch (id) {
+  const key = engine.apiKey!
+  switch (engine.definition.adapter) {
     case 'anthropic':
-      return new AnthropicProvider(engine.apiKey, engine.model)
+      return new AnthropicProvider(key, engine.model)
     case 'openai':
-      return new OpenAiProvider(engine.apiKey, engine.model)
+      return new OpenAiProvider(key, engine.model)
     case 'groq':
-      return new GroqProvider(engine.model, engine.apiKey)
+      return new GroqProvider(engine.model, key)
+    case 'openai-compatible':
+      return new OpenAiProvider(key, engine.model, { id: engine.id, label: engine.label, baseURL: engine.baseUrl! })
   }
 }
 
@@ -156,7 +149,7 @@ export async function getWorkspaceSetting() {
  */
 export async function resolveCopilotProvider(): Promise<AiProvider> {
   const workspace = await getWorkspaceSetting()
-  const chosen = workspace.copilotProvider as CodingEngineId | 'ollama' | null
+  const chosen = workspace.copilotProvider
 
   if (chosen && chosen !== 'ollama') return getEngineProvider(chosen)
 
@@ -192,18 +185,43 @@ export async function saveEngine(input: {
   billingPlan: 'free' | 'list' | 'custom'
   /** Undefined leaves the stored key alone; null removes it. */
   apiKey?: string | null
+  /** Custom engine only. */
+  baseUrl?: string | null
 }) {
+  if (!engineDefinition(input.id)) throw new Error(`Unknown engine "${input.id}".`)
+
+  let baseUrl: string | null | undefined
+  if (input.id === 'custom' && input.baseUrl !== undefined) {
+    if (input.baseUrl) {
+      // The server will send code and tickets to this address, so it gets the
+      // same public-host rule as an uptime monitor, and must be https.
+      const checked = checkMonitorUrl(input.baseUrl)
+      if (!checked.ok) throw new Error(checked.reason)
+      if (checked.url.protocol !== 'https:') throw new Error('Use an https:// endpoint.')
+      baseUrl = checked.url.toString().replace(/\/+$/, '')
+    } else {
+      baseUrl = null
+    }
+  }
+
   const keyData =
     input.apiKey === undefined
       ? {}
       : input.apiKey === null
         ? { apiKeyEnc: null, keyHint: null }
         : { apiKeyEnc: seal(input.apiKey), keyHint: input.apiKey.slice(-4) }
+  const fields = {
+    model: input.model,
+    enabled: input.enabled,
+    billingPlan: input.billingPlan,
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+    ...keyData,
+  }
 
   await prisma.aiEngineSetting.upsert({
     where: { provider: input.id },
-    create: { provider: input.id, model: input.model, enabled: input.enabled, billingPlan: input.billingPlan, ...keyData },
-    update: { model: input.model, enabled: input.enabled, billingPlan: input.billingPlan, ...keyData },
+    create: { provider: input.id, ...fields },
+    update: fields,
   })
 }
 
@@ -211,54 +229,52 @@ export async function saveEngine(input: {
 // Models on offer
 // -----------------------------------------------------------------------------
 
-/**
- * Known-good choices per provider, shown first and used when the provider's
- * own model list cannot be fetched (no key yet, or the call failed).
- */
-export const SUGGESTED_MODELS: Record<CodingEngineId, string[]> = {
-  anthropic: ['claude-opus-5', 'claude-fable-5-1', 'claude-sonnet-5', 'claude-haiku-4-5'],
-  openai: ['gpt-5', 'gpt-5-mini'],
-  groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'],
-}
+/** Not chat models, whatever a provider's /models endpoint lists alongside them. */
+const NOT_CHAT = /(embed|whisper|tts|speech|audio|transcri|realtime|image|dall|vision-preview|guard|safeguard|moderation|rerank|orpheus|search)/i
 
 /**
  * Chat models the key can actually use, asked of the provider itself so the
- * list never goes stale. Filtered to what can hold a conversation with tools:
- * speech, embedding, moderation and tiny-context models are dropped.
+ * list never goes stale. Speech, embedding, moderation, reranking and
+ * tiny-context models are dropped. Falls back to the catalogue's suggestions
+ * when there is no key yet or the provider does not answer.
  */
 export async function listAvailableModels(id: CodingEngineId): Promise<{ models: string[]; live: boolean }> {
   const engine = (await loadEngines()).find((candidate) => candidate.id === id)
-  const suggested = SUGGESTED_MODELS[id]
-  if (!engine?.apiKey) return { models: suggested, live: false }
+  const suggested = engine?.definition.suggestedModels ?? []
+  const fallback = () => ({ models: engine?.model && !suggested.includes(engine.model) ? [engine.model, ...suggested] : suggested, live: false })
+  if (!engine || !usable({ ...engine, enabled: true, model: engine.model || 'x' })) return fallback()
 
   try {
     let ids: string[] = []
-    if (id === 'anthropic') {
-      const client = new Anthropic({ apiKey: engine.apiKey })
+    if (engine.definition.adapter === 'anthropic') {
+      const client = new Anthropic({ apiKey: engine.apiKey! })
       for await (const model of client.models.list()) ids.push(model.id)
-    } else if (id === 'openai') {
-      const client = new OpenAI({ apiKey: engine.apiKey })
+    } else if (engine.definition.adapter === 'openai') {
+      const client = new OpenAI({ apiKey: engine.apiKey! })
       for await (const model of client.models.list()) ids.push(model.id)
-      ids = ids.filter((model) => /^(gpt|o\d)/.test(model) && !/(audio|realtime|tts|transcribe|image|search|embedding|moderation)/.test(model))
+      ids = ids.filter((model) => /^(gpt|o\d)/.test(model))
     } else {
-      const response = await fetch('https://api.groq.com/openai/v1/models', {
+      const base = engine.definition.adapter === 'groq' ? 'https://api.groq.com/openai/v1' : engine.baseUrl!
+      const response = await fetch(`${base}/models`, {
         headers: { Authorization: `Bearer ${engine.apiKey}` },
         cache: 'no-store',
+        signal: AbortSignal.timeout(10_000),
       })
-      const body = (await response.json()) as { data: Array<{ id: string; context_window?: number; active?: boolean }> }
-      ids = body.data
-        .filter((model) => model.active !== false && (model.context_window ?? 0) >= 32_000)
-        .filter((model) => !/(whisper|guard|safeguard|orpheus|tts)/i.test(model.id))
-        .map((model) => model.id)
+      if (!response.ok) return fallback()
+      const body = (await response.json()) as { data?: Array<{ id: string; context_window?: number; active?: boolean }> }
+      ids = (body.data ?? [])
+        .filter((model) => model.active !== false && (model.context_window === undefined || model.context_window >= 32_000))
+        .map((model) => model.id.replace(/^models\//, '')) // Gemini lists "models/gemini-…"
     }
+    ids = ids.filter((model) => !NOT_CHAT.test(model))
 
     const live = [...new Set(ids)].sort()
     // Suggested first when present, then the rest; the saved model is always
     // listed even if the provider has since stopped reporting it.
     const ordered = [...suggested.filter((model) => live.includes(model)), ...live.filter((model) => !suggested.includes(model))]
-    if (!ordered.includes(engine.model)) ordered.unshift(engine.model)
-    return { models: ordered, live: true }
+    if (engine.model && !ordered.includes(engine.model)) ordered.unshift(engine.model)
+    return { models: ordered, live: live.length > 0 }
   } catch {
-    return { models: suggested.includes(engine.model) ? suggested : [engine.model, ...suggested], live: false }
+    return fallback()
   }
 }
