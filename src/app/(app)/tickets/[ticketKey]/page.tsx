@@ -89,7 +89,7 @@ export default async function TicketDetailPage({
 
   const canEdit = context.can.updateTicket
   const canCode = canEdit && can(actor, 'ai:code')
-  const aiFix = canCode ? await getAiFixPanel(ticket.id, ticket.project.id) : null
+  const aiFix = canCode ? await getAiFixPanel(ticket.id, ticket.project.id, actor.id) : null
   const kind = await prisma.ticketType.findUnique({ where: { id: ticket.type.id }, select: { kind: true } })
   const release = kind?.kind === 'DEPLOYMENT' ? await releaseContents(ticket.id) : null
 
@@ -220,7 +220,14 @@ export default async function TicketDetailPage({
             ticketKey={ticket.key}
           />
 
-          {aiFix && <AiFixPanel ticketId={ticket.id} data={aiFix} />}
+          {aiFix && (
+            <AiFixPanel
+              ticketId={ticket.id}
+              data={aiFix}
+              canScaffold={context.can.manageConfig}
+              suggestedRepoName={`${ticket.project.code}-${ticket.title}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)}
+            />
+          )}
 
           {kind?.kind === 'PRODUCTION' && canEdit && aiFix && aiFix.engines.length > 0 && (
             <PostmortemButton ticketId={ticket.id} />

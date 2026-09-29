@@ -55,6 +55,12 @@ export const SETTINGS_SECTIONS: NavSection[] = [
         icon: 'lock',
       },
       {
+        href: '/settings/github',
+        label: 'GitHub',
+        description: 'Connect your GitHub account, to create repositories.',
+        icon: 'github',
+      },
+      {
         href: '/settings/tokens',
         label: 'Access tokens',
         description: 'Personal tokens for scripts, CI and the MCP server.',

@@ -82,6 +82,9 @@ export function buildManifest(origin: string, name: string) {
     // integrations page.
     hook_attributes: { url: webhookUrl ?? NO_WEBHOOK_URL, active: true },
     redirect_url: `${origin}/api/github/manifest/callback`,
+    // Where GitHub returns a person who connects their own account — used to
+    // create repositories, which an app cannot do under a personal account.
+    callback_urls: [`${origin}/api/github/user/callback`],
     setup_url: `${origin}/api/github/setup`,
     setup_on_update: true,
     // Private: only the owning account can install it. An organisation that

@@ -802,6 +802,17 @@ link cannot be used to make the server read something internal. Everything is
 budgeted (60k characters, 15k per item) so one huge log cannot push the ticket
 out of the context, and labelled as material rather than instructions.
 
+**Starting from scratch.** "Start a new repository" on a ticket creates the
+repository, links it to the project, and has the Coder build its first version
+from everything on the ticket — as a pull request, so the first commit is
+reviewed like any other. A GitHub App cannot create a repository under a
+personal account, so this uses the person's own authorisation through the same
+app (Settings → GitHub: the app's OAuth flow, state-checked, token sealed and
+refreshed before it expires), limited to what the app may do
+([`create-repo.ts`](src/features/github/create-repo.ts)). The repository starts
+with a README so there is a branch to build on, and is added to the app's
+install when that install covers only selected repositories.
+
 **What it cannot do.** It cannot run the code or the tests. It says so in every
 pull request, and the repository's CI is what checks its work. Groq's free tier
 is enough for small, contained fixes; for real ones, use Anthropic.

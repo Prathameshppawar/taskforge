@@ -1,9 +1,10 @@
 import { prisma } from '@/infrastructure/db/prisma'
 import { listCodingEngines } from '@/features/ai-admin/engines'
 import { expireStaleRuns } from './service'
+import { githubConnection } from '@/features/github/user-auth'
 
 /** What the ticket page's "Fix with AI" panel needs. */
-export async function getAiFixPanel(ticketId: string, projectId: string) {
+export async function getAiFixPanel(ticketId: string, projectId: string, actorId: string) {
   await expireStaleRuns(ticketId)
 
   const [repos, runs, engines, failing, openPrs] = await Promise.all([
@@ -55,6 +56,12 @@ export async function getAiFixPanel(ticketId: string, projectId: string) {
     engines,
     failing,
     openPrs,
+    // For "Start a new repository": the person's own GitHub, and the accounts
+    // the app is installed on, which are where a new repository can go.
+    github: await githubConnection(actorId),
+    owners: (
+      await prisma.githubInstallation.findMany({ where: { removedAt: null, suspendedAt: null }, select: { accountLogin: true, accountType: true } })
+    ).map((entry) => ({ login: entry.accountLogin, type: entry.accountType })),
     repos: repos.map((link) => ({ id: link.repo.id, fullName: link.repo.fullName, role: link.role })),
     runs,
   }

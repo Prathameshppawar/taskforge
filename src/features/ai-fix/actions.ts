@@ -150,3 +150,62 @@ export async function healPullRequestAction(input: {
     targetPrNumber: Number(ref.externalId),
   })
 }
+
+const scaffoldSchema = z.object({
+  ticketId: z.string().min(1),
+  owner: z.string().trim().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/, 'Choose a GitHub account.'),
+  name: z.string().trim().regex(/^[A-Za-z0-9._-]{1,100}$/, 'Letters, numbers, dots, dashes and underscores only.'),
+  description: z.string().trim().max(300).optional(),
+  isPrivate: z.boolean().default(true),
+  engine: z.string().refine(isEngineId, 'Unknown engine.'),
+})
+
+/**
+ * "Start a new repository" from a ticket: create it as the person asking,
+ * link it to the project, and have the Coder build its first version from the
+ * ticket — description, conversation, attachments and resources — as a pull
+ * request. Creating repositories and linking them is project configuration, so
+ * it needs that right on top of the usual AI gates.
+ */
+export async function startScaffoldAction(input: z.input<typeof scaffoldSchema>): Promise<ActionResult<{ repo: string; runId: string }>> {
+  return runAction(async () => {
+    const data = scaffoldSchema.parse(input)
+    const ticket = await prisma.ticket.findUnique({ where: { id: data.ticketId }, select: { id: true, key: true, projectId: true } })
+    if (!ticket) throw new NotFoundError('Ticket', data.ticketId)
+    const { actor } = await requireProjectPermission(ticket.projectId, 'project:manage-config')
+    if (!can(actor, 'ai:code')) throw new ForbiddenError('Your role cannot use AI on code (ai:code).')
+    const engine = (await listCodingEngines()).find((candidate) => candidate.id === data.engine)
+    if (!engine) throw new BusinessRuleError(`The ${data.engine} engine is not configured.`)
+    await assertWithinBudget({ projectId: ticket.projectId, provider: engine.id })
+
+    const { createRepository } = await import('@/features/github/create-repo')
+    let created: { repoId: string; fullName: string }
+    try {
+      created = await createRepository({
+        actorId: actor.id,
+        owner: data.owner,
+        name: data.name,
+        description: data.description || null,
+        isPrivate: data.isPrivate,
+        projectId: ticket.projectId,
+      })
+    } catch (error) {
+      throw new BusinessRuleError((error as Error).message)
+    }
+
+    const run = await prisma.aiFixRun.create({
+      data: {
+        ticketId: ticket.id,
+        repoId: created.repoId,
+        requestedById: actor.id,
+        provider: engine.id,
+        model: engine.model,
+        mode: 'SCAFFOLD',
+      },
+      select: { id: true },
+    })
+    after(() => executeFixRun(run.id))
+    revalidatePath(`/tickets/${ticket.key}`)
+    return ok({ repo: created.fullName, runId: run.id })
+  })
+}

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Bell,
+  Github,
   KeyRound,
   LayoutTemplate,
   Lock,
@@ -32,6 +33,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   template: LayoutTemplate,
   monitor: MonitorSmartphone,
   plug: Plug,
+  github: Github,
   sparkles: Sparkles,
 }
 
