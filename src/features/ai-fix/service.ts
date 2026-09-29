@@ -10,6 +10,7 @@ import { branchNameFor, TICKET_KIND_LABELS } from '@/core/domain/git-refs'
 import { uniqueBranch } from '@/core/domain/ai-fix'
 import { agentComment, agentUserId } from '@/features/agents/service'
 import { describeFailures } from './ci-failures'
+import { gatherTicketContext } from './context'
 import { runFixAgent } from './agent'
 import { RepoWorkspace } from './workspace'
 
@@ -110,6 +111,10 @@ export async function executeFixRun(runId: string): Promise<void> {
       : null
 
     const workspace = await RepoWorkspace.open(installationId, repo.fullName, baseBranch, { allowWorkflows })
+    const ticketContext = await gatherTicketContext(ticket.id, installationId).catch((error) => {
+      console.error('[ai-fix] could not gather ticket context:', error)
+      return null
+    })
     const result = await runFixAgent({
       provider,
       workspace,
@@ -118,6 +123,7 @@ export async function executeFixRun(runId: string): Promise<void> {
       mode: run.mode,
       ciFailures,
       approvedPlan,
+      ticketContext,
       onProgress,
     })
     const usage = {

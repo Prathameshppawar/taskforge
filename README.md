@@ -792,6 +792,16 @@ back to the model with the reasons; one that passes opens as a **draft** pull
 request with a warning. If a job needs a deploy token, the model names it in the
 pull request rather than wiring it in.
 
+**It reads the whole ticket, not just its description**
+([`context.ts`](src/features/ai-fix/context.ts)): the conversation — where the
+clarifications usually are — text attachments (logs, specs, CSVs, code), the
+parent and linked tickets, and every resource link. A GitHub file or repository
+the app can see is read through the app, private or not; any other link only if
+it is a public http(s) page, by the same address rules as uptime monitors, so a
+link cannot be used to make the server read something internal. Everything is
+budgeted (60k characters, 15k per item) so one huge log cannot push the ticket
+out of the context, and labelled as material rather than instructions.
+
 **What it cannot do.** It cannot run the code or the tests. It says so in every
 pull request, and the repository's CI is what checks its work. Groq's free tier
 is enough for small, contained fixes; for real ones, use Anthropic.

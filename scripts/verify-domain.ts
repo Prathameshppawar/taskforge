@@ -78,6 +78,8 @@ import { evaluateAutoMerge, parseKinds } from '@/core/domain/auto-merge'
 import { parsePriceCatalog } from '@/core/domain/pricing'
 import { ENGINE_CATALOG, engineDefinition, priceCatalogMapping } from '@/core/domain/engine-catalog'
 
+import { clip, htmlToText, isTextAttachment, parseGithubLink } from '@/core/domain/ticket-context'
+
 let passed = 0
 let failed = 0
 
@@ -1000,6 +1002,19 @@ check('no price at all costs nothing either way', callCosts('list', { list: null
 check('ten days of $1 in a 30-day month projects $3',
   Math.round(projectMonth(1, new Date(Date.UTC(2026, 8, 11)))! * 100) / 100 === 3)
 check('the first day is too early to project', projectMonth(1, new Date(Date.UTC(2026, 8, 1, 12))) === null)
+
+
+console.log('\n── Ticket context: what an agent can read ──')
+check('logs, specs and code are text', isTextAttachment('error.log', 'application/octet-stream') && isTextAttachment('spec.md', '') && isTextAttachment('data.csv', 'text/csv'))
+check('images and PDFs are not', !isTextAttachment('screen.png', 'image/png') && !isTextAttachment('brief.pdf', 'application/pdf'))
+check('a Dockerfile is text', isTextAttachment('Dockerfile', ''))
+check('HTML loses its scripts and tags', htmlToText('<html><head><title>x</title></head><body><script>evil()</script><h1>Spec</h1><p>Use &amp; keep</p></body></html>') === 'Spec\n Use & keep')
+const blob = parseGithubLink('https://github.com/acme/web/blob/main/docs/api.md')
+check('a GitHub file link is parsed', blob?.owner === 'acme' && blob.repo === 'web' && blob.ref === 'main' && blob.path === 'docs/api.md')
+check('a GitHub repository link means its README', parseGithubLink('https://github.com/acme/web')?.path === null)
+check('other hosts are not GitHub links', parseGithubLink('https://gitlab.com/acme/web') === null)
+check('clipping says what was cut', clip('a\n'.repeat(100), 50).includes('more characters not shown'))
+check('short text is left alone', clip('short', 50) === 'short')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)
