@@ -14,6 +14,8 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
+  refreshPricesAction,
+  revertToListPriceAction,
   deleteBudgetAction,
   saveBudgetAction,
   saveEngineAction,
@@ -120,6 +122,20 @@ function WorkspaceChoice({ data }: { data: AiAdminPage }) {
           </SelectContent>
         </Select>
       </div>
+      <div className="flex gap-2">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={isPending}
+        title="Fetch current list prices for every Anthropic, OpenAI and Groq model. Prices set by hand are kept."
+        onClick={() =>
+          run(() => refreshPricesAction(), (result) =>
+            toast.success(`${result.updated} list prices refreshed${result.kept ? `, ${result.kept} set by hand kept` : ''}.`),
+          )
+        }
+      >
+        Refresh prices
+      </Button>
       <Button
         size="sm"
         disabled={isPending}
@@ -136,6 +152,7 @@ function WorkspaceChoice({ data }: { data: AiAdminPage }) {
       >
         Save
       </Button>
+      </div>
     </section>
   )
 }
@@ -153,6 +170,14 @@ function EngineCard({
   const [key, setKey] = React.useState('')
   const [input, setInput] = React.useState(String(price?.inputPerMTok ?? 0))
   const [output, setOutput] = React.useState(String(price?.outputPerMTok ?? 0))
+  // Only a price someone actually edited is saved (and so marked as set by
+  // hand); saving a model change must not freeze its list price.
+  const [priceDirty, setPriceDirty] = React.useState(false)
+  React.useEffect(() => {
+    setInput(String(price?.inputPerMTok ?? 0))
+    setOutput(String(price?.outputPerMTok ?? 0))
+    setPriceDirty(false)
+  }, [price?.inputPerMTok, price?.outputPerMTok, model])
   const [test, setTest] = React.useState<string | null>(null)
 
   return (
@@ -210,13 +235,29 @@ function EngineCard({
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Input $ / 1M tokens</Label>
-          <Input value={input} onChange={(event) => setInput(event.target.value)} className="h-8 w-28 text-xs" inputMode="decimal" />
+          <Input value={input} onChange={(event) => { setInput(event.target.value); setPriceDirty(true) }} className="h-8 w-28 text-xs" inputMode="decimal" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Output $ / 1M tokens</Label>
-          <Input value={output} onChange={(event) => setOutput(event.target.value)} className="h-8 w-28 text-xs" inputMode="decimal" />
+          <Input value={output} onChange={(event) => { setOutput(event.target.value); setPriceDirty(true) }} className="h-8 w-28 text-xs" inputMode="decimal" />
         </div>
-        <p className="pb-2 text-[11px] text-muted-foreground">Prices turn tokens into money on the Usage and Budgets tabs.</p>
+        <p className="pb-2 text-[11px] text-muted-foreground">
+          {!price
+            ? 'No price for this model yet — Save or Refresh prices to fetch its list price.'
+            : price.source === 'auto'
+              ? `List price, from the public catalogue · updated ${new Date(price.updatedAt).toISOString().slice(0, 10)}`
+              : 'Set by hand — refreshes leave it alone.'}
+          {price?.source === 'manual' && (
+            <button
+              type="button"
+              className="ml-2 text-primary hover:underline"
+              disabled={isPending}
+              onClick={() => run(() => revertToListPriceAction({ provider: engine.id, model }), () => toast.success('Back to the list price.'))}
+            >
+              Use list price
+            </button>
+          )}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -226,7 +267,7 @@ function EngineCard({
           onClick={() =>
             run(async () => {
               const saved = await saveEngineAction({ id: engine.id, model, enabled, apiKey: key.trim() ? key.trim() : undefined })
-              if (!saved.success) return saved
+              if (!saved.success || !priceDirty) return saved
               return savePriceAction({ provider: engine.id, model, inputPerMTok: Number(input) || 0, outputPerMTok: Number(output) || 0 })
             }, () => {
               setKey('')

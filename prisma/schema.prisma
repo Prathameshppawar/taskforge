@@ -1598,6 +1598,10 @@ model AiModelPrice {
   model         String
   inputPerMTok  Decimal @db.Decimal(10, 4)
   outputPerMTok Decimal @db.Decimal(10, 4)
+  /// "auto": a list price, refreshed from the public catalogue. "manual": set
+  /// by a person — a negotiated rate, or $0 for a free tier — and never
+  /// overwritten by a refresh.
+  source        String  @default("manual")
 
   updatedAt DateTime @updatedAt
 

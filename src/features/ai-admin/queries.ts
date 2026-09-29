@@ -50,6 +50,8 @@ export async function getAiAdminPage() {
       model: price.model,
       inputPerMTok: Number(price.inputPerMTok),
       outputPerMTok: Number(price.outputPerMTok),
+      source: price.source,
+      updatedAt: price.updatedAt,
     })),
     budgets,
     month,

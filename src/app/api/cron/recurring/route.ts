@@ -6,6 +6,7 @@ import { sweepEmbeddings } from '@/features/tickets/embeddings'
 import { reconcileAllLinked } from '@/features/github/service'
 import { loadCredentials } from '@/infrastructure/github/client'
 import { sendWeeklyUsageReport } from '@/features/ai-admin/reports'
+import { refreshModelPrices } from '@/features/ai-admin/pricing'
 import { sendManagerDigests } from '@/features/reports/digest'
 
 /**
@@ -78,6 +79,14 @@ export async function GET(request: NextRequest) {
     // The cron runs daily; the usage report and the manager digest are weekly,
     // so they go on Mondays.
     const monday = new Date().getUTCDay() === 1
+    // List prices change rarely; weekly keeps them current, and refreshing
+    // before the report means new calls from here on use this week's prices.
+    const prices = monday
+      ? await refreshModelPrices().catch((error) => {
+          console.error('[cron/recurring] price refresh failed:', error)
+          return null
+        })
+      : null
     const usageReport =
       monday
         ? await sendWeeklyUsageReport().catch((error) => {
@@ -97,6 +106,7 @@ export async function GET(request: NextRequest) {
       github,
       usageReport,
       managerDigest,
+      prices: prices ? { updated: prices.updated, kept: prices.kept } : null,
       generated: result.generated.length,
       tickets: result.generated.map((entry) => entry.ticketKey),
       deactivated: result.deactivated.length,

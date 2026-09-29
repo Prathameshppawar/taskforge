@@ -12,6 +12,7 @@ import { runAction } from '@/lib/safe-action'
 import { AiProviderError } from '@/infrastructure/ai'
 import { ENGINE_META, getEngineProvider, saveEngine } from './engines'
 import { sendWeeklyUsageReport } from './reports'
+import { ensurePrice, refreshModelPrices } from './pricing'
 
 /**
  * Workspace → AI. Every action needs `ai:manage`, and every change that alters
@@ -50,6 +51,9 @@ export async function saveEngineAction(input: z.infer<typeof engineSchema>): Pro
       enabled: data.enabled,
       apiKey: data.apiKey === undefined ? undefined : data.apiKey === '' ? null : data.apiKey,
     })
+    // A newly chosen model gets its list price straight away, so spend is in
+    // dollars from its first call rather than after someone remembers.
+    await ensurePrice(data.id, data.model).catch(() => null)
     await audit(
       actor.id,
       `set ${ENGINE_META[data.id].label} to ${data.model}${data.enabled ? '' : ' (off)'}${
@@ -110,12 +114,45 @@ export async function savePriceAction(input: z.infer<typeof priceSchema>): Promi
   return runAction(async () => {
     const actor = await requirePermission('ai:manage')
     const data = priceSchema.parse(input)
+    // Typed by a person, so a refresh from the catalogue must leave it alone.
     await prisma.aiModelPrice.upsert({
       where: { provider_model: { provider: data.provider, model: data.model } },
-      create: data,
-      update: { inputPerMTok: data.inputPerMTok, outputPerMTok: data.outputPerMTok },
+      create: { ...data, source: 'manual' },
+      update: { inputPerMTok: data.inputPerMTok, outputPerMTok: data.outputPerMTok, source: 'manual' },
     })
     await audit(actor.id, `priced ${data.provider} ${data.model} at $${data.inputPerMTok}/$${data.outputPerMTok} per million tokens`)
+    revalidatePath(PATH)
+    return ok()
+  })
+}
+
+/** Refreshes every list price from the public catalogue; hand-set prices are kept. */
+export async function refreshPricesAction(): Promise<ActionResult<{ updated: number; kept: number }>> {
+  return runAction(async () => {
+    const actor = await requirePermission('ai:manage')
+    try {
+      const result = await refreshModelPrices()
+      await audit(actor.id, `refreshed ${result.updated} model list prices (${result.kept} set by hand were kept)`)
+      revalidatePath(PATH)
+      return ok({ updated: result.updated, kept: result.kept })
+    } catch (error) {
+      throw new BusinessRuleError((error as Error).message)
+    }
+  })
+}
+
+/** Goes back to the list price for one model, dropping a hand-set one. */
+export async function revertToListPriceAction(input: { provider: string; model: string }): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requirePermission('ai:manage')
+    const data = z.object({ provider: engineId, model: z.string().trim().min(1).max(120) }).parse(input)
+    await prisma.aiModelPrice.updateMany({ where: { provider: data.provider, model: data.model }, data: { source: 'auto' } })
+    try {
+      await refreshModelPrices()
+    } catch (error) {
+      throw new BusinessRuleError((error as Error).message)
+    }
+    await audit(actor.id, `went back to the list price for ${data.provider} ${data.model}`)
     revalidatePath(PATH)
     return ok()
   })

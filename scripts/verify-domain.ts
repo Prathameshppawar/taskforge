@@ -75,6 +75,8 @@ import { changeFailureRate, failureRateBand, formatSpan, frequencyBand, leadTime
 
 import { evaluateAutoMerge, parseKinds } from '@/core/domain/auto-merge'
 
+import { parsePriceCatalog } from '@/core/domain/pricing'
+
 let passed = 0
 let failed = 0
 
@@ -949,6 +951,26 @@ check('any workflow change is refused', !merge({ files: ['index.html', '.github/
 check('a disallowed kind is refused', !merge({ ticketKind: 'PRODUCTION' }).merge)
 check('every failed condition is reported, not just the first', merge({ isDraft: true, checkState: 'FAILURE', reviewVerdict: null }).reasons.length === 3)
 check('kinds parse and ignore junk', parseKinds('task, Bug,nonsense,').join() === 'TASK,BUG')
+
+
+console.log('\n── Pricing: reading the public price catalogue ──')
+const catalog = parsePriceCatalog({
+  sample_spec: { litellm_provider: 'openai', input_cost_per_token: 'see docs' },
+  'claude-opus-5': { litellm_provider: 'anthropic', mode: 'chat', input_cost_per_token: 5e-6, output_cost_per_token: 2.5e-5 },
+  'groq/openai/gpt-oss-120b': { litellm_provider: 'groq', mode: 'chat', input_cost_per_token: 1.5e-7, output_cost_per_token: 6e-7 },
+  'text-embedding-3-large': { litellm_provider: 'openai', mode: 'embedding', input_cost_per_token: 1.3e-7, output_cost_per_token: 0 },
+  'bedrock/claude': { litellm_provider: 'bedrock', mode: 'chat', input_cost_per_token: 1e-6, output_cost_per_token: 1e-6 },
+  'gpt-typo': { litellm_provider: 'openai', mode: 'chat', input_cost_per_token: 5, output_cost_per_token: 5 },
+  'gpt-negative': { litellm_provider: 'openai', mode: 'chat', input_cost_per_token: -1, output_cost_per_token: 1e-6 },
+})
+const byModel = new Map(catalog.map((price) => [`${price.provider}/${price.model}`, price]))
+check('per-token prices become per-million', byModel.get('anthropic/claude-opus-5')?.inputPerMTok === 5 && byModel.get('anthropic/claude-opus-5')?.outputPerMTok === 25)
+check('Groq keys lose their namespace', byModel.get('groq/openai/gpt-oss-120b')?.inputPerMTok === 0.15 && byModel.get('groq/openai/gpt-oss-120b')?.outputPerMTok === 0.6)
+check('non-chat models are skipped', !byModel.has('openai/text-embedding-3-large'))
+check('other providers are skipped', !catalog.some((price) => price.model.includes('bedrock')))
+check('an implausible price is treated as a mistake', !byModel.has('openai/gpt-typo'))
+check('negative and non-numeric prices are ignored', !byModel.has('openai/gpt-negative') && !byModel.has('openai/sample_spec'))
+check('a non-object catalogue yields nothing', parsePriceCatalog(null).length === 0 && parsePriceCatalog([1]).length === 0)
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)
