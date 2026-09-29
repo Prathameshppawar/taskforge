@@ -15,7 +15,7 @@ import type { TicketFormConfig } from '@/features/tickets/components/create-tick
 export async function getProjectViewContext(projectId: string) {
   const { actor, access } = await requireProjectView(projectId)
 
-  const [statuses, priorities, types, labels, members, parents] = await Promise.all([
+  const [statuses, priorities, types, labels, members, parents, cycles] = await Promise.all([
     prisma.status.findMany({
       where: { projectId },
       orderBy: { position: 'asc' },
@@ -51,6 +51,11 @@ export async function getProjectViewContext(projectId: string) {
       orderBy: { number: 'desc' },
       take: 100,
     }),
+    prisma.cycle.findMany({
+      where: { projectId, state: { not: 'CLOSED' } },
+      orderBy: [{ state: 'asc' }, { startDate: { sort: 'asc', nulls: 'last' } }],
+      select: { id: true, name: true, state: true },
+    }),
   ])
 
   const formConfig: TicketFormConfig = {
@@ -72,6 +77,7 @@ export async function getProjectViewContext(projectId: string) {
     priorities,
     types,
     labels,
+    cycles,
     members: members.map((m) => m.user),
     can: {
       createTicket: canInProject(access, 'ticket:create'),

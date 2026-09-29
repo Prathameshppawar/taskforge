@@ -436,6 +436,8 @@ export async function updateTicketAction(
         updatedAt: true,
         estimateHours: true,
         storyPoints: true,
+        cycleId: true,
+        cycle: { select: { name: true } },
         status: { select: { name: true, category: true } },
         priority: { select: { name: true } },
         type: { select: { name: true } },
@@ -486,6 +488,19 @@ export async function updateTicketAction(
         await validateParentAssignment(tx, data.id, data.parentId, before.projectId)
       }
 
+      let cycleName: string | null | undefined
+      if (data.cycleId !== undefined && data.cycleId !== before.cycleId) {
+        if (data.cycleId === null) cycleName = null
+        else {
+          const cycle = await tx.cycle.findFirst({
+            where: { id: data.cycleId, projectId: before.projectId, state: { not: 'CLOSED' } },
+            select: { name: true },
+          })
+          if (!cycle) throw new BusinessRuleError('That cycle is closed or belongs to another project.')
+          cycleName = cycle.name
+        }
+      }
+
       // Resolve the incoming status so completedAt and the audit entry are right.
       let completedAt = before.completedAt
       let newStatusName: string | undefined
@@ -516,6 +531,7 @@ export async function updateTicketAction(
           startDate: data.startDate === undefined ? undefined : data.startDate,
           estimateHours: data.estimateHours === undefined ? undefined : data.estimateHours,
           storyPoints: data.storyPoints === undefined ? undefined : data.storyPoints,
+          cycleId: cycleName === undefined ? undefined : data.cycleId,
           completedAt,
         },
       })
@@ -610,6 +626,28 @@ export async function updateTicketAction(
           summary: data.dueDate
             ? `set ${before.key} due ${data.dueDate.toLocaleDateString()}`
             : `cleared the due date on ${before.key}`,
+        })
+      }
+
+      if (cycleName !== undefined) {
+        await recordActivity(tx, {
+          ...base,
+          action: 'UPDATED',
+          field: 'cycle',
+          oldValue: before.cycle?.name ?? null,
+          newValue: cycleName,
+          summary: cycleName ? `planned ${before.key} into ${cycleName}` : `moved ${before.key} back to the backlog`,
+        })
+      }
+
+      if (data.storyPoints !== undefined && data.storyPoints !== before.storyPoints) {
+        await recordActivity(tx, {
+          ...base,
+          action: 'UPDATED',
+          field: 'storyPoints',
+          oldValue: before.storyPoints === null ? null : String(before.storyPoints),
+          newValue: data.storyPoints === null ? null : String(data.storyPoints),
+          summary: data.storyPoints === null ? `cleared the points on ${before.key}` : `pointed ${before.key} at ${data.storyPoints}`,
         })
       }
 

@@ -52,6 +52,8 @@ export interface ToolbarContext {
   priorities: Array<ToolbarOption & { level: number }>
   types: ToolbarOption[]
   labels: ToolbarOption[]
+  /** Open sprints and milestones, where the view is one project's. */
+  cycles?: Array<{ id: string; name: string; state: string }>
   members: Array<{ id: string; name: string; username: string; avatarColor: string }>
   can: { createTicket: boolean }
   formConfig?: TicketFormConfig
@@ -225,6 +227,25 @@ export function TicketToolbar({
           onClear={() => setParam('label', [])}
           emptyMessage="This project has no labels yet."
         />
+
+        {/* Sprint / milestone */}
+        {context.cycles && context.cycles.length > 0 && (
+          <FilterPopover
+            label="Cycle"
+            selectedCount={filters.cycleIds.length}
+            items={[
+              ...context.cycles.map((cycle) => ({
+                id: cycle.id,
+                label: cycle.state === 'ACTIVE' ? `${cycle.name} (running)` : cycle.name,
+                color: cycle.state === 'ACTIVE' ? 'emerald' : 'sky',
+              })),
+              { id: 'none', label: 'Backlog (unplanned)', color: 'slate' },
+            ]}
+            selected={filters.cycleIds}
+            onToggle={(id) => toggleParam('cycle', id)}
+            onClear={() => setParam('cycle', [])}
+          />
+        )}
 
         {/* Assignee */}
         <Popover>

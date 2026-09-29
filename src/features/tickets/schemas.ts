@@ -60,6 +60,8 @@ export const updateTicketSchema = z.object({
   startDate: z.coerce.date().nullable().optional(),
   estimateHours: z.coerce.number().min(0).max(9999).nullable().optional(),
   storyPoints: z.coerce.number().int().min(0).max(999).nullable().optional(),
+  /** Sprint or milestone; null returns it to the backlog. */
+  cycleId: z.string().nullable().optional(),
 })
 export type UpdateTicketInput = z.infer<typeof updateTicketSchema>
 

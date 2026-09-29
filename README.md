@@ -110,6 +110,7 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Acceptance criteria** | A checklist of what must be true for a ticket to be done. People tick them; the Coder works against them; the Reviewer judges every pull request against each one |
 | **Templates** | Each ticket type starts from its own description and criteria — a bug asks for steps to reproduce, a deployment for a rollback plan |
 | **Flow** | Every status change recorded by a database trigger: time in each status on the ticket, "where work waits" per project, stuck cards flagged on the board, soft WIP limits per column |
+| **Planning** | Sprints (one running at a time) and milestones (several at once, as client work runs), above a ranked backlog. Drag to plan and rank, fill to capacity, or ask the Planner; close with carry-over; a burn-up from recorded history per cycle |
 | **Service targets** | Response and resolution hours per priority, for the kinds of ticket you choose. The resolution clock pauses while Blocked; alerts at 80% and on breach, once each |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
@@ -677,6 +678,46 @@ From that history:
   when over, counting everything in the column rather than what a filter shows.
   The limit is soft: a move that breaks it goes ahead with a warning, because a
   board that refuses to let you record reality is worse than one that tells you.
+
+### Sprints, milestones and the backlog
+
+**Plan** is a project tab: every open sprint and milestone above the backlog,
+which is ranked — the top is what comes next. Drag a ticket between lists or
+within one, or use its menu (to the top, up, down, into any cycle), which does the
+same without a pointer. A sprint is a timebox and a partial unique index keeps it
+to one running per project; milestones are goals with dates and may overlap,
+which is the shape client work usually takes. Closing a cycle moves what is
+unfinished to another cycle or back to the backlog and keeps a record of what
+carried over.
+
+Ranking rewrites the whole destination list on each drag rather than computing
+one midpoint: most tickets start unranked, and a midpoint between two nulls means
+nothing.
+
+**Filling a cycle** has two routes, both of which only *propose* — nothing moves
+until a person has seen the list and applied it:
+
+- **Fill to capacity** is deterministic ([`core/domain/cycles.ts`](src/core/domain/cycles.ts)):
+  the backlog in rank order until the capacity is reached. A ticket blocked by
+  unfinished work outside the cycle is skipped, because planning it in only plans
+  a stall; one blocked by work planned alongside it is kept. Unpointed tickets
+  count as the median of the pointed ones — counting them as zero would quietly
+  overfill every sprint — and the proposal says which ones it assumed.
+- **Ask the Planner** is one model call over the goal, capacity and ranked
+  backlog, on the Planner's own engine. It returns keys and reasons; invented keys
+  are dropped and the load is recomputed from the real tickets rather than
+  trusted.
+
+**The burn-up** is built from two histories the database keeps by trigger —
+status changes, and every move of a ticket into or out of a cycle — so each day
+shows what was actually in the cycle and done at the end of it. Scope added in
+week two shows as the top line rising, which a burn-down would hide inside a
+flatter slope. A project plans in story points as soon as anything in it is
+pointed, and in ticket counts until then; the choice is made once per project so
+the planning page and the chart never disagree.
+
+The board, table, calendar and timeline filter by cycle (`?cycle=`), including
+*Backlog (unplanned)*, and saved filters keep it.
 
 ### Service targets
 
@@ -1451,6 +1492,7 @@ a decision rather than plumbing.
 | [`features/tickets/queries.ts`](src/features/tickets/queries.ts) | Weighted `tsvector` search with trigram key matching, and the `Decimal` → `number` conversion that stops Prisma types crossing the server/client boundary. |
 | [`features/dashboard/queries.ts`](src/features/dashboard/queries.ts) | Every aggregate computed in the database. `getTeamWorkload` is the cautionary tale: bucketing in JS cost 133ms against 26k tickets, grouping in SQL costs 16ms. |
 | [`prisma/migrations/…_status_history_and_sla`](prisma/migrations/20261002010000_status_history_and_sla/migration.sql) | History written by triggers, so no write path can forget it — and rebuilt for existing tickets from the audit log. |
+| [`core/domain/cycles.ts`](src/core/domain/cycles.ts) | A burn-up that replays two trigger-kept histories day by day, and a fill-to-capacity that explains every ticket it skipped. |
 | [`core/domain/flow.ts`](src/core/domain/flow.ts) | SLA clocks that pause while blocked, time in status, stuck and WIP — pure, and pinned by the domain suite. |
 | [`core/domain/markdown.ts`](src/core/domain/markdown.ts) | A Markdown parser that produces data, not HTML — so no ticket, email or model output is ever injected as markup. |
 | [`e2e/helpers.ts`](e2e/helpers.ts) | The overflow detector that names the element responsible instead of just reporting a number. |

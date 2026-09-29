@@ -28,6 +28,7 @@ export function toCriteria(
   pushMany('PRIORITY', filters.priorityIds)
   pushMany('TYPE', filters.typeIds)
   pushMany('LABEL', filters.labelIds)
+  pushMany('CYCLE', filters.cycleIds)
 
   if (filters.parentId) rows.push({ field: 'PARENT', operator: 'EQUALS', value: filters.parentId })
   if (filters.search) rows.push({ field: 'SEARCH', operator: 'CONTAINS', value: filters.search })
@@ -77,6 +78,7 @@ export function fromCriteria(
     priorityIds: collect('PRIORITY'),
     typeIds: collect('TYPE'),
     labelIds: collect('LABEL'),
+    cycleIds: collect('CYCLE'),
     parentId: parent,
     search,
     dueFrom,

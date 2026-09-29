@@ -20,6 +20,8 @@ export const ticketFiltersSchema = z.object({
   priorityIds: z.array(z.string()).default([]),
   typeIds: z.array(z.string()).default([]),
   labelIds: z.array(z.string()).default([]),
+  /** Sprint or milestone ids; 'none' means the backlog (no cycle). */
+  cycleIds: z.array(z.string()).default([]),
   parentId: z.string().nullable().optional(),
   search: z.string().optional(),
   dueFrom: z.coerce.date().optional().nullable(),
@@ -71,6 +73,7 @@ export function parseFiltersFromParams(
     priorityIds: many('priority'),
     typeIds: many('type'),
     labelIds: many('label'),
+    cycleIds: many('cycle'),
     parentId: one('parent') ?? undefined,
     search: one('q') || undefined,
     dueFrom: one('dueFrom') || undefined,
@@ -101,6 +104,7 @@ export function filtersToSearchParams(filters: TicketFilters): URLSearchParams {
   setMany('priority', filters.priorityIds)
   setMany('type', filters.typeIds)
   setMany('label', filters.labelIds)
+  setMany('cycle', filters.cycleIds)
 
   if (filters.parentId) params.set('parent', filters.parentId)
   if (filters.search) params.set('q', filters.search)
@@ -126,6 +130,7 @@ export function countActiveFilters(filters: TicketFilters): number {
   count += filters.priorityIds.length
   count += filters.typeIds.length
   count += filters.labelIds.length
+  count += filters.cycleIds.length
   if (filters.parentId) count++
   if (filters.search) count++
   if (filters.dueFrom || filters.dueTo) count++

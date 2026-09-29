@@ -128,6 +128,19 @@ enum TicketLinkType {
   DUPLICATES
 }
 
+/// A sprint is timeboxed and one runs at a time; a milestone is a goal with a
+/// date, and several can be open at once — the shape client work often takes.
+enum CycleKind {
+  SPRINT
+  MILESTONE
+}
+
+enum CycleState {
+  PLANNED
+  ACTIVE
+  CLOSED
+}
+
 /// What a ticket type *means*, independent of what a project calls it.
 ///
 /// Type names are free text — one team says "Bug", another "Defect" — so
@@ -200,6 +213,7 @@ enum AiFeature {
   RELEASE_NOTES
   TRIAGE
   POSTMORTEM
+  PLANNING
 }
 
 /// What a budget caps: everything, one project, or one provider.
@@ -247,6 +261,7 @@ enum NotificationType {
 }
 
 enum FilterField {
+  CYCLE
   PROJECT
   ASSIGNEE
   REPORTER
@@ -481,6 +496,7 @@ model User {
   recurringTickets    RecurringTicket[]     @relation("RecurringCreatedBy")
   recurringAssignee   RecurringTicket[]     @relation("RecurringAssignee")
   checklistDone       TicketChecklistItem[] @relation("ChecklistDoneBy")
+  cyclesCreated       Cycle[]               @relation("CycleCreatedBy")
   checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
@@ -754,6 +770,7 @@ model Project {
   priorities       Priority[]
   ticketTypes      TicketType[]
   tickets          Ticket[]
+  cycles           Cycle[]
   activities       ActivityLog[]
   recurringTickets RecurringTicket[]
   savedFilters     SavedFilter[]
@@ -1109,6 +1126,12 @@ model Ticket {
 
   isArchived Boolean @default(false)
 
+  /// The sprint or milestone this ticket is planned into, if any.
+  cycleId     String?
+  cycle       Cycle?  @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  /// Order in the backlog, lowest first; null sorts after every ranked ticket.
+  backlogRank Float?
+
   /// Set when the ticket was materialized by a RecurringTicket schedule.
   recurringTicketId String?
   recurringTicket   RecurringTicket? @relation(fields: [recurringTicketId], references: [id], onDelete: SetNull)
@@ -1131,6 +1154,7 @@ model Ticket {
   aiFixRuns     AiFixRun[]
   checklist     TicketChecklistItem[]
   statusHistory TicketStatusChange[]
+  cycleHistory  TicketCycleChange[]
   slaAlerts     TicketSlaAlert[]
 
   createdAt DateTime @default(now())
@@ -1148,6 +1172,7 @@ model Ticket {
   @@index([createdAt])
   @@index([projectId, statusId, position])
   @@index([recurringTicketId])
+  @@index([cycleId])
   @@map("tickets")
 }
 
@@ -1199,6 +1224,57 @@ model TicketStatusChange {
   @@index([ticketId, changedAt])
   @@index([changedAt])
   @@map("ticket_status_changes")
+}
+
+/// A sprint or milestone: a set of tickets with a goal and, usually, dates.
+model Cycle {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name      String
+  kind      CycleKind  @default(SPRINT)
+  goal      String?
+  startDate DateTime?
+  endDate   DateTime?
+  state     CycleState @default(PLANNED)
+  /// Story points the team expects to finish — or tickets, where nothing in
+  /// the project is pointed. Used to fill a cycle, never to refuse a ticket.
+  capacity  Int?
+
+  startedAt DateTime?
+  closedAt  DateTime?
+  /// Written when it closes: what was finished and what carried over.
+  summary   Json?
+
+  createdById String?
+  createdBy   User?   @relation("CycleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  tickets Ticket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, state])
+  @@map("cycles")
+}
+
+/// A ticket moving into or out of a cycle. Written by a trigger, like status
+/// history, so a burn-up can show scope added mid-sprint rather than drawing
+/// today's scope as if it had always been there.
+model TicketCycleChange {
+  id       String @id @default(dbgenerated("gen_random_uuid()::text"))
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  fromCycleId String?
+  toCycleId   String?
+  changedAt   DateTime @default(now())
+
+  @@index([ticketId, changedAt])
+  @@index([toCycleId])
+  @@index([fromCycleId])
+  @@map("ticket_cycle_changes")
 }
 
 /// An SLA alert already sent, so each is sent once: "respond:warn",

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   Activity,
   CalendarDays,
+  CalendarRange,
   GanttChartSquare,
   LayoutGrid,
   ListTree,
@@ -21,6 +22,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 
 const TABS = [
   { segment: 'board', label: 'Board', icon: LayoutGrid },
+  { segment: 'plan', label: 'Plan', icon: CalendarRange },
   { segment: 'table', label: 'Table', icon: Table2 },
   { segment: 'tree', label: 'Tree', icon: ListTree },
   { segment: 'calendar', label: 'Calendar', icon: CalendarDays },

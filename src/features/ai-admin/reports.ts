@@ -37,6 +37,11 @@ const FEATURE_LABELS: Record<string, string> = {
   CAPTURE: 'Capture',
   FILTER: 'Describe a view',
   WEEKLY_UPDATE: 'Weekly update',
+  PR_REVIEW: 'AI review',
+  RELEASE_NOTES: 'Release notes',
+  TRIAGE: 'Triage',
+  POSTMORTEM: 'Post-mortem',
+  PLANNING: 'Cycle planning',
 }
 
 export async function usageReport(from: Date, to: Date): Promise<UsageReport> {

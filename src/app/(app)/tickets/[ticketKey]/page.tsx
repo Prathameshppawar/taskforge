@@ -294,6 +294,7 @@ export default async function TicketDetailPage({
             types={context.types}
             labels={context.labels}
             members={context.members}
+            cycles={context.cycles}
             current={{
               statusId: ticket.status.id,
               priorityId: ticket.priority.id,
@@ -302,6 +303,8 @@ export default async function TicketDetailPage({
               labelIds: ticket.labels.map((l) => l.label.id),
               dueDate: ticket.dueDate,
               startDate: ticket.startDate,
+              cycleId: ticket.cycleId,
+              storyPoints: ticket.storyPoints,
             }}
           />
 
@@ -324,13 +327,6 @@ export default async function TicketDetailPage({
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
-
-            {ticket.storyPoints != null && (
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Story points</span>
-                <span className="tabular-nums">{ticket.storyPoints}</span>
-              </div>
-            )}
 
             {ticket.estimateHours != null && (
               <div className="flex items-center justify-between gap-2">

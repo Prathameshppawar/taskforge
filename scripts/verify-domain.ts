@@ -62,6 +62,7 @@ import { KIND_TEMPLATES, applyDescriptionTemplate, normaliseCriterion } from '@/
 import { formatCriteriaReport } from '@/features/ai-review/service'
 import { criteriaLines } from '@/features/ai-fix/agent'
 import { averageTimeInStatus, dueAlerts, formatDuration, slaApplies, slaClocks, stuckDays, timeInStatus, wipState, type StatusChange } from '@/core/domain/flow'
+import { burnup, burnupUnit, fillToCapacity, nextCycleName } from '@/core/domain/cycles'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1116,6 +1117,51 @@ console.log('\n── Flow: history, service targets, stuck work ──')
     { changes: [change('TODO', 0), change('REVIEW', 4), change('DONE', 8)], completedAt: h(8) },
   ])
   check('where work waits averages each status and leaves Done out', waits[0].category === 'REVIEW' && waits[0].avgMs === 6 * 3_600_000 && !waits.some((w) => w.category === 'DONE'))
+}
+
+console.log('\n── Planning: burn-up and filling a cycle ──')
+{
+  const d = (day: number, hour = 12) => new Date(Date.UTC(2026, 9, day, hour))
+  const ticket = (id: string, points: number | null, cycle: Array<[string | null, number]>, status: Array<[StatusChange['toCategory'], number]>) => ({
+    id,
+    points,
+    cycleChanges: cycle.map(([toCycleId, day]) => ({ toCycleId, changedAt: d(day) })),
+    statusChanges: status.map(([toCategory, day]) => ({ toCategory, changedAt: d(day) })),
+  })
+  const tickets = [
+    ticket('a', 3, [['c', 1]], [['TODO', 1], ['DONE', 3]]),
+    ticket('b', 5, [['c', 1]], [['TODO', 1]]),
+    ticket('late', 2, [['c', 4]], [['TODO', 1]]),
+    ticket('removed', 8, [['c', 1], [null, 2]], [['TODO', 1]]),
+  ]
+  const series = burnup({ cycleId: 'c', start: d(1, 0), end: d(5, 0), now: d(10), tickets, unit: 'points' })
+  check('one point per day, start to end', series.length === 5 && series[0].day === '2026-10-01' && series[4].day === '2026-10-05')
+  check('scope removed on day 2 leaves the line', series[0].scope === 16 && series[1].scope === 8)
+  check('scope added on day 4 raises it', series[2].scope === 8 && series[3].scope === 10)
+  check('done counts on the day it happened', series[1].done === 0 && series[2].done === 3)
+  check('a running cycle stops at today', burnup({ cycleId: 'c', start: d(1, 0), end: d(30, 0), now: d(3), tickets, unit: 'points' }).length === 3)
+  check('the unit is points only where work is pointed', burnupUnit([{ points: null }, { points: 2 }]) === 'points' && burnupUnit([{ points: null }]) === 'tickets')
+  check('in tickets, each counts once', burnup({ cycleId: 'c', start: d(1, 0), end: d(1, 0), now: d(10), tickets, unit: 'tickets' })[0].scope === 3)
+
+  const fill = fillToCapacity({
+    candidates: [
+      { id: '1', key: 'A-1', points: 5, blockedBy: [] },
+      { id: '2', key: 'A-2', points: 3, blockedBy: ['A-9'] },
+      { id: '3', key: 'A-3', points: null, blockedBy: [] },
+      { id: '4', key: 'A-4', points: 8, blockedBy: [] },
+      { id: '5', key: 'A-5', points: 1, blockedBy: ['A-1'] },
+    ],
+    capacity: 10,
+    currentLoad: 0,
+    inCycle: [],
+    unit: 'points',
+  })
+  check('filling takes the backlog in rank order', fill.chosen.map((c) => c.key).join() === 'A-1,A-3,A-5')
+  check('a ticket blocked by work outside the cycle is skipped', fill.skipped.some((s) => s.key === 'A-2' && s.reason.includes('A-9')))
+  check('…but not one blocked by work planned alongside it', fill.chosen.some((c) => c.key === 'A-5'))
+  check('an unpointed ticket counts as the median, marked assumed', fill.chosen.find((c) => c.key === 'A-3')?.weight === 3 && fill.chosen.find((c) => c.key === 'A-3')?.assumed === true)
+  check('nothing that would exceed capacity is chosen', fill.load <= 10 && fill.skipped.some((s) => s.key === 'A-4'))
+  check('cycles are numbered on', nextCycleName(['Sprint 1', 'Sprint 3', 'Launch'], 'SPRINT') === 'Sprint 4' && nextCycleName([], 'MILESTONE') === 'Milestone 1')
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)

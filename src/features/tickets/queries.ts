@@ -61,6 +61,15 @@ export function buildTicketWhere(
     and.push({ labels: { some: { labelId } } })
   }
 
+  if (filters.cycleIds.length > 0) {
+    // 'none' is the backlog, so "this sprint + unplanned" can be one view.
+    const backlog = filters.cycleIds.includes('none')
+    const ids = filters.cycleIds.filter((id) => id !== 'none')
+    if (backlog && ids.length) and.push({ OR: [{ cycleId: null }, { cycleId: { in: ids } }] })
+    else if (backlog) and.push({ cycleId: null })
+    else and.push({ cycleId: { in: ids } })
+  }
+
   if (filters.parentId !== undefined && filters.parentId !== null) {
     and.push({ parentId: filters.parentId })
   }
@@ -323,6 +332,7 @@ export const getTicketByKey = cache(async (actor: Actor, key: string) => {
       ...TICKET_LIST_SELECT,
       description: true,
       remarks: true,
+      cycleId: true,
       checklist: {
         select: {
           id: true,
