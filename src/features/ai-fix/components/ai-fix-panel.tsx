@@ -157,6 +157,11 @@ export function AiFixPanel({ ticketId, data }: { ticketId: string; data: AiFixPa
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {data.repos.length > 1 && mode === 'FIX' && (
+                    <SelectItem value="ALL" className="text-xs">
+                      All {data.repos.length} linked repositories
+                    </SelectItem>
+                  )}
                   {data.repos.map((repo) => (
                     <SelectItem key={repo.id} value={repo.id} className="font-mono text-xs">
                       {repo.fullName}

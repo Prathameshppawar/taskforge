@@ -59,6 +59,11 @@ export default async function InsightsPage({
         {aiEnabled && <StatusReportCard projectId={projectId} />}
 
         <DeliveryMetrics metrics={delivery} />
+        <p className="text-right text-xs">
+          <a href={`/portal/report?project=${projectId}`} className="text-primary hover:underline">
+            Monthly client report →
+          </a>
+        </p>
 
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <CompletionCard

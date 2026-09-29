@@ -62,9 +62,11 @@ export default auth((request) => {
     return NextResponse.redirect(loginUrl)
   }
 
+  const isClient = session.user.role === 'CLIENT'
+
   // Signed in — keep them out of the login screen.
   if (isPublic) {
-    return NextResponse.redirect(new URL('/dashboard', nextUrl.origin))
+    return NextResponse.redirect(new URL(isClient ? '/portal' : '/dashboard', nextUrl.origin))
   }
 
   /*
@@ -79,8 +81,21 @@ export default auth((request) => {
     return NextResponse.redirect(url)
   }
 
+  /*
+   * Clients live in the portal. Permissions are what actually limit them — the
+   * Client role can view, request, comment and approve, nothing more — so this
+   * is navigation, not security: it keeps them off staff screens that would
+   * only show them empty boards and forbidden pages.
+   */
+  if (isClient && !CLIENT_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    return NextResponse.redirect(new URL('/portal', nextUrl.origin))
+  }
+
   return NextResponse.next()
 })
+
+/** Where a client may go: the portal, their own account, and the API it calls. */
+const CLIENT_PATHS = ['/portal', '/settings', '/api', '/forbidden']
 
 export const config = {
   matcher: [

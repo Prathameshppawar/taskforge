@@ -31,6 +31,7 @@ export async function executeFixRun(runId: string): Promise<void> {
       instructions: true,
       targetPrNumber: true,
       planRunId: true,
+      batchId: true,
       requestedById: true,
       requestedBy: { select: { name: true } },
       ticket: {
@@ -269,6 +270,8 @@ export async function executeFixRun(runId: string): Promise<void> {
       }${run.requestedBy ? `, for ${run.requestedBy.name}` : ''})`,
     })
 
+    if (run.batchId) await crossLinkBatch(run.batchId, runId).catch((error) => console.error('[ai-fix] cross-linking failed:', error))
+
     // A second pair of eyes before any person looks: the Reviewer reads the
     // Coder's pull request against the ticket. Best effort — a failed review
     // must not turn a successful fix into a failed run.
@@ -276,6 +279,45 @@ export async function executeFixRun(runId: string): Promise<void> {
   } catch (error) {
     console.error(`[ai-fix] run ${runId} failed:`, error)
     await finish(runId, { status: 'FAILED', error: explain(error) })
+  }
+}
+
+/**
+ * A ticket fixed across several repositories: each pull request names the
+ * others, so whoever reviews one knows the rest exist and in what order to
+ * merge them. Posted by each run as it finishes, onto its own pull request and
+ * the ones already open, so the links are complete once the last run is done.
+ */
+async function crossLinkBatch(batchId: string, runId: string) {
+  const siblings = await prisma.aiFixRun.findMany({
+    where: { batchId, status: 'SUCCEEDED', prNumber: { not: null } },
+    select: {
+      id: true,
+      prNumber: true,
+      prUrl: true,
+      repo: { select: { fullName: true, installation: { select: { installationId: true } } } },
+    },
+  })
+  const self = siblings.find((entry) => entry.id === runId)
+  const others = siblings.filter((entry) => entry.id !== runId)
+  if (!self || others.length === 0) return
+
+  const comment = (installationId: bigint, fullName: string, prNumber: number, body: string) =>
+    asInstallation(installationId, `/repos/${fullName}/issues/${prNumber}/comments`, { method: 'POST', body: { body } })
+
+  await comment(
+    self.repo.installation.installationId,
+    self.repo.fullName,
+    self.prNumber!,
+    `🔗 Part of a change across repositories. Related pull requests:\n${others.map((entry) => `- ${entry.repo.fullName}#${entry.prNumber} ${entry.prUrl}`).join('\n')}`,
+  )
+  for (const other of others) {
+    await comment(
+      other.repo.installation.installationId,
+      other.repo.fullName,
+      other.prNumber!,
+      `🔗 Related pull request for the same ticket: ${self.repo.fullName}#${self.prNumber} ${self.prUrl}`,
+    )
   }
 }
 

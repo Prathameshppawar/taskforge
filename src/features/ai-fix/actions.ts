@@ -1,5 +1,6 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
@@ -53,12 +54,19 @@ export async function startAiFixAction(
     const { actor } = await requireProjectPermission(ticket.projectId, 'ticket:update')
     if (!can(actor, 'ai:code')) throw new ForbiddenError('Your role cannot start AI fixes (ai:code).')
 
-    const link = await prisma.projectRepo.findUnique({
-      where: { projectId_repoId: { projectId: ticket.projectId, repoId: data.repoId } },
-      select: { repo: { select: { isAccessible: true } } },
+    // "ALL": one run per linked repository, in a batch, for a ticket that spans
+    // an app, its API and its CMS. Otherwise the one repository chosen.
+    const links = await prisma.projectRepo.findMany({
+      where: { projectId: ticket.projectId, ...(data.repoId === 'ALL' ? {} : { repoId: data.repoId }), repo: { isAccessible: true } },
+      orderBy: { createdAt: 'asc' },
+      select: { repoId: true, role: true, repo: { select: { fullName: true } } },
     })
-    if (!link) throw new BusinessRuleError('That repository is not linked to this project.')
-    if (!link.repo.isAccessible) throw new BusinessRuleError('The GitHub App no longer has access to that repository.')
+    if (links.length === 0) {
+      throw new BusinessRuleError(data.repoId === 'ALL' ? 'No accessible repository is linked to this project.' : 'That repository is not linked to this project, or the app lost access to it.')
+    }
+    if (data.repoId === 'ALL' && (data.mode === 'PLAN' || data.targetPrNumber)) {
+      throw new BusinessRuleError('Planning and healing work on one repository at a time.')
+    }
 
     const engine = (await listCodingEngines()).find((candidate) => candidate.id === data.engine)
     if (!engine) throw new BusinessRuleError(`The ${data.engine} engine is not configured on this server.`)
@@ -78,22 +86,40 @@ export async function startAiFixAction(
       if (!plan) throw new BusinessRuleError('That plan is not available to build.')
     }
 
-    const run = await prisma.aiFixRun.create({
-      data: {
-        ticketId: ticket.id,
-        repoId: data.repoId,
-        requestedById: actor.id,
-        provider: engine.id,
-        model: engine.model,
-        instructions: data.instructions || null,
-        mode: data.targetPrNumber ? 'HEAL_CI' : data.mode,
-        planRunId: data.planRunId ?? null,
-        targetPrNumber: data.targetPrNumber ?? null,
-      },
-      select: { id: true },
-    })
+    const batchId = links.length > 1 ? randomUUID() : null
+    const scope = (current: (typeof links)[number]) =>
+      links.length > 1
+        ? `This ticket spans ${links.length} repositories: ${links
+            .map((entry) => `${entry.repo.fullName}${entry.role ? ` (${entry.role})` : ''}`)
+            .join(', ')}. You are working in ${current.repo.fullName}${current.role ? `, the ${current.role}` : ''}. Change only what belongs in this repository; if nothing does, change nothing and say so. The others are being changed separately.`
+        : null
+    const runs: Array<{ id: string }> = []
+    for (const link of links) {
+      runs.push(
+        await prisma.aiFixRun.create({
+          data: {
+            ticketId: ticket.id,
+            repoId: link.repoId,
+            requestedById: actor.id,
+            provider: engine.id,
+            model: engine.model,
+            instructions: [scope(link), data.instructions].filter(Boolean).join('\n\n') || null,
+            mode: data.targetPrNumber ? 'HEAL_CI' : data.mode,
+            planRunId: data.planRunId ?? null,
+            targetPrNumber: data.targetPrNumber ?? null,
+            batchId,
+          },
+          select: { id: true },
+        }),
+      )
+    }
+    const run = runs[0]
 
-    after(() => executeFixRun(run.id))
+    // One after another, not in parallel: a rate-limited engine is kinder to a
+    // queue than to a burst, and each run's links can include the ones before.
+    after(async () => {
+      for (const entry of runs) await executeFixRun(entry.id)
+    })
 
     revalidatePath(`/tickets/${ticket.key}`)
     return ok({ runId: run.id })
