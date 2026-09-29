@@ -29,6 +29,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { PERMISSION_GROUPS, type Permission } from '@/core/domain/rbac'
+import type { ColorToken } from '@/core/domain/defaults'
+import { ColorPicker } from '@/components/shared/color-picker'
+import { RING_CLASSES } from '@/features/profile/role-colors'
 import { createRoleAction, updateRoleAction, deleteRoleAction } from '../actions'
 
 export interface ManagedRole {
@@ -38,6 +41,8 @@ export interface ManagedRole {
   description: string | null
   level: number
   isSystem: boolean
+  /** The avatar rim for people holding this role; null draws none. */
+  color: string | null
   /** Admin only: the recovery role, viewable but never editable. */
   isLocked: boolean
   permissions: string[]
@@ -89,6 +94,13 @@ export function RoleManager({
                   {role.level === 0 ? (
                     <ShieldCheck className="size-4 shrink-0 text-primary" />
                   ) : null}
+                  <span
+                    title={role.color ? `Avatar rim: ${role.color}` : 'No avatar rim'}
+                    className={cn(
+                      'size-3 shrink-0 rounded-full ring-2 ring-offset-1 ring-offset-card',
+                      role.color ? RING_CLASSES[role.color] : 'ring-border',
+                    )}
+                  />
                   <span className="truncate text-sm font-medium">{role.name}</span>
                   <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
                     {role.key}
@@ -213,6 +225,7 @@ function RoleDialog({
     description: '',
     level: String(actorLevel + 10),
     permissions: [] as string[],
+    color: '',
   })
 
   React.useEffect(() => {
@@ -224,6 +237,7 @@ function RoleDialog({
       description: role?.description ?? '',
       level: String(role?.level ?? actorLevel + 10),
       permissions: role?.permissions ?? [],
+      color: role?.color ?? '',
     })
   }, [open, role, actorLevel])
 
@@ -246,6 +260,7 @@ function RoleDialog({
         description: form.description.trim() === '' ? null : form.description,
         level: Number(form.level),
         permissions: form.permissions,
+        color: form.color as ColorToken | '',
       }
 
       const result = role
@@ -337,6 +352,24 @@ function RoleDialog({
                 onChange={(event) => setForm({ ...form, level: event.target.value })}
                 className="w-32"
               />
+            </Labelled>
+
+            <Labelled
+              label="Avatar rim"
+              hint="Circles the avatar of everyone with this role."
+            >
+              <div className={cn('flex flex-wrap items-center gap-2', readOnly && 'pointer-events-none opacity-60')}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={form.color === '' ? 'secondary' : 'ghost'}
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setForm({ ...form, color: '' })}
+                >
+                  None
+                </Button>
+                <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} />
+              </div>
             </Labelled>
 
             <div className="space-y-3 pt-1">

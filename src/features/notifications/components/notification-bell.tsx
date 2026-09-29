@@ -221,6 +221,7 @@ export function NotificationBell({
                     >
                       {item.actor ? (
                         <UserAvatar
+                          userId={item.actor.id}
                           name={item.actor.name}
                           color={item.actor.avatarColor}
                           size="sm"

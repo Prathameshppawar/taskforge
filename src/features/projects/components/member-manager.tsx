@@ -128,7 +128,7 @@ function MemberRow({
 
   return (
     <li className="flex flex-wrap items-center gap-3 p-3">
-      <UserAvatar name={member.name} color={member.avatarColor} size="md" />
+      <UserAvatar userId={member.userId} name={member.name} color={member.avatarColor} size="md" />
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">

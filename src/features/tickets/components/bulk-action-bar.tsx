@@ -121,7 +121,7 @@ export function BulkActionBar({
                 apply({ ticketIds, assigneeId: member.id, addLabelIds: [], removeLabelIds: [] })
               }
             >
-              <UserAvatar name={member.name} color={member.avatarColor} size="xs" />
+              <UserAvatar userId={member.id} name={member.name} color={member.avatarColor} size="xs" />
               {member.name}
             </DropdownMenuItem>
           ))}

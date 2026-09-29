@@ -5,7 +5,7 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { requireUser } from '@/features/auth/guards'
 import { ProfileForm } from '@/features/auth/components/profile-form'
 import { PageHeader } from '@/components/shared/page-header'
-import { UserAvatar } from '@/components/shared/user-avatar'
+import { AvatarEditor } from '@/features/profile/components/avatar-editor'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export const metadata: Metadata = { title: 'Settings' }
@@ -38,21 +38,26 @@ export default async function SettingsPage() {
           <CardHeader>
             <CardTitle>Profile</CardTitle>
             <CardDescription>
-              Your username and role are managed by an administrator.
+              Your photo and name are yours to change. Your username and role are
+              managed by an administrator.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center gap-4">
-              <UserAvatar name={user.name} color={user.avatarColor} size="lg" />
-              <div className="min-w-0 space-y-0.5 text-sm">
-                <p className="font-medium">@{user.username}</p>
-                <p className="truncate text-muted-foreground">{user.email}</p>
-                <p className="text-xs text-muted-foreground">
-                  {user.role.name}
-                  {user.lastLoginAt &&
-                    ` · Last signed in ${user.lastLoginAt.toLocaleDateString()}`}
-                </p>
-              </div>
+            <AvatarEditor
+              userId={actor.id}
+              name={user.name}
+              avatarColor={user.avatarColor}
+              roleName={user.role.name}
+            />
+
+            <div className="min-w-0 space-y-0.5 text-sm">
+              <p className="font-medium">@{user.username}</p>
+              <p className="truncate text-muted-foreground">{user.email}</p>
+              <p className="text-xs text-muted-foreground">
+                {user.role.name}
+                {user.lastLoginAt &&
+                  ` · Last signed in ${user.lastLoginAt.toLocaleDateString()}`}
+              </p>
             </div>
 
             <ProfileForm

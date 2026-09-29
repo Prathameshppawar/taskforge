@@ -46,7 +46,7 @@ export function WorkloadTable({ rows }: { rows: WorkloadRow[] }) {
             <TableRow key={row.userId}>
               <TableCell className="py-2">
                 <span className="flex items-center gap-2">
-                  <UserAvatar name={row.name} color={row.avatarColor} size="xs" />
+                  <UserAvatar userId={row.userId} name={row.name} color={row.avatarColor} size="xs" />
                   <span className="truncate text-sm">{row.name}</span>
                 </span>
               </TableCell>

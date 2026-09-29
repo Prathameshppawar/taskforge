@@ -91,7 +91,7 @@ export function ProjectCard({ project }: { project: ProjectListItem }) {
           </span>
         )}
         <span className="ml-auto inline-flex items-center gap-1.5">
-          <UserAvatar name={project.owner.name} color={project.owner.avatarColor} size="xs" />
+          <UserAvatar userId={project.owner.id} name={project.owner.name} color={project.owner.avatarColor} size="xs" />
         </span>
       </div>
     </Link>

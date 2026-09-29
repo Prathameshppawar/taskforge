@@ -134,7 +134,7 @@ export async function listAttachments(ticketId: string) {
       contentType: true,
       size: true,
       createdAt: true,
-      uploadedBy: { select: { name: true, avatarColor: true } },
+      uploadedBy: { select: { id: true, name: true, avatarColor: true } },
     },
     orderBy: { createdAt: 'asc' },
   })

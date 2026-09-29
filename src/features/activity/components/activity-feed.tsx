@@ -88,6 +88,7 @@ export function ActivityFeed({
             <span className="relative flex shrink-0 flex-col items-center">
               {item.actor ? (
                 <UserAvatar
+                  userId={item.actor.id}
                   name={item.actor.name}
                   color={item.actor.avatarColor}
                   size="sm"

@@ -171,7 +171,7 @@ function TeamMembers({
         <ul className="divide-y">
           {team.members.map((member) => (
             <li key={member.id} className="flex items-center gap-2.5 px-3 py-2">
-              <UserAvatar name={member.name} color={member.avatarColor} size="sm" />
+              <UserAvatar userId={member.id} name={member.name} color={member.avatarColor} size="sm" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium">{member.name}</p>
                 <p className="truncate text-[11px] text-muted-foreground">

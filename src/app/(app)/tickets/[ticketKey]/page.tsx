@@ -307,6 +307,7 @@ export default async function TicketDetailPage({
               {ticket.reporter ? (
                 <span className="flex items-center gap-1.5">
                   <UserAvatar
+                    userId={ticket.reporter.id}
                     name={ticket.reporter.name}
                     color={ticket.reporter.avatarColor}
                     size="xs"

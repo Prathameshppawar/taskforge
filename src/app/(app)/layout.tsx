@@ -10,6 +10,8 @@ import {
   ShellActions,
 } from "@/components/shared/app-shell-client";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
+import { PeopleDirectoryProvider } from "@/components/shared/people-directory";
+import { getPeopleDirectory } from "@/features/profile/queries";
 import {
   getNotificationPreferences,
   getUnreadCount,
@@ -19,14 +21,16 @@ export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const actor = await requireUser();
-  const [projects, unread, preferences] = await Promise.all([
+  const [projects, unread, preferences, directory] = await Promise.all([
     getSidebarProjects(actor),
     getUnreadCount(actor),
     getNotificationPreferences(actor),
+    getPeopleDirectory(),
   ]);
   const aiEnabled = (await isCopilotAvailable());
 
   return (
+    <PeopleDirectoryProvider entries={directory}>
     <AppShellClient permissions={actor.permissions} aiEnabled={aiEnabled}>
       <div className="flex h-dvh overflow-hidden">
         {/* Desktop sidebar */}
@@ -47,6 +51,7 @@ export default async function AppLayout({
             />
             <ThemeToggle />
             <UserMenu
+              userId={actor.id}
               name={actor.name}
               username={actor.username}
               roleName={actor.roleName}
@@ -68,5 +73,6 @@ export default async function AppLayout({
         </div>
       </div>
     </AppShellClient>
+    </PeopleDirectoryProvider>
   );
 }

@@ -16,11 +16,14 @@ import { UserAvatar } from '@/components/shared/user-avatar'
 import { logoutAction } from '@/features/auth/actions'
 
 export function UserMenu({
+  userId,
   name,
   username,
   roleName,
   avatarColor,
 }: {
+  /** Absent outside the app shell (the client portal), where there is no directory. */
+  userId?: string
   name: string
   username: string
   roleName: string
@@ -31,7 +34,7 @@ export function UserMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <UserAvatar name={name} color={avatarColor} size="md" />
+        <UserAvatar userId={userId} name={name} color={avatarColor} size="md" />
         <span className="sr-only">Open account menu</span>
       </DropdownMenuTrigger>
 

@@ -104,7 +104,7 @@ function TreeRow({ node }: { node: TreeNode }) {
           showLabel={false}
         />
         {node.assignee ? (
-          <UserAvatar name={node.assignee.name} color={node.assignee.avatarColor} size="sm" />
+          <UserAvatar userId={node.assignee.id} name={node.assignee.name} color={node.assignee.avatarColor} size="sm" />
         ) : (
           <span className="size-6 rounded-full border border-dashed" title="Unassigned" />
         )}
@@ -161,6 +161,7 @@ function TreeRow({ node }: { node: TreeNode }) {
                 />
                 {child.assignee ? (
                   <UserAvatar
+                    userId={child.assignee.id}
                     name={child.assignee.name}
                     color={child.assignee.avatarColor}
                     size="xs"

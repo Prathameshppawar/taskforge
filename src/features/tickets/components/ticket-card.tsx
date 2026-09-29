@@ -109,6 +109,7 @@ export function TicketCard({
         <span className="ml-auto">
           {ticket.assignee ? (
             <UserAvatar
+              userId={ticket.assignee.id}
               name={ticket.assignee.name}
               color={ticket.assignee.avatarColor}
               size="xs"

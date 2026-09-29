@@ -58,7 +58,7 @@ export function UserPicker({
         >
           {selected ? (
             <span className="flex min-w-0 items-center gap-2">
-              <UserAvatar name={selected.name} color={selected.avatarColor} size="xs" />
+              <UserAvatar userId={selected.id} name={selected.name} color={selected.avatarColor} size="xs" />
               <span className="truncate">{selected.name}</span>
             </span>
           ) : (
@@ -99,7 +99,7 @@ export function UserPicker({
                     setOpen(false)
                   }}
                 >
-                  <UserAvatar name={user.name} color={user.avatarColor} size="xs" />
+                  <UserAvatar userId={user.id} name={user.name} color={user.avatarColor} size="xs" />
                   <span className="min-w-0 flex-1 truncate">
                     {user.name}
                     <span className="ml-1.5 text-xs text-muted-foreground">@{user.username}</span>
@@ -175,7 +175,7 @@ export function MultiUserPicker({
                   value={`${user.name} ${user.username}`}
                   onSelect={() => toggle(user.id)}
                 >
-                  <UserAvatar name={user.name} color={user.avatarColor} size="xs" />
+                  <UserAvatar userId={user.id} name={user.name} color={user.avatarColor} size="xs" />
                   <span className="min-w-0 flex-1 truncate">
                     {user.name}
                     <span className="ml-1.5 text-xs text-muted-foreground">@{user.username}</span>

@@ -300,6 +300,10 @@ model Role {
   /// roles can be slotted between the built-in ones without renumbering.
   level Int @default(100)
 
+  /// Colour token for the rim drawn around the avatar of everyone holding this
+  /// role, so a project manager reads as one at a glance. Null draws no rim.
+  color String?
+
   permissions RolePermission[]
   users       User[]
 
@@ -387,15 +391,19 @@ model TeamMember {
 }
 
 model User {
-  id           String  @id @default(cuid())
-  username     String  @unique
-  email        String  @unique
-  name         String
-  passwordHash String
+  id              String           @id @default(cuid())
+  username        String           @unique
+  email           String           @unique
+  name            String
+  passwordHash    String
   /// Short colour token used for the generated avatar. Keeps the UI stable
   /// without storing uploads.
-  avatarColor  String  @default("slate")
-  jobTitle     String?
+  avatarColor     String           @default("slate")
+  /// When the profile photo last changed; null means none. Part of the image
+  /// URL, so a new photo is a new URL and the old one can be cached for ever.
+  avatarUpdatedAt DateTime?
+  avatarImage     UserAvatarImage?
+  jobTitle        String?
 
   /// Whether the notification chime plays for this person.
   ///
@@ -544,6 +552,18 @@ model Notification {
 /// Login audit trail. Sessions themselves are stateless JWTs (required by the
 /// Credentials provider); these rows give the admin visibility and an explicit
 /// revoke action, enforced through User.sessionVersion.
+/// A profile photo. Kept apart from User so that loading a user never loads
+/// the bytes; resized in the browser to a small square before upload.
+model UserAvatarImage {
+  userId      String   @id
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentType String
+  content     Bytes
+  updatedAt   DateTime @updatedAt
+
+  @@map("user_avatar_images")
+}
+
 model UserSession {
   id         String    @id @default(cuid())
   userId     String

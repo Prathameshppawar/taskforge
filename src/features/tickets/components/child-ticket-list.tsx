@@ -121,6 +121,7 @@ export function ChildTicketList({
               />
               {child.assignee ? (
                 <UserAvatar
+                  userId={child.assignee.id}
                   name={child.assignee.name}
                   color={child.assignee.avatarColor}
                   size="xs"

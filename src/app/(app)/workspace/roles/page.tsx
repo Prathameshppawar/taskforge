@@ -4,6 +4,7 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { requirePermissionPage } from '@/features/auth/guards'
 import { RoleManager } from '@/features/roles/components/role-manager'
 import { PageHeader } from '@/components/shared/page-header'
+import { roleRimColor } from '@/features/profile/role-colors'
 
 export const metadata: Metadata = { title: 'Roles' }
 
@@ -18,6 +19,7 @@ export default async function AdminRolesPage() {
       description: true,
       level: true,
       isSystem: true,
+      color: true,
       permissions: { select: { permission: true } },
       _count: { select: { users: true } },
     },
@@ -42,6 +44,7 @@ export default async function AdminRolesPage() {
             description: role.description,
             level: role.level,
             isSystem: role.isSystem,
+            color: roleRimColor(role),
             // Admin alone is the recovery role.
             isLocked: role.key === 'ADMIN',
             permissions: role.permissions.map((row) => row.permission),

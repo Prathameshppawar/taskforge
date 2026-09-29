@@ -23,7 +23,7 @@ export interface TicketAttachment {
   contentType: string
   size: number
   createdAt: Date
-  uploadedBy: { name: string; avatarColor: string } | null
+  uploadedBy: { id: string; name: string; avatarColor: string } | null
 }
 
 /**
@@ -157,6 +157,7 @@ export function TicketAttachments({
                       <>
                         ·
                         <UserAvatar
+                          userId={attachment.uploadedBy.id}
                           name={attachment.uploadedBy.name}
                           color={attachment.uploadedBy.avatarColor}
                           size="sm"

@@ -171,6 +171,7 @@ export function TimelineView({ tickets }: { tickets: TicketListItem[] }) {
                     {ticket.assignee && (
                       <span className="ml-auto shrink-0">
                         <UserAvatar
+                          userId={ticket.assignee.id}
                           name={ticket.assignee.name}
                           color={ticket.assignee.avatarColor}
                           size="xs"

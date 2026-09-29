@@ -264,7 +264,7 @@ export function TicketToolbar({
                       value={member.name}
                       onSelect={() => toggleParam('assignee', member.id)}
                     >
-                      <UserAvatar name={member.name} color={member.avatarColor} size="xs" />
+                      <UserAvatar userId={member.id} name={member.name} color={member.avatarColor} size="xs" />
                       <span className="flex-1 truncate">{member.name}</span>
                       <Check
                         className={cn(

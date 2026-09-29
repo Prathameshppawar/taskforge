@@ -206,7 +206,7 @@ export function InlineAssigneeCell({
         >
           {value ? (
             <>
-              <UserAvatar name={value.name} color={value.avatarColor} size="xs" />
+              <UserAvatar userId={value.id} name={value.name} color={value.avatarColor} size="xs" />
               <span className="truncate text-xs">{value.name}</span>
             </>
           ) : (
@@ -249,7 +249,7 @@ export function InlineAssigneeCell({
                     )
                   }}
                 >
-                  <UserAvatar name={option.name} color={option.avatarColor} size="xs" />
+                  <UserAvatar userId={option.id} name={option.name} color={option.avatarColor} size="xs" />
                   <span className="flex-1 truncate">{option.name}</span>
                   <Check
                     className={cn(

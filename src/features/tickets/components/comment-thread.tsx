@@ -183,6 +183,7 @@ function CommentItem({
   return (
     <div className="flex gap-2.5">
       <UserAvatar
+        userId={comment.author.id}
         name={comment.author.name}
         color={comment.author.avatarColor}
         size={isReply ? 'sm' : 'md'}

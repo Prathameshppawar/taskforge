@@ -133,7 +133,7 @@ export function UserManager({
               <TableRow key={user.id} className={cn(!user.isActive && 'opacity-55')}>
                 <TableCell className="py-2">
                   <div className="flex items-center gap-2.5">
-                    <UserAvatar name={user.name} color={user.avatarColor} size="md" />
+                    <UserAvatar userId={user.id} name={user.name} color={user.avatarColor} size="md" />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate text-sm font-medium">{user.name}</span>

@@ -89,7 +89,7 @@ export function SessionTable({ sessions }: { sessions: SessionRow[] }) {
             <TableRow key={row.id} className={cn(row.revokedAt && 'opacity-50')}>
               <TableCell className="py-2">
                 <span className="flex items-center gap-2">
-                  <UserAvatar name={row.name} color={row.avatarColor} size="xs" />
+                  <UserAvatar userId={row.id} name={row.name} color={row.avatarColor} size="xs" />
                   <span className="truncate text-sm">{row.name}</span>
                   {row.revokedAt && <Badge variant="outline">Revoked</Badge>}
                   {!row.isActive && <Badge variant="outline">Deactivated</Badge>}

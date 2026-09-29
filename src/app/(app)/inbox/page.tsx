@@ -54,6 +54,7 @@ export default async function InboxPage() {
                   >
                     {item.actor ? (
                       <UserAvatar
+                        userId={item.actor.id}
                         name={item.actor.name}
                         color={item.actor.avatarColor}
                         size="md"

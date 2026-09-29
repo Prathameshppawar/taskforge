@@ -269,7 +269,7 @@ export function CommandPalette({
                       )
                     }}
                   >
-                    <UserAvatar name={member.name} color={member.avatarColor} size="xs" />
+                    <UserAvatar userId={member.id} name={member.name} color={member.avatarColor} size="xs" />
                     <span className="flex-1 truncate">
                       {member.name}
                       <span className="ml-1.5 text-xs text-muted-foreground">

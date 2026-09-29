@@ -9,6 +9,7 @@ import {
 } from '../src/core/domain/defaults'
 import { TEMPLATE_SEEDS, type TemplateTicketSeed } from './seed-templates'
 import { SYSTEM_ROLES } from '../src/core/domain/rbac'
+import { DEFAULT_ROLE_COLORS } from '../src/features/profile/role-colors'
 
 const prisma = new PrismaClient()
 
@@ -36,6 +37,7 @@ async function seedRoles() {
         name: role.name,
         description: role.description,
         level: role.level,
+        color: DEFAULT_ROLE_COLORS[role.key] ?? null,
         isSystem: true,
       },
     })

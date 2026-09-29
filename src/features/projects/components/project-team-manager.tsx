@@ -205,7 +205,7 @@ export function ProjectTeamManager({
                 <ul className="flex flex-wrap gap-x-4 gap-y-1.5 px-3 py-2">
                   {team.members.map((member) => (
                     <li key={member.id} className="flex items-center gap-1.5">
-                      <UserAvatar name={member.name} color={member.avatarColor} size="sm" />
+                      <UserAvatar userId={member.id} name={member.name} color={member.avatarColor} size="sm" />
                       <span className="text-xs">{member.name}</span>
                       {member.isManager && (
                         <ShieldCheck className="size-3 text-primary" aria-label="Team manager" />

@@ -64,9 +64,13 @@ export default async function ProjectLayout({
               {project.members.slice(0, 5).map((member) => (
                 <UserAvatar
                   key={member.user.id}
+                  userId={member.user.id}
                   name={member.user.name}
                   color={member.user.avatarColor}
                   size="sm"
+                  // Overlapping faces are separated by a background ring, which
+                  // would paint over the role rim.
+                  ring={false}
                   className="ring-2 ring-background"
                 />
               ))}

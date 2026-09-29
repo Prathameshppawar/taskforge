@@ -10,6 +10,7 @@ import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
 import { isPermission, ADMIN_LEVEL } from '@/core/domain/rbac'
+import { COLOR_TOKENS } from '@/core/domain/defaults'
 import {
   assertCanDeleteRole,
   assertCanEditRole,
@@ -26,6 +27,8 @@ const roleSchema = z.object({
    */
   level: z.coerce.number().int().min(ADMIN_LEVEL + 1).max(1000),
   permissions: z.array(z.string()).max(100),
+  /** The avatar rim for everyone holding the role. '' is "no rim". */
+  color: z.enum(COLOR_TOKENS).or(z.literal('')).optional(),
 })
 
 const createRoleSchema = roleSchema.extend({
@@ -82,6 +85,7 @@ export async function createRoleAction(
           name: data.name,
           description: data.description ?? null,
           level: data.level,
+          color: data.color ?? null,
           isSystem: false,
           permissions: { create: permissions.map((permission) => ({ permission })) },
         },
@@ -127,6 +131,8 @@ export async function updateRoleAction(input: UpdateRoleInput): Promise<ActionRe
           name: data.name,
           description: data.description ?? null,
           level: data.level,
+          // Absent leaves the rim as it was.
+          ...(data.color !== undefined ? { color: data.color } : {}),
         },
       })
 
@@ -152,6 +158,8 @@ export async function updateRoleAction(input: UpdateRoleInput): Promise<ActionRe
 
     revalidatePath('/workspace/roles')
     revalidatePath('/workspace/people')
+    // The rim is drawn from the app layout's directory, on every page.
+    revalidatePath('/', 'layout')
     return ok(undefined)
   })
 }

@@ -241,6 +241,7 @@ export function TicketTable({
           ) : row.original.assignee ? (
             <span className="flex items-center gap-1.5">
               <UserAvatar
+                userId={row.original.assignee.id}
                 name={row.original.assignee.name}
                 color={row.original.assignee.avatarColor}
                 size="xs"

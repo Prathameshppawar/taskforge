@@ -131,6 +131,7 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **MCP** | Ships an MCP server — Claude reads, creates, updates and **comments on** your tickets with *your* permissions, audited under your name |
 | **Roles & teams** | Administrator-defined roles over a fixed permission catalogue, ranked so nobody can grant authority they do not hold. Teams scope delegated people-management **and staff projects** — attach a team and everyone in it gains access, permanently in step |
 | **Auth** | bcrypt, admin-provisioned accounts with a welcome email (username, temporary password, sign-in link), RBAC, server-side session revocation |
+| **Faces** | Profile photos, and a rim around every avatar coloured by role: project managers blue, developers green, clients amber, AI agents fuchsia. Admins pick each role's colour |
 | **Audit** | Append-only timeline across every entity |
 | **UI** | Dark/light, responsive, keyboard-driven |
 
@@ -367,6 +368,37 @@ So [it is hand-written](prisma/migrations/20260919080811_configurable_roles_and_
 converts the column in place, and reproduces the previous matrix exactly as
 data. Verified after the fact: 56 users, all role assignments intact, both search
 indexes still present.
+
+### Faces, and a rim that says who someone is
+
+Anyone can upload a profile photo in **Settings → Profile**. The browser
+centre-crops it to a square and scales it to 256px before sending, so a phone
+photo arrives as a few tens of kilobytes. The server
+[reads the type from the bytes](src/features/profile/avatar.ts), never from the
+upload's claim, and accepts only PNG, JPEG and WebP. An SVG "photo" would be a
+script served from our own origin. Photos are served to signed-in people only,
+at a URL that carries the photo's version, so they cache for a year and a new
+photo is a new URL.
+
+Every avatar also wears a rim in its owner's **role** colour:
+
+| Role | Rim |
+|---|---|
+| Admin | violet |
+| Project Manager | blue |
+| User (developers) | green |
+| Client | amber |
+| AI agent | fuchsia |
+
+Colours are set per role on **Workspace → Roles**, including for custom roles
+(which start with none). Hovering an avatar shows the person's role.
+
+Thirty-odd places render an avatar, and none of their queries had to learn
+about photos or roles. The app layout loads one
+[directory](src/components/shared/people-directory.tsx) of *id → photo
+version, rim colour*, holding no names or addresses. `UserAvatar` looks each
+person up by `userId`. A new photo or a recoloured role therefore shows up
+everywhere on the next render.
 
 ### New accounts arrive by email
 
