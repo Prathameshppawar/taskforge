@@ -1,9 +1,10 @@
 import { prisma } from '@/infrastructure/db/prisma'
 import { isEmailConfigured } from '@/infrastructure/email/mailer'
-import { monthStart } from '@/core/domain/ai-budget'
+import { monthStart, projectMonth } from '@/core/domain/ai-budget'
 import { ENGINE_META, getWorkspaceSetting, listAvailableModels, listEngines } from './engines'
 import { listBudgets } from './budgets'
-import { usageReport } from './reports'
+import { dailyUsage, usageReport } from './reports'
+import { PRICE_CATALOG_PAGE } from './pricing'
 import { getAgentRoster } from '@/features/agents/queries'
 
 /** Everything Workspace → AI shows, in one pass. */
@@ -31,6 +32,10 @@ export async function getAiAdminPage() {
       prisma.project.findMany({ where: { isArchived: false }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' } }),
       getAgentRoster(),
     ])
+  const [monthDays, last30Days] = await Promise.all([
+    dailyUsage(monthStart(now), new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))),
+    dailyUsage(new Date(now.getTime() - 29 * 86_400_000), new Date(now.getTime() + 86_400_000)),
+  ])
 
   // Model lists are fetched live from each provider that has a key, in parallel.
   const models = Object.fromEntries(
@@ -52,6 +57,8 @@ export async function getAiAdminPage() {
       outputPerMTok: Number(price.outputPerMTok),
       source: price.source,
       updatedAt: price.updatedAt,
+      customInputPerMTok: price.customInputPerMTok === null ? null : Number(price.customInputPerMTok),
+      customOutputPerMTok: price.customOutputPerMTok === null ? null : Number(price.customOutputPerMTok),
     })),
     budgets,
     month,
@@ -61,6 +68,13 @@ export async function getAiAdminPage() {
     teams,
     projects,
     emailConfigured: isEmailConfigured(),
+    daily: { month: monthDays, last30: last30Days },
+    projection: {
+      actual: projectMonth(month.total.costUsd, now),
+      list: projectMonth(month.total.listCostUsd, now),
+      tokens: projectMonth(month.total.inputTokens + month.total.outputTokens, now),
+    },
+    priceCatalogPage: PRICE_CATALOG_PAGE,
     agents,
   }
 }

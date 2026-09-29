@@ -29,6 +29,7 @@ import {
 import type { AiAdminPage } from '../queries'
 import type { UsageRow } from '../reports'
 import { AgentRoster } from '@/features/agents/components/agent-roster'
+import { UsageTimeline } from './usage-timeline'
 
 type Result<T> = { success: true; data: T } | { success: false; error: string }
 
@@ -67,7 +68,12 @@ export function AiAdmin({ data }: { data: AiAdminPage }) {
       <TabsContent value="engines" className="space-y-6">
         <WorkspaceChoice data={data} />
         {data.engines.map((engine) => (
-          <EngineCard key={engine.id} engine={engine} price={data.prices.find((p) => p.provider === engine.id && p.model === engine.model)} />
+          <EngineCard
+            key={engine.id}
+            engine={engine}
+            catalogPage={data.priceCatalogPage}
+            price={data.prices.find((p) => p.provider === engine.id && p.model === engine.model)}
+          />
         ))}
       </TabsContent>
       <TabsContent value="usage" className="space-y-6">
@@ -160,25 +166,30 @@ function WorkspaceChoice({ data }: { data: AiAdminPage }) {
 function EngineCard({
   engine,
   price,
+  catalogPage,
 }: {
   engine: AiAdminPage['engines'][number]
   price?: AiAdminPage['prices'][number]
+  catalogPage: string
 }) {
   const { run, isPending } = useRun()
   const [model, setModel] = React.useState(engine.model)
   const [enabled, setEnabled] = React.useState(engine.enabled)
+  const [plan, setPlan] = React.useState(engine.billingPlan)
   const [key, setKey] = React.useState('')
-  const [input, setInput] = React.useState(String(price?.inputPerMTok ?? 0))
-  const [output, setOutput] = React.useState(String(price?.outputPerMTok ?? 0))
-  // Only a price someone actually edited is saved (and so marked as set by
-  // hand); saving a model change must not freeze its list price.
-  const [priceDirty, setPriceDirty] = React.useState(false)
-  React.useEffect(() => {
-    setInput(String(price?.inputPerMTok ?? 0))
-    setOutput(String(price?.outputPerMTok ?? 0))
-    setPriceDirty(false)
-  }, [price?.inputPerMTok, price?.outputPerMTok, model])
   const [test, setTest] = React.useState<string | null>(null)
+  // "Your rate": what the workspace actually pays, when it differs from list.
+  const [rateIn, setRateIn] = React.useState(price?.customInputPerMTok == null ? '' : String(price.customInputPerMTok))
+  const [rateOut, setRateOut] = React.useState(price?.customOutputPerMTok == null ? '' : String(price.customOutputPerMTok))
+  const [rateDirty, setRateDirty] = React.useState(false)
+  React.useEffect(() => {
+    setRateIn(price?.customInputPerMTok == null ? '' : String(price.customInputPerMTok))
+    setRateOut(price?.customOutputPerMTok == null ? '' : String(price.customOutputPerMTok))
+    setRateDirty(false)
+  }, [price?.customInputPerMTok, price?.customOutputPerMTok, model])
+
+  const hasList = price && price.source === 'auto'
+  const hasRate = price?.customInputPerMTok != null
 
   return (
     <section className="space-y-4 rounded-xl border p-4">
@@ -232,32 +243,68 @@ function EngineCard({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Input $ / 1M tokens</Label>
-          <Input value={input} onChange={(event) => { setInput(event.target.value); setPriceDirty(true) }} className="h-8 w-28 text-xs" inputMode="decimal" />
+      <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Label className="text-xs">How you pay</Label>
+          <Select value={plan} onValueChange={(value) => setPlan(value as typeof plan)}>
+            <SelectTrigger className="h-7 w-52 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="free" className="text-xs">Free tier — nothing billed</SelectItem>
+              <SelectItem value="list" className="text-xs">Pay as you go — list price</SelectItem>
+              <SelectItem value="custom" className="text-xs">Custom rate — what we actually pay</SelectItem>
+            </SelectContent>
+          </Select>
+          <span className="text-[11px] text-muted-foreground">
+            {plan === 'free'
+              ? 'Spend counts as $0; the list-price cost is still recorded, as the estimate for when the free tier ends.'
+              : plan === 'custom'
+                ? 'Spend uses your rate below, for a negotiated price or a subscription.'
+                : 'Spend uses the list price.'}
+          </span>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Output $ / 1M tokens</Label>
-          <Input value={output} onChange={(event) => { setOutput(event.target.value); setPriceDirty(true) }} className="h-8 w-28 text-xs" inputMode="decimal" />
-        </div>
-        <p className="pb-2 text-[11px] text-muted-foreground">
-          {!price
-            ? 'No price for this model yet — Save or Refresh prices to fetch its list price.'
-            : price.source === 'auto'
-              ? `List price, from the public catalogue · updated ${new Date(price.updatedAt).toISOString().slice(0, 10)}`
-              : 'Set by hand — refreshes leave it alone.'}
-          {price?.source === 'manual' && (
-            <button
-              type="button"
-              className="ml-2 text-primary hover:underline"
-              disabled={isPending}
-              onClick={() => run(() => revertToListPriceAction({ provider: engine.id, model }), () => toast.success('Back to the list price.'))}
-            >
-              Use list price
-            </button>
+
+        <p className="text-xs">
+          <span className="text-muted-foreground">List price for {model}: </span>
+          {hasList ? (
+            <>
+              <strong className="tabular-nums">${price!.inputPerMTok}</strong> in ·{' '}
+              <strong className="tabular-nums">${price!.outputPerMTok}</strong> out per million tokens.{' '}
+              <span className="text-muted-foreground">
+                Source:{' '}
+                <a href={catalogPage} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                  LiteLLM&rsquo;s public model price catalogue
+                </a>
+                , fetched {new Date(price!.updatedAt).toISOString().slice(0, 10)}.
+              </span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">not in the public catalogue yet — Refresh prices, or set your rate.</span>
           )}
         </p>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Your rate, input $ / 1M</Label>
+            <Input value={rateIn} onChange={(event) => { setRateIn(event.target.value); setRateDirty(true) }} placeholder={hasList ? String(price!.inputPerMTok) : '0'} className="h-8 w-28 text-xs" inputMode="decimal" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Your rate, output $ / 1M</Label>
+            <Input value={rateOut} onChange={(event) => { setRateOut(event.target.value); setRateDirty(true) }} placeholder={hasList ? String(price!.outputPerMTok) : '0'} className="h-8 w-28 text-xs" inputMode="decimal" />
+          </div>
+          <p className="pb-2 text-[11px] text-muted-foreground">
+            {hasRate ? 'Your rate is set; refreshing list prices never changes it.' : 'Blank means the list price applies.'}
+            {hasRate && (
+              <button
+                type="button"
+                className="ml-2 text-primary hover:underline"
+                disabled={isPending}
+                onClick={() => run(() => revertToListPriceAction({ provider: engine.id, model }), () => toast.success('Your rate was cleared; the list price applies.'))}
+              >
+                Clear my rate
+              </button>
+            )}
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -266,9 +313,10 @@ function EngineCard({
           disabled={isPending}
           onClick={() =>
             run(async () => {
-              const saved = await saveEngineAction({ id: engine.id, model, enabled, apiKey: key.trim() ? key.trim() : undefined })
-              if (!saved.success || !priceDirty) return saved
-              return savePriceAction({ provider: engine.id, model, inputPerMTok: Number(input) || 0, outputPerMTok: Number(output) || 0 })
+              const saved = await saveEngineAction({ id: engine.id, model, enabled, billingPlan: plan, apiKey: key.trim() ? key.trim() : undefined })
+              if (!saved.success || !rateDirty) return saved
+              if (!rateIn.trim() && !rateOut.trim()) return revertToListPriceAction({ provider: engine.id, model })
+              return savePriceAction({ provider: engine.id, model, inputPerMTok: Number(rateIn) || 0, outputPerMTok: Number(rateOut) || 0 })
             }, () => {
               setKey('')
               toast.success(`${engine.label} saved.`)
@@ -296,7 +344,7 @@ function EngineCard({
             variant="ghost"
             className="text-destructive hover:text-destructive"
             disabled={isPending}
-            onClick={() => run(() => saveEngineAction({ id: engine.id, model, enabled, apiKey: '' }), () => toast.success('Stored key removed.'))}
+            onClick={() => run(() => saveEngineAction({ id: engine.id, model, enabled, billingPlan: plan, apiKey: '' }), () => toast.success('Stored key removed.'))}
           >
             Remove stored key
           </Button>
@@ -314,6 +362,8 @@ function EngineCard({
 function Usage({ data }: { data: AiAdminPage }) {
   const [range, setRange] = React.useState<'month' | 'last30'>('month')
   const report = range === 'month' ? data.month : data.last30
+  const days = range === 'month' ? data.daily.month : data.daily.last30
+  const projected = data.projection
 
   return (
     <>
@@ -327,15 +377,26 @@ function Usage({ data }: { data: AiAdminPage }) {
         </Select>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label="Spend" value={usd(report.total.costUsd)} />
-        <Stat label="Tokens" value={kTokens(report.total.inputTokens + report.total.outputTokens)} hint={`${kTokens(report.total.inputTokens)} in · ${kTokens(report.total.outputTokens)} out`} />
-        <Stat label="Model calls" value={String(report.total.calls)} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Paid" value={usd(report.total.costUsd)} hint="after free tiers and your rates" />
+        <Stat label="At list price" value={usd(report.total.listCostUsd)} hint="the same work, with no free tier" />
+        <Stat
+          label="This month, projected"
+          value={projected.list === null ? '—' : usd(projected.list)}
+          hint={projected.list === null ? 'needs a full day of use first' : `at list price · ${usd(projected.actual ?? 0)} paid, at this pace`}
+        />
+        <Stat
+          label="Tokens"
+          value={kTokens(report.total.inputTokens + report.total.outputTokens)}
+          hint={`${report.total.calls} calls${projected.tokens !== null && range === 'month' ? ` · ~${kTokens(projected.tokens)} by month end` : ''}`}
+        />
       </div>
+
+      <UsageTimeline days={days} title={range === 'month' ? 'Each day this month' : 'Each day, last 30 days'} />
 
       {report.total.calls === 0 ? (
         <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No AI calls in this period. Every Copilot turn, capture, filter, weekly update and AI fix is counted from now on.
+          No AI calls in this period. Every Copilot turn, capture, filter, weekly update and AI run is counted from now on.
         </p>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
@@ -345,6 +406,9 @@ function Usage({ data }: { data: AiAdminPage }) {
           <UsageTable title="By feature" rows={report.byFeature} />
         </div>
       )}
+      <p className="text-[11px] text-muted-foreground">
+        The projection is this month&rsquo;s pace carried to the month&rsquo;s end. It will move as agents take on real volume.
+      </p>
     </>
   )
 }
@@ -375,7 +439,8 @@ function UsageTable({ title, rows }: { title: string; rows: UsageRow[] }) {
             <th className="py-1 font-normal">Name</th>
             <th className="py-1 text-right font-normal">Calls</th>
             <th className="py-1 text-right font-normal">Tokens</th>
-            <th className="py-1 text-right font-normal">Cost</th>
+            <th className="py-1 text-right font-normal">Paid</th>
+            <th className="py-1 text-right font-normal">At list</th>
           </tr>
         </thead>
         <tbody>
@@ -392,6 +457,7 @@ function UsageTable({ title, rows }: { title: string; rows: UsageRow[] }) {
                 <td className="py-1.5 text-right tabular-nums">{row.calls}</td>
                 <td className="py-1.5 text-right tabular-nums">{kTokens(total)}</td>
                 <td className="py-1.5 text-right font-medium tabular-nums">{usd(row.costUsd)}</td>
+                <td className="py-1.5 text-right tabular-nums text-muted-foreground">{usd(row.listCostUsd)}</td>
               </tr>
             )
           })}

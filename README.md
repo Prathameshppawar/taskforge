@@ -816,14 +816,23 @@ is enough for small, contained fixes; for real ones, use Anthropic.
   project, engine and feature, aggregated in SQL. Costs are integers in
   millionths of a dollar and snapshotted at call time — editing a price does
   not rewrite last month.
+- **What you actually pay.** Each engine has a billing plan — *free tier*
+  (nothing billed), *pay as you go* (list price) or *custom rate* (what the
+  workspace really pays, for a negotiated price or a subscription). Every call
+  records both what was paid and what it would have cost at list price, so a
+  free tier shows $0 spent *and* what the same work will cost when it ends;
+  the month is projected from its pace so far. A daily timeline shows tokens
+  and cost as two charts on one day axis, hover-synchronised — not one chart
+  with two y-scales, whose heights could not honestly be compared.
 - **Prices fill themselves.** List prices come from the public catalogue
   LiteLLM maintains — every Anthropic, OpenAI and Groq chat model — on
   **Refresh prices**, whenever a model is chosen that has none, and every
   Monday ([`pricing.ts`](src/core/domain/pricing.ts)). The file is third-party,
   so anything non-numeric, negative or implausible is ignored rather than
-  billed against. A price someone types — a negotiated rate, or $0 for Groq's
-  free tier — is marked as set by hand and never overwritten; *Use list price*
-  puts it back.
+  billed against. The source is named and linked beside each price with the
+  date it was fetched. The workspace's own rate is kept separately from the
+  list price, so a refresh never overwrites it and the list-price estimate is
+  never lost.
 - **Budgets.** Monthly, for the whole workspace, one project, or one engine.
   They warn — an email at 80% and at 100%, each once a month, claimed with a
   conditional update so two calls finishing together cannot both send it. Only

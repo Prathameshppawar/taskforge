@@ -37,11 +37,12 @@ const engineSchema = z.object({
   id: engineId,
   model: z.string().trim().min(1, 'Choose a model.').max(120),
   enabled: z.boolean(),
+  billingPlan: z.enum(['free', 'list', 'custom']).default('list'),
   /** Omitted: keep the stored key. Empty string: remove it. */
   apiKey: z.string().trim().max(400).optional(),
 })
 
-export async function saveEngineAction(input: z.infer<typeof engineSchema>): Promise<ActionResult<void>> {
+export async function saveEngineAction(input: z.input<typeof engineSchema>): Promise<ActionResult<void>> {
   return runAction(async () => {
     const actor = await requirePermission('ai:manage')
     const data = engineSchema.parse(input)
@@ -49,6 +50,7 @@ export async function saveEngineAction(input: z.infer<typeof engineSchema>): Pro
       id: data.id,
       model: data.model,
       enabled: data.enabled,
+      billingPlan: data.billingPlan,
       apiKey: data.apiKey === undefined ? undefined : data.apiKey === '' ? null : data.apiKey,
     })
     // A newly chosen model gets its list price straight away, so spend is in
@@ -114,13 +116,22 @@ export async function savePriceAction(input: z.infer<typeof priceSchema>): Promi
   return runAction(async () => {
     const actor = await requirePermission('ai:manage')
     const data = priceSchema.parse(input)
-    // Typed by a person, so a refresh from the catalogue must leave it alone.
+    // The workspace's own rate, beside the list price — which a refresh keeps
+    // current, and which stays the basis of the "at list price" estimate.
     await prisma.aiModelPrice.upsert({
       where: { provider_model: { provider: data.provider, model: data.model } },
-      create: { ...data, source: 'manual' },
-      update: { inputPerMTok: data.inputPerMTok, outputPerMTok: data.outputPerMTok, source: 'manual' },
+      create: {
+        provider: data.provider,
+        model: data.model,
+        inputPerMTok: 0,
+        outputPerMTok: 0,
+        source: 'manual',
+        customInputPerMTok: data.inputPerMTok,
+        customOutputPerMTok: data.outputPerMTok,
+      },
+      update: { customInputPerMTok: data.inputPerMTok, customOutputPerMTok: data.outputPerMTok },
     })
-    await audit(actor.id, `priced ${data.provider} ${data.model} at $${data.inputPerMTok}/$${data.outputPerMTok} per million tokens`)
+    await audit(actor.id, `set the rate for ${data.provider} ${data.model} to $${data.inputPerMTok}/$${data.outputPerMTok} per million tokens`)
     revalidatePath(PATH)
     return ok()
   })
@@ -146,12 +157,10 @@ export async function revertToListPriceAction(input: { provider: string; model: 
   return runAction(async () => {
     const actor = await requirePermission('ai:manage')
     const data = z.object({ provider: engineId, model: z.string().trim().min(1).max(120) }).parse(input)
-    await prisma.aiModelPrice.updateMany({ where: { provider: data.provider, model: data.model }, data: { source: 'auto' } })
-    try {
-      await refreshModelPrices()
-    } catch (error) {
-      throw new BusinessRuleError((error as Error).message)
-    }
+    await prisma.aiModelPrice.updateMany({
+      where: { provider: data.provider, model: data.model },
+      data: { customInputPerMTok: null, customOutputPerMTok: null },
+    })
     await audit(actor.id, `went back to the list price for ${data.provider} ${data.model}`)
     revalidatePath(PATH)
     return ok()

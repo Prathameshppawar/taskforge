@@ -56,6 +56,8 @@ export interface ResolvedEngine {
   /** Where the key came from, or null when there is none. */
   keySource: 'settings' | 'env' | null
   keyHint: string | null
+  /** How the workspace pays: free tier, list price, or its own rate. */
+  billingPlan: 'free' | 'list' | 'custom'
 }
 
 interface EngineWithKey extends ResolvedEngine {
@@ -98,6 +100,7 @@ async function loadEngines(): Promise<EngineWithKey[]> {
       enabled: row?.enabled ?? true,
       keySource: storedKey ? 'settings' : envKey ? 'env' : null,
       keyHint: storedKey ? row!.keyHint : envKey ? envKey.slice(-4) : null,
+      billingPlan: ((row?.billingPlan as ResolvedEngine['billingPlan'] | undefined) ?? 'list'),
       apiKey,
     }
   })
@@ -186,6 +189,7 @@ export async function saveEngine(input: {
   id: CodingEngineId
   model: string
   enabled: boolean
+  billingPlan: 'free' | 'list' | 'custom'
   /** Undefined leaves the stored key alone; null removes it. */
   apiKey?: string | null
 }) {
@@ -198,8 +202,8 @@ export async function saveEngine(input: {
 
   await prisma.aiEngineSetting.upsert({
     where: { provider: input.id },
-    create: { provider: input.id, model: input.model, enabled: input.enabled, ...keyData },
-    update: { model: input.model, enabled: input.enabled, ...keyData },
+    create: { provider: input.id, model: input.model, enabled: input.enabled, billingPlan: input.billingPlan, ...keyData },
+    update: { model: input.model, enabled: input.enabled, billingPlan: input.billingPlan, ...keyData },
   })
 }
 

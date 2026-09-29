@@ -3,7 +3,7 @@ import type { AiFeature } from '@prisma/client'
 import { prisma } from '@/infrastructure/db/prisma'
 import type { AiChatRequest, AiChatResponse, AiProvider } from '@/infrastructure/ai'
 import { BusinessRuleError } from '@/core/domain/errors'
-import { costMicros, monthKey, monthStart } from '@/core/domain/ai-budget'
+import { callCosts, monthKey, monthStart, type BillingPlan } from '@/core/domain/ai-budget'
 
 /**
  * The AI usage ledger: one row per model call, written by `metered`.
@@ -46,10 +46,25 @@ async function recordUsage(
   inputTokens: number,
   outputTokens: number,
 ) {
-  const price = await prisma.aiModelPrice.findUnique({
-    where: { provider_model: { provider: provider.id, model: provider.model } },
-    select: { inputPerMTok: true, outputPerMTok: true },
-  })
+  const [price, engine] = await Promise.all([
+    prisma.aiModelPrice.findUnique({
+      where: { provider_model: { provider: provider.id, model: provider.model } },
+      select: { inputPerMTok: true, outputPerMTok: true, customInputPerMTok: true, customOutputPerMTok: true },
+    }),
+    prisma.aiEngineSetting.findUnique({ where: { provider: provider.id }, select: { billingPlan: true } }),
+  ])
+  const costs = callCosts(
+    (engine?.billingPlan as BillingPlan | undefined) ?? 'list',
+    {
+      list: price ? { input: Number(price.inputPerMTok), output: Number(price.outputPerMTok) } : null,
+      custom:
+        price?.customInputPerMTok != null && price.customOutputPerMTok != null
+          ? { input: Number(price.customInputPerMTok), output: Number(price.customOutputPerMTok) }
+          : null,
+    },
+    inputTokens,
+    outputTokens,
+  )
 
   await prisma.aiUsageEvent.create({
     data: {
@@ -61,9 +76,8 @@ async function recordUsage(
       ticketKey: context.ticketKey ?? null,
       inputTokens,
       outputTokens,
-      costMicros: price
-        ? costMicros(inputTokens, outputTokens, Number(price.inputPerMTok), Number(price.outputPerMTok))
-        : BigInt(0),
+      costMicros: costs.actual,
+      listCostMicros: costs.list,
     },
   })
 

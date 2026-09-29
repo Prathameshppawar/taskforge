@@ -2,10 +2,11 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { parsePriceCatalog } from '@/core/domain/pricing'
 
 /**
- * Keeps model prices current from the public catalogue.
+ * Keeps model list prices current from the public catalogue.
  *
- * Only prices marked "auto" are ever written: a price someone typed — a
- * negotiated rate, or $0 for a free tier — belongs to them. Costs already
+ * Each model has two prices: the list price, which is always the catalogue's,
+ * and optionally the workspace's own rate (a negotiated price, a
+ * subscription's effective rate), which a refresh never touches. Costs already
  * recorded are not recalculated; they were snapshotted at the price of the
  * day, which is what that month actually cost.
  */
@@ -13,25 +14,21 @@ import { parsePriceCatalog } from '@/core/domain/pricing'
 export const PRICE_CATALOG_URL =
   'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
 
+/** Where people can read the same prices, linked from the AI page. */
+export const PRICE_CATALOG_PAGE = 'https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json'
+
 export async function refreshModelPrices() {
   const response = await fetch(PRICE_CATALOG_URL, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
   if (!response.ok) throw new Error(`The price catalogue could not be fetched (HTTP ${response.status}).`)
   const catalog = parsePriceCatalog(await response.json())
   if (catalog.length === 0) throw new Error('The price catalogue was empty or unreadable, so no prices were changed.')
 
-  const manual = new Set(
-    (await prisma.aiModelPrice.findMany({ where: { source: 'manual' }, select: { provider: true, model: true } })).map(
-      (row) => `${row.provider}/${row.model}`,
-    ),
-  )
-
+  // The list price is always the catalogue's; a workspace's own rate lives in
+  // the custom columns, which a refresh never touches.
+  const customised = await prisma.aiModelPrice.count({ where: { customInputPerMTok: { not: null } } })
   let updated = 0
-  let kept = 0
+  const kept = customised
   for (const price of catalog) {
-    if (manual.has(`${price.provider}/${price.model}`)) {
-      kept++
-      continue
-    }
     await prisma.aiModelPrice.upsert({
       where: { provider_model: { provider: price.provider, model: price.model } },
       create: { ...price, source: 'auto' },

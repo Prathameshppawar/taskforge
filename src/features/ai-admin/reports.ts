@@ -17,6 +17,8 @@ export interface UsageRow {
   inputTokens: number
   outputTokens: number
   costUsd: number
+  /** The same calls at list price — what they would cost without a free tier or discount. */
+  listCostUsd: number
 }
 
 export interface UsageReport {
@@ -39,7 +41,7 @@ const FEATURE_LABELS: Record<string, string> = {
 
 export async function usageReport(from: Date, to: Date): Promise<UsageReport> {
   const where = { createdAt: { gte: from, lt: to } }
-  const sum = { inputTokens: true, outputTokens: true, costMicros: true } as const
+  const sum = { inputTokens: true, outputTokens: true, costMicros: true, listCostMicros: true } as const
 
   const [total, users, projects, models, features] = await Promise.all([
     prisma.aiUsageEvent.aggregate({ where, _sum: sum, _count: true }),
@@ -62,7 +64,10 @@ export async function usageReport(from: Date, to: Date): Promise<UsageReport> {
   const personName = new Map(people.map((person) => [person.id, person.name]))
   const projectName = new Map(projectRows.map((project) => [project.id, `${project.name} (${project.code})`]))
 
-  type Grouped = { _sum: { inputTokens: number | null; outputTokens: number | null; costMicros: bigint | null }; _count: number }
+  type Grouped = {
+    _sum: { inputTokens: number | null; outputTokens: number | null; costMicros: bigint | null; listCostMicros: bigint | null }
+    _count: number
+  }
   const row = (key: string, label: string, group: Grouped): UsageRow => ({
     key,
     label,
@@ -70,6 +75,7 @@ export async function usageReport(from: Date, to: Date): Promise<UsageReport> {
     inputTokens: group._sum.inputTokens ?? 0,
     outputTokens: group._sum.outputTokens ?? 0,
     costUsd: microsToUsd(group._sum.costMicros ?? BigInt(0)),
+    listCostUsd: microsToUsd(group._sum.listCostMicros ?? BigInt(0)),
   })
   // Most expensive first; tokens break ties, which matters while prices are unset.
   const rank = (rows: UsageRow[]) =>
@@ -83,12 +89,52 @@ export async function usageReport(from: Date, to: Date): Promise<UsageReport> {
       inputTokens: total._sum.inputTokens ?? 0,
       outputTokens: total._sum.outputTokens ?? 0,
       costUsd: microsToUsd(total._sum.costMicros ?? BigInt(0)),
+      listCostUsd: microsToUsd(total._sum.listCostMicros ?? BigInt(0)),
     },
     byUser: rank(users.map((g) => row(g.userId ?? 'none', g.userId ? (personName.get(g.userId) ?? 'Removed user') : 'No one (system)', g))),
     byProject: rank(projects.map((g) => row(g.projectId ?? 'none', g.projectId ? (projectName.get(g.projectId) ?? 'Removed project') : 'No project', g))),
     byModel: rank(models.map((g) => row(`${g.provider}/${g.model}`, `${g.provider} · ${g.model}`, g))),
     byFeature: rank(features.map((g) => row(g.feature, FEATURE_LABELS[g.feature] ?? g.feature, g))),
   }
+}
+
+export interface DailyUsage {
+  /** YYYY-MM-DD, UTC. */
+  day: string
+  tokens: number
+  costUsd: number
+  listCostUsd: number
+  calls: number
+}
+
+/**
+ * One row per day from `from` to `to`, zero-filled so a quiet day shows as a
+ * gap in the chart rather than disappearing from it. Summed in SQL.
+ */
+export async function dailyUsage(from: Date, to: Date): Promise<DailyUsage[]> {
+  const rows = await prisma.$queryRaw<Array<{ day: Date; tokens: bigint; cost: bigint; list: bigint; calls: bigint }>>`
+    SELECT date_trunc('day', "createdAt" AT TIME ZONE 'UTC') AS day,
+           sum("inputTokens" + "outputTokens")::bigint AS tokens,
+           sum("costMicros")::bigint AS cost,
+           sum("listCostMicros")::bigint AS list,
+           count(*)::bigint AS calls
+    FROM "ai_usage_events"
+    WHERE "createdAt" >= ${from} AND "createdAt" < ${to}
+    GROUP BY 1`
+  const byDay = new Map(rows.map((row) => [new Date(row.day).toISOString().slice(0, 10), row]))
+  const days: DailyUsage[] = []
+  for (let time = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()); time < to.getTime(); time += 86_400_000) {
+    const day = new Date(time).toISOString().slice(0, 10)
+    const row = byDay.get(day)
+    days.push({
+      day,
+      tokens: row ? Number(row.tokens) : 0,
+      costUsd: row ? microsToUsd(row.cost) : 0,
+      listCostUsd: row ? microsToUsd(row.list) : 0,
+      calls: row ? Number(row.calls) : 0,
+    })
+  }
+  return days
 }
 
 /** Email addresses subscribed to a report, directly or through a team. */

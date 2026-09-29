@@ -1566,13 +1566,18 @@ model AiFixRun {
 /// sealed like the GitHub App's and takes precedence over the environment, so
 /// an administrator can connect a provider without a redeploy.
 model AiEngineSetting {
-  provider  String   @id
-  model     String
-  apiKeyEnc String?
+  provider    String   @id
+  model       String
+  apiKeyEnc   String?
   /// Last four characters of the stored key, so the page can say which key it is.
-  keyHint   String?
-  enabled   Boolean  @default(true)
-  updatedAt DateTime @updatedAt
+  keyHint     String?
+  /// How this workspace pays for the provider: "free" (a free tier — nothing is
+  /// billed, though the list-price cost is still recorded as an estimate),
+  /// "list" (pay as you go at list price) or "custom" (the price set by hand
+  /// on the model: a negotiated rate or a subscription's effective rate).
+  billingPlan String   @default("list")
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
 
   @@map("ai_engine_settings")
 }
@@ -1594,14 +1599,18 @@ model AiWorkspaceSetting {
 /// Price per million tokens, used to turn token counts into money. Editable,
 /// because list prices change and a company may have negotiated its own.
 model AiModelPrice {
-  provider      String
-  model         String
-  inputPerMTok  Decimal @db.Decimal(10, 4)
-  outputPerMTok Decimal @db.Decimal(10, 4)
-  /// "auto": a list price, refreshed from the public catalogue. "manual": set
-  /// by a person — a negotiated rate, or $0 for a free tier — and never
-  /// overwritten by a refresh.
-  source        String  @default("manual")
+  provider            String
+  model               String
+  inputPerMTok        Decimal  @db.Decimal(10, 4)
+  outputPerMTok       Decimal  @db.Decimal(10, 4)
+  /// Where the list price came from: "auto" is the public catalogue (refreshed
+  /// weekly); "manual" means the catalogue has no entry and a person typed it.
+  source              String   @default("manual")
+  /// What this workspace actually pays, when it differs from the list price —
+  /// a negotiated rate, or a subscription's effective rate. Null means the list
+  /// price applies. Used by engines on the "custom" billing plan.
+  customInputPerMTok  Decimal? @db.Decimal(10, 4)
+  customOutputPerMTok Decimal? @db.Decimal(10, 4)
 
   updatedAt DateTime @updatedAt
 
@@ -1623,11 +1632,14 @@ model AiUsageEvent {
   /// Set for AI fixes; not a relation, so deleting a ticket keeps its spend.
   ticketKey String?
 
-  inputTokens  Int
-  outputTokens Int
+  inputTokens    Int
+  outputTokens   Int
   /// Cost at the time of the call, in millionths of a US dollar. Snapshotted, so
   /// editing a price later does not rewrite what last month cost.
-  costMicros   BigInt @default(0)
+  costMicros     BigInt @default(0)
+  /// The same call at list price, whatever the plan — what it would have cost
+  /// without a free tier or a discount. The basis for "what if" estimates.
+  listCostMicros BigInt @default(0)
 
   createdAt DateTime @default(now())
 

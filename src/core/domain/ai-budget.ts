@@ -63,3 +63,45 @@ export function lastWeekRange(now: Date): { from: Date; to: Date } {
   const from = new Date(to.getTime() - 7 * 86_400_000)
   return { from, to }
 }
+
+export type BillingPlan = 'free' | 'list' | 'custom'
+
+export interface ModelRates {
+  list: { input: number; output: number } | null
+  custom: { input: number; output: number } | null
+}
+
+/**
+ * What one call cost, and what it would have cost at list price.
+ *
+ * Free tier: nothing was billed, but the list-price figure is still kept — it
+ * is what the same work would cost the day the free tier runs out, and the
+ * number to plan a budget with. Custom: the workspace's own rate, falling back
+ * to the list price for a model nobody has priced yet.
+ */
+export function callCosts(
+  plan: BillingPlan,
+  rates: ModelRates,
+  inputTokens: number,
+  outputTokens: number,
+): { actual: bigint; list: bigint } {
+  const at = (rate: { input: number; output: number } | null) =>
+    rate ? costMicros(inputTokens, outputTokens, rate.input, rate.output) : BigInt(0)
+  const list = at(rates.list)
+  if (plan === 'free') return { actual: BigInt(0), list }
+  if (plan === 'custom') return { actual: rates.custom ? at(rates.custom) : list, list }
+  return { actual: list, list }
+}
+
+/**
+ * The month's likely total, from the pace so far: spend × days in the month
+ * ÷ days elapsed. Null in the first day, when one afternoon is not a pace.
+ */
+export function projectMonth(spentSoFar: number, now: Date): number | null {
+  const start = monthStart(now)
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+  const elapsedDays = (now.getTime() - start.getTime()) / 86_400_000
+  if (elapsedDays < 1) return null
+  const totalDays = (next.getTime() - start.getTime()) / 86_400_000
+  return (spentSoFar / elapsedDays) * totalDays
+}

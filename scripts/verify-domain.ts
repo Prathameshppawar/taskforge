@@ -57,7 +57,7 @@ import { applyEdit, checkRepoPath, uniqueBranch } from '@/core/domain/ai-fix'
 import { codingToolDefinitions, resolveToolName } from '@/features/ai-fix/agent'
 import { echoable } from '@/infrastructure/ai/anthropic'
 
-import { costMicros, lastWeekRange, monthKey, monthStart, thresholdToAlert } from '@/core/domain/ai-budget'
+import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
 
@@ -971,6 +971,20 @@ check('other providers are skipped', !catalog.some((price) => price.model.includ
 check('an implausible price is treated as a mistake', !byModel.has('openai/gpt-typo'))
 check('negative and non-numeric prices are ignored', !byModel.has('openai/gpt-negative') && !byModel.has('openai/sample_spec'))
 check('a non-object catalogue yields nothing', parsePriceCatalog(null).length === 0 && parsePriceCatalog([1]).length === 0)
+
+
+console.log('\n── AI spend: billing plans and the month ahead ──')
+const rates = { list: { input: 0.15, output: 0.6 }, custom: { input: 0.1, output: 0.4 } }
+const free = callCosts('free', rates, 1_000_000, 1_000_000)
+check('a free tier pays nothing', free.actual === BigInt(0))
+check('…but keeps the list-price estimate', free.list === BigInt(750_000))
+check('pay as you go pays list', callCosts('list', rates, 1_000_000, 1_000_000).actual === BigInt(750_000))
+check('a custom rate pays the custom rate', callCosts('custom', rates, 1_000_000, 1_000_000).actual === BigInt(500_000))
+check('a custom plan with no rate falls back to list', callCosts('custom', { ...rates, custom: null }, 1_000_000, 0).actual === BigInt(150_000))
+check('no price at all costs nothing either way', callCosts('list', { list: null, custom: null }, 5000, 5000).list === BigInt(0))
+check('ten days of $1 in a 30-day month projects $3',
+  Math.round(projectMonth(1, new Date(Date.UTC(2026, 8, 11)))! * 100) / 100 === 3)
+check('the first day is too early to project', projectMonth(1, new Date(Date.UTC(2026, 8, 1, 12))) === null)
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)
