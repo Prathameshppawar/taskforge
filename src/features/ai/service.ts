@@ -70,6 +70,7 @@ export function buildSystemPrompt(context: CopilotContext): string {
     '"move/put X to Y" or "mark X as Y" changes STATUS. Only use addLabels when the user says label or tag.',
     'Be brief and concrete. Refer to tickets by key. No markdown tables or headings — the panel is narrow.',
     'If a tool fails, say what went wrong. Never claim an action a tool did not confirm.',
+    'Answer only from TaskForge data. If it does not hold the answer, say so and what would record it — never invent pages, dashboards, tools or URLs.',
     // The proposal card already lists every field, so repeating them in prose
     // duplicates the screen and spends output tokens saying it twice.
     'A tool that returns "Proposed:" has NOT run. The user already sees the full details in a card, so reply with ONE short sentence asking them to confirm. Do not list the fields again, and never say it is done.',

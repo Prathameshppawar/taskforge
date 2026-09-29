@@ -44,7 +44,7 @@ export async function executeFixRun(runId: string): Promise<void> {
           projectId: true,
           type: { select: { kind: true } },
           checklist: { select: { text: true, isDone: true }, orderBy: { position: 'asc' } },
-          project: { select: { settings: { select: { aiWorkflows: true, aiDraftUntilGreen: true } } } },
+          project: { select: { settings: { select: { aiWorkflows: true, aiDraftUntilGreen: true, aiAutoMerge: true } } } },
         },
       },
       repo: {
@@ -249,7 +249,11 @@ export async function executeFixRun(runId: string): Promise<void> {
             result.summary,
             '',
             '---',
-            `${footer} It was written without running the code or its tests — review it as you would any contributor's, and let CI have its say. TaskForge never merges an AI change.`,
+            `${footer} It was written without running the code or its tests — review it as you would any contributor's, and let CI have its say. ${
+              ticket.project.settings?.aiAutoMerge
+                ? 'This project lets TaskForge merge a small AI change on its own, only when CI is green, the AI review raised nothing and it fits the project’s size and kind limits; anything else waits for a person.'
+                : 'TaskForge will not merge it: a person does.'
+            }`,
             ...(result.finished ? [] : ['', '> The model did not call `finish`, so this may be incomplete.']),
           ].join('\n'),
         },

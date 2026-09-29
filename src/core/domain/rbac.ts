@@ -213,7 +213,7 @@ export const PERMISSION_GROUPS: ReadonlyArray<{
       {
         key: 'ai:code',
         label: 'Fix tickets with AI',
-        note: 'Opens pull requests written by a model. Costs money per run; never merges.',
+        note: 'Opens pull requests written by a model. Costs money per run; merges only under a project’s auto-merge policy.',
       },
       {
         key: 'ai:manage',

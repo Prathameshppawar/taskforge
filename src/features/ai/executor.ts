@@ -491,6 +491,10 @@ async function updateTicket(args: UpdateArgs, ctx: ExecutionContext): Promise<To
   }
 
   const addLabels = await resolveLabels(ticket.projectId, args.addLabels)
+  // "Add" means add: the ticket keeps the labels it already has.
+  const existingLabels = addLabels.length
+    ? (await prisma.ticketLabel.findMany({ where: { ticketId: ticket.id }, select: { labelId: true } })).map((row) => row.labelId)
+    : []
 
   const result = await updateTicketAction({
     id: ticket.id,
@@ -499,7 +503,7 @@ async function updateTicket(args: UpdateArgs, ctx: ExecutionContext): Promise<To
     priorityId: priority?.id,
     assigneeId: args.assignee != null ? (assignee?.id ?? null) : undefined,
     dueDate: args.dueInDays != null ? daysFromNow(clamp(args.dueInDays, 0, 3650, 7)) : undefined,
-    ...(addLabels.length > 0 ? { labelIds: addLabels.map((l) => l.id) } : {}),
+    ...(addLabels.length > 0 ? { labelIds: [...new Set([...existingLabels, ...addLabels.map((l) => l.id)])] } : {}),
   })
 
   if (!result.success) return { ok: false, summary: result.error }
@@ -612,6 +616,22 @@ async function projectInsights(args: InsightArgs, ctx: ExecutionContext): Promis
   if (detail?.priorities.length) {
     lines.push(`Priorities (high to low): ${detail.priorities.map((p) => p.name).join(', ')}.`)
   }
+
+  // Where the code lives and where it last shipped, from what GitHub reported.
+  const [repos, lastDeploy] = await Promise.all([
+    prisma.projectRepo.findMany({ where: { projectId: project.id }, select: { repo: { select: { fullName: true } } } }),
+    prisma.deployment.findFirst({
+      where: { repo: { projects: { some: { projectId: project.id } } }, state: 'SUCCESS' },
+      orderBy: { createdAt: 'desc' },
+      select: { environment: true, url: true, isProduction: true, createdAt: true },
+    }),
+  ])
+  lines.push(repos.length ? `Repositories: ${repos.map((entry) => entry.repo.fullName).join(', ')}.` : 'Repositories: none linked.')
+  lines.push(
+    lastDeploy
+      ? `Last successful deploy: ${lastDeploy.environment}${lastDeploy.isProduction ? ' (production)' : ''}${lastDeploy.url ? ` at ${lastDeploy.url}` : ''} on ${lastDeploy.createdAt.toISOString().slice(0, 10)}.`
+      : 'Deployments: none recorded, so there is no live URL on record.',
+  )
 
   // Health
   if (stats.total === 0) {
@@ -745,6 +765,18 @@ async function getTicket(args: GetTicketArgs, ctx: ExecutionContext): Promise<To
         orderBy: { number: 'asc' },
       },
       labels: { select: { label: { select: { name: true } } } },
+      checklist: { select: { text: true, isDone: true }, orderBy: { position: 'asc' } },
+      gitRefs: {
+        where: { kind: 'PULL_REQUEST' },
+        select: { title: true, url: true, state: true, checkState: true, repo: { select: { fullName: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      },
+      deployments: {
+        select: { deployment: { select: { environment: true, isProduction: true, state: true, url: true, createdAt: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      },
       comments: {
         where: { deletedAt: null },
         select: {
@@ -780,6 +812,22 @@ async function getTicket(args: GetTicketArgs, ctx: ExecutionContext): Promise<To
         .join('\n')}`,
     )
   }
+  if (full.checklist.length) {
+    lines.push(`Acceptance criteria (${full.checklist.filter((item) => item.isDone).length}/${full.checklist.length} met):\n${full.checklist.map((item) => `  [${item.isDone ? 'x' : ' '}] ${item.text}`).join('\n')}`)
+  }
+  // Where the work went: its pull requests and deployments, as GitHub reported
+  // them. Stated even when empty, so "where is it live?" is answered from the
+  // record — "nowhere yet" — rather than guessed.
+  lines.push(
+    full.gitRefs.length
+      ? `Pull requests:\n${full.gitRefs.map((ref) => `  ${ref.title} [${ref.state?.toLowerCase() ?? 'unknown'}${ref.checkState ? `, CI ${ref.checkState.toLowerCase()}` : ''}] ${ref.url}`).join('\n')}`
+      : 'Pull requests: none linked.',
+  )
+  lines.push(
+    full.deployments.length
+      ? `Deployments:\n${full.deployments.map(({ deployment }) => `  ${deployment.environment}${deployment.isProduction ? ' (production)' : ''}: ${deployment.state.toLowerCase()}${deployment.url ? ` at ${deployment.url}` : ''} (${deployment.createdAt.toISOString().slice(0, 10)})`).join('\n')}`
+      : 'Deployments: none recorded — GitHub has reported no deployment of this work, so there is no live URL on record.',
+  )
   if (full.description) lines.push(`\nDescription:\n${full.description}`)
   if (full.remarks) lines.push(`\nRemarks:\n${full.remarks}`)
   if (full.comments.length) {

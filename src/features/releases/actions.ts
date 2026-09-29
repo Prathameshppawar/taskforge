@@ -5,11 +5,11 @@ import { z } from 'zod'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import { AiProviderError } from '@/infrastructure/ai'
-import { requireProjectPermission } from '@/features/auth/guards'
+import { can, requireProjectPermission } from '@/features/auth/guards'
 import { agentEngine } from '@/features/ai-admin/engines'
 import { assertWithinBudget } from '@/features/ai-admin/usage'
 import { ok, type ActionResult } from '@/core/domain/result'
-import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
+import { BusinessRuleError, NotFoundError, ForbiddenError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
 import { draftReleaseNotes } from './service'
 
@@ -29,6 +29,7 @@ export async function draftReleaseNotesAction(
     if (!ticket) throw new NotFoundError('Ticket', data.ticketId)
 
     const { actor } = await requireProjectPermission(ticket.projectId, data.publish ? 'project:manage-config' : 'ticket:update')
+    if (!can(actor, 'ai:use')) throw new ForbiddenError('Your role cannot use the AI features.')
     const engine = await agentEngine('release')
     if (!engine) throw new BusinessRuleError('No AI engine is configured.')
     await assertWithinBudget({ projectId: ticket.projectId, provider: engine.id })

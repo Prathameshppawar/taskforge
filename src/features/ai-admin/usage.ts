@@ -21,12 +21,25 @@ export interface UsageContext {
   ticketKey?: string | null
 }
 
-/** A provider that records every successful call against `context`. */
+/**
+ * A provider that records every successful call against `context` — and
+ * refuses to start when a hard-stop budget covering it is spent.
+ *
+ * The budget is checked here, where every feature's model calls already pass,
+ * so no feature can forget it. Once per wrapped provider, at its first call: a
+ * feature is refused before it begins, and a multi-turn run (the Coder's) is
+ * never cut off halfway through a change.
+ */
 export function metered(provider: AiProvider, context: UsageContext): AiProvider {
+  let budgetChecked = false
   return {
     id: provider.id,
     model: provider.model,
     async chat(request: AiChatRequest): Promise<AiChatResponse> {
+      if (!budgetChecked) {
+        await assertWithinBudget({ projectId: context.projectId ?? null, provider: provider.id })
+        budgetChecked = true
+      }
       const response = await provider.chat(request)
       if (response.usage) {
         // Never block the feature on bookkeeping; a lost row is a smaller

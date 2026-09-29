@@ -2,15 +2,18 @@
 
 <h1>TaskForge</h1>
 
-**An AI-first project & ticket management platform for internal teams.**
+**An AI-first project, ticket and delivery platform — for teams, and the agencies that build for clients.**
 
-Linear-class ticketing where the AI Copilot isn't a chatbot bolted on the side —
-it dispatches through the *same* Server Actions as the UI, so it inherits every
-permission check and audit entry, and cannot do anything you couldn't do by hand.
+Linear-class ticketing where the AI isn't a chatbot bolted on the side. The
+Copilot, the coding agents, email, Microsoft Teams, the MCP server and the REST
+API all dispatch through the *same* Server Actions as the UI — so they inherit
+every permission check and audit entry, and cannot do anything you couldn't do
+by hand. Built to run entirely on free tiers.
 
 <p>
-<a href="https://taskforge-demo.vercel.app"><b>▶ Live demo</b></a> &nbsp;·&nbsp;
-<code>demo</code> / <code>DemoPass!2026</code>
+<a href="#quick-start"><b>▶ Run it with demo data</b></a> &nbsp;·&nbsp;
+<a href="docs/USER-GUIDE.md">User guide</a> &nbsp;·&nbsp;
+<a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
 <p>
@@ -18,7 +21,7 @@ permission check and audit entry, and cannot do anything you couldn't do by hand
 <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white">
 <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-Neon-336791?logo=postgresql&logoColor=white">
 <img alt="Prisma" src="https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma&logoColor=white">
-<img alt="Groq" src="https://img.shields.io/badge/AI-Groq%20%7C%20Ollama-F55036">
+<img alt="AI engines" src="https://img.shields.io/badge/AI-15%20engines%2C%20free%20tiers%20first-F55036">
 <img alt="Licence" src="https://img.shields.io/badge/licence-MIT-blue">
 </p>
 
@@ -33,8 +36,25 @@ permission check and audit entry, and cannot do anything you couldn't do by hand
 ## What it does
 
 Work is organised as **Project → Parent Ticket → Child Ticket**, with progress
-rolling up automatically. Six views over the same data, a command palette, and a
-Copilot that can break a feature into tasks in one sentence.
+rolling up automatically: a board, table, tree, calendar, timeline and a planning
+view over the same data, a command palette, and a Copilot that can break a
+feature into tasks in one sentence.
+
+Around that core, the whole path from request to production:
+
+- **In** — tickets from the new-ticket dialog (with per-type templates and
+  acceptance criteria), from email, from a Microsoft Teams brainstorm, from the
+  client portal, from production errors and uptime monitors, from Jira/Trello
+  imports, and from the REST API.
+- **Planned** — sprints and milestones over a ranked backlog, filled to capacity
+  or by the Planner, with burn-ups and Monte Carlo delivery forecasts.
+- **Built** — on GitHub, where the Coder can write the change as a pull request,
+  heal it from its own CI logs, and the Reviewer judges it against each
+  acceptance criterion.
+- **Shipped** — deployments and preview links on tickets, release notes,
+  rollback, DORA metrics, service targets, and a monthly client report with
+  billable hours.
+- **Known** — project memory and a generated handbook for whoever joins next.
 
 ```
 "Create tasks for the authentication module:
@@ -86,8 +106,10 @@ Three consequences fall out of that for free:
 The Zod schema is also the source of the JSON Schema sent to the model, so the
 model-facing contract and the server-side trust boundary cannot drift apart.
 
-> **Known gap, stated honestly:** writes execute immediately — there is no
-> propose-then-confirm step yet. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Writes are **proposed, then confirmed**: a Copilot tool that would change data
+returns a card describing exactly what it would do, and nothing happens until
+the person approves it — with the permission check run at proposal time, so a
+refusal comes before the approval rather than after.
 
 <div align="center">
 <img src="docs/images/copilot.png" alt="The Copilot answering a natural-language query with a structured result card" width="100%">
@@ -199,8 +221,9 @@ because priority is ordered and categorical colour would throw that away.
 
 Groq's free tier allows 8,000 tokens/min and tool definitions are re-sent every
 request. Measured at 1,498 tokens of fixed overhead — two conversations and
-you're throttled. Trimmed to 1,032, and **the test suite now fails if anyone
-pushes it back over 1,100.**
+you're throttled. Trimmed to 1,032, and **the test suite fails if anyone pushes
+it past its budget** — 1,100 tokens, raised once to 1,200 for `search_memory`,
+which replaces several searches with one.
 
 Numeric bounds were also removed from the model-facing schema: Groq validates it
 server-side and rejects the whole request, so a model emitting `limit: 0` broke
@@ -209,12 +232,15 @@ turned a recoverable value into an unrecoverable failure.
 </details>
 
 <details>
-<summary><b>A schema with no JSON columns</b></summary>
+<summary><b>JSON only where nothing filters on it</b></summary>
 
-27 tables in 3NF. Saved-filter criteria and audit diffs are the two places a
+79 models, normalised. Saved-filter criteria and audit diffs are the two places a
 JSON blob is tempting; both are modelled relationally, so *"which saved filters
-reference this label?"* is a join rather than a full scan. Two denormalizations
-are deliberate and documented.
+reference this label?"* is a join rather than a full scan. Five JSON columns exist,
+each for a value written and read whole — a job's arguments, a cycle's closing
+summary, before-values kept for undo, a Teams draft — and never filtered on. The
+denormalizations are deliberate and documented in the
+[ER diagram](docs/ER-DIAGRAM.md).
 </details>
 
 ---
@@ -915,8 +941,9 @@ README and `docs/`, and the handbook — split at headings and embedded by the s
 free, in-process model as ticket similarity. It is refreshed nightly and only
 changed text is embedded again; it is capped at 3,000 pieces per project because
 the free database is small, and turning it off deletes the index. The Copilot
-searches it with `search_memory` ("how did we add Apple Pay?"), and the Coder,
-Planner and Reviewer get the three closest past pieces of work with every ticket.
+searches it with `search_memory` ("how did we add Apple Pay?"), and every Fix with
+AI run — the Coder and the Planner — gets the three closest past pieces of work
+with its ticket.
 
 **The handbook** is the knowledge-transfer document for someone joining a project
 ([`features/memory/handbook.ts`](src/features/memory/handbook.ts)). Facts are
@@ -1174,9 +1201,16 @@ everything they can, and it stops working the day they leave. An App is
 installed on an account — personal or organisation — with an explicit
 repository grant shown on GitHub's own screen, acts through [one-hour
 installation tokens](src/infrastructure/github/client.ts) minted from its key,
-and belongs to nobody. It asks for **read** access only — contents, pull
-requests, checks. Anything that writes to a repository will have to ask for
-more, and GitHub will show the owner exactly what changed before they accept.
+and belongs to nobody. It asks for what the delivery loop needs and no more:
+**read and write** on contents and pull requests (the Coder commits to its own
+branch and opens pull requests; it never pushes to the default branch), and
+**read** on checks, deployments, actions and metadata. Two permissions are
+opt-in, added in the app's settings on GitHub only when a project needs them:
+**Workflows** (read and write), for letting the Coder write
+`.github/workflows` files, and **Administration**, for creating new
+repositories. GitHub shows the owner exactly what changed before they accept,
+and a new permission reaches TaskForge when its cached installation token is
+next renewed — within an hour.
 
 The client is ~200 lines on `node:crypto` rather than Octokit. The two parts
 that are genuinely fiddly — signing the RS256 app JWT, and verifying the webhook
@@ -1274,14 +1308,20 @@ the repository held in memory ([`workspace.ts`](src/features/ai-fix/workspace.ts
 read through the GitHub API — no clone, no disk, no shell, which is what lets it
 run inside a serverless function. Only when the loop ends does code, not the
 model, turn the staged changes into one commit on a new branch and open the pull
-request. There is no merge path at all.
+request. The Coder itself has no merge path; the only automatic merge is the
+narrow, opt-in auto-merge policy described under *Autonomy, and where it stops*.
 
 **A ticket is untrusted input.** Anyone who can write a description can try to
 steer the model, so the limits are enforced in code the model cannot talk its
 way past ([`ai-fix.ts`](src/core/domain/ai-fix.ts)), not in the prompt: no path
-outside the repository, no `.git`, no `.github/workflows` (a workflow runs with
-the repository's secrets), no `.env` files. The app is never granted the
-`workflows` permission either, so the rule holds even if the check had a bug.
+outside the repository, no `.git`, no `.env` files, and no `.github/workflows`
+(a workflow runs with the repository's secrets) unless the project has turned
+**AI workflows** on — and even then every workflow is checked before it is
+committed (no `pull_request_target`, no secrets beyond `GITHUB_TOKEN`, pinned
+third-party actions). GitHub enforces the same line from its side: writing a
+workflow file needs the app's separate *Workflows* permission, which is opt-in,
+so a project that never asks for workflows cannot get one even if the check had a
+bug.
 Starting a run needs its own permission, `ai:code` — Admin only by default,
 because every run costs money and writes to a repository.
 
@@ -1588,12 +1628,12 @@ change it records.
 
 ## Try it
 
-**[taskforge-demo.vercel.app](https://taskforge-demo.vercel.app)** — sign in with
-`demo` / `DemoPass!2026`.
-
-Seeded with two projects, 38 tickets across the workflow, comments, audit history
-and recurring schedules. The AI Copilot is disabled on the demo (it would need a
-shared API key); everything else is live.
+The deployed instance is a private workspace — accounts are provisioned by an
+administrator, and there is no public demo login. To explore with sample data,
+run it locally: the demo seed below creates two projects, 38 tickets across the
+workflow, comments, audit history and recurring schedules. Everything works
+without an AI key; connect a free Groq key under Workspace → AI to turn the
+agents on.
 
 ## Quick start
 
@@ -1622,7 +1662,7 @@ Five suites, each catching something the others structurally cannot.
 
 ```bash
 npm run typecheck # strict, zero errors
-npm run verify    # 296 domain assertions — no DB, no network, <1s
+npm run verify    # 581 domain assertions — no DB, no network, a few seconds
 npm run verify:embeddings  # semantic similarity, against a real database
 npm run smoke     # signs in for real, walks every route, greps the server log
 npm run e2e       # 20 browser tests, phone to desktop
@@ -1677,7 +1717,7 @@ So there are two layers, and they answer different questions.
 
 **Contracts** (`npm run verify`, no network) — the tools are well-formed, every
 one has a description, arguments are validated before anything executes, and the
-whole tool payload fits inside a **1,100-token budget**. That last one is a real
+whole tool payload fits inside a **1,200-token budget**. That last one is a real
 constraint, not a style rule: the payload is re-sent on every request, and
 Groq's free tier allows 8,000 tokens per minute, so a verbose tool description
 costs the user conversations per minute.
@@ -1730,8 +1770,8 @@ nulls back into omissions before Zod ever sees them, so the internal types stay
 honest: a field is still `string | undefined`, never a third state meaning
 nothing.
 
-It costs **69 tokens** on the tool payload, taking it to 1,052 against a
-1,100-token budget — which the domain suite asserts, so the next tool added
+It costs **69 tokens** on the tool payload, taking it to 1,052 against the
+then 1,100-token budget — which the domain suite asserts, so the next tool added
 fails the build rather than the user's next sentence.
 
 ### The eval that was wrong
@@ -1797,13 +1837,13 @@ a decision rather than plumbing.
 | [`features/settings/modules.ts`](src/features/settings/modules.ts) | The settings area as data, so navigation and permissions cannot drift apart. |
 | [`features/workspace/modules.ts`](src/features/workspace/modules.ts) | Workspace administration as data — and the permission set the sidebar entry derives from. |
 | [`features/notifications/components/use-notification-sound.ts`](src/features/notifications/components/use-notification-sound.ts) | The chime, synthesised rather than shipped — and split so a muted person can still audition it. |
-| [`prisma/schema.prisma`](prisma/schema.prisma) | 49 models, fully normalized, every foreign key with an explicit referential action. |
+| [`prisma/schema.prisma`](prisma/schema.prisma) | 79 models, fully normalized, every foreign key with an explicit referential action; three triggers keep history no write path can forget. |
 
 ### The AI
 
 | File | Why it matters |
 |---|---|
-| [`features/ai/tools.ts`](src/features/ai/tools.ts) | Six Zod tool schemas. JSON Schema is generated from them, so the two cannot drift. |
+| [`features/ai/tools.ts`](src/features/ai/tools.ts) | Nine Zod tool schemas, shared by the Copilot, the MCP server and the REST API. JSON Schema is generated from them, so the two cannot drift. |
 | [`features/ai/executor.ts`](src/features/ai/executor.ts) | The trust boundary. Model output is validated, permission-checked, then routed to the *same* Server Action the UI calls — so the Copilot inherits RBAC and audit for free, and can never do what the signed-in user could not. |
 | [`features/ai/service.ts`](src/features/ai/service.ts) | The bounded tool-calling loop and the system prompt, exported so the evals grade the prompt that actually ships. |
 | [`evals/cases.ts`](evals/cases.ts) | 13 graded cases across routing, extraction, grounding and safety. |
@@ -1840,7 +1880,7 @@ a decision rather than plumbing.
 
 `app/(app)/layout.tsx` is the whole app shell in 60 lines.
 `lib/safe-action.ts` turns thrown domain errors into typed `ActionResult`s, which
-is why no action needs a try/catch. `scripts/verify-domain.ts` is 296 assertions
+is why no action needs a try/catch. `scripts/verify-domain.ts` is 581 assertions
 that run with no database, no network, in under a second.
 
 ---
@@ -1849,14 +1889,18 @@ that run with no database, no network, in under a second.
 
 | | |
 |---|---|
-| [API reference](docs/API.md) | Server Actions, route handlers, AI tools, error codes |
+| [User guide](docs/USER-GUIDE.md) | Every feature from the user's side, by task and by role — members, managers, admins and clients |
+| [Integrations](docs/INTEGRATIONS.md) | GitHub, Vercel, email in and out, Microsoft Teams, webhooks, monitors, single sign-on — setup and troubleshooting |
+| [AI and agents](docs/AI.md) | Engines, per-agent models, pricing and budgets, the Copilot, Fix with AI, review, triage, memory and the handbook |
+| [API reference](docs/API.md) | REST API v1, outbound webhooks, route handlers, Server Actions, permissions, error codes |
 | [MCP server](docs/MCP.md) | Connect Claude or any agent to your tickets |
-| [Architecture](docs/ARCHITECTURE.md) | Layering, mutation flow, authorization, AI design, known gaps |
-| [Roadmap](docs/ROADMAP.md) | What more we could do, what it would cost, and what was rejected |
-| [ER model](docs/ER-DIAGRAM.md) | Relationships, normalization notes, index coverage |
-| [Environment setup](docs/ENVIRONMENT-SETUP.md) | Where to obtain every variable |
-| [Deployment](docs/DEPLOYMENT.md) | Vercel + Neon, cron, troubleshooting |
-| [Project structure](docs/PROJECT-STRUCTURE.md) | Folder layout and where to add things |
+| [Architecture](docs/ARCHITECTURE.md) | Layering, mutation flow, authorization, triggers, the job queue, security, known gaps |
+| [ER model](docs/ER-DIAGRAM.md) | Every model by domain, relationships, constraints and triggers |
+| [Environment setup](docs/ENVIRONMENT-SETUP.md) | Every variable, what it does and where to obtain it |
+| [Deployment](docs/DEPLOYMENT.md) | Vercel + Neon, migrations before push, crons, CI, troubleshooting |
+| [Operations](docs/OPERATIONS.md) | Crons and jobs day to day, free-tier limits, backups, secrets, incidents |
+| [Project structure](docs/PROJECT-STRUCTURE.md) | Folder layout, route map and where to add things |
+| [Roadmap](docs/ROADMAP.md) | What shipped from the last roadmap, what is next, and what was rejected |
 
 ---
 

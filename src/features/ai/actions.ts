@@ -48,8 +48,18 @@ export async function copilotAction(
     }
 
     // Resolve the open project for context, but only if the actor can see it.
+    // On a ticket page the URL names no project, so the open ticket's own
+    // project stands in — "this ticket" and "this project" then agree.
     let projectName: string | undefined
     let projectCode: string | undefined
+
+    if (!input.projectId && input.screen?.ticketKey) {
+      const ticket = await prisma.ticket.findFirst({
+        where: { key: input.screen.ticketKey.toUpperCase(), ...ticketVisibilityFilter(actor) },
+        select: { projectId: true },
+      })
+      if (ticket) input = { ...input, projectId: ticket.projectId }
+    }
 
     if (input.projectId) {
       const project = await prisma.project.findFirst({

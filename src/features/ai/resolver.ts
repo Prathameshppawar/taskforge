@@ -1,6 +1,6 @@
 import { prisma } from '@/infrastructure/db/prisma'
 import { projectVisibilityFilter, type Actor } from '@/features/auth/guards'
-import { NotFoundError } from '@/core/domain/errors'
+import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
 
 /**
  * Name → id resolution for the Copilot.
@@ -48,10 +48,8 @@ export async function resolveProject(actor: Actor, code?: string, fallbackId?: s
     if (project) return project
   }
 
-  throw new NotFoundError(
-    'Project',
-    'no project was specified and none is currently open',
-  )
+  // Not a missing record: a question to put back to the person.
+  throw new BusinessRuleError('Which project? Name it by its code (for example DEMO), or open it first.')
 }
 
 interface NamedRow {
@@ -133,12 +131,20 @@ export async function resolveUser(
     return { id: actor.id, name: actor.name }
   }
 
-  const members = await prisma.projectMember.findMany({
-    where: { projectId, user: { isActive: true } },
-    select: { user: { select: { id: true, name: true, username: true } } },
-  })
+  // Direct members, and everyone a team attached to the project brings in —
+  // the same two routes to access that `getProjectAccess` recognises.
+  const [members, teamMembers] = await Promise.all([
+    prisma.projectMember.findMany({
+      where: { projectId, user: { isActive: true, isAgent: false } },
+      select: { user: { select: { id: true, name: true, username: true } } },
+    }),
+    prisma.teamMember.findMany({
+      where: { team: { projects: { some: { projectId } } }, user: { isActive: true, isAgent: false } },
+      select: { user: { select: { id: true, name: true, username: true } } },
+    }),
+  ])
 
-  const users = members.map((member) => member.user)
+  const users = [...new Map([...members, ...teamMembers].map((entry) => [entry.user.id, entry.user])).values()]
 
   const byUsername = users.find((user) => user.username.toLowerCase() === trimmed)
   if (byUsername) return { id: byUsername.id, name: byUsername.name }

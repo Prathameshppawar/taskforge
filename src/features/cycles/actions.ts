@@ -7,7 +7,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import { recordActivity } from '@/features/activity/service'
-import { requireProjectPermission } from '@/features/auth/guards'
+import { can, requireProjectPermission } from '@/features/auth/guards'
 import { agentEngine, agentProvider } from '@/features/ai-admin/engines'
 import { metered } from '@/features/ai-admin/usage'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
@@ -383,6 +383,7 @@ export async function askPlannerAction(cycleId: string): Promise<ActionResult<Sc
   return runAction(async () => {
     const cycle = await loadCycle(z.string().min(1).parse(cycleId))
     const { actor } = await requireProjectPermission(cycle.projectId, 'ticket:update')
+    if (!can(actor, 'ai:use')) return fail('Your role cannot use the AI features.')
     const engine = await agentEngine('planner')
     if (!engine) return fail('Connect an AI engine on Workspace → AI to ask the Planner.')
 

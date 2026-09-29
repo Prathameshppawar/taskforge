@@ -1,102 +1,94 @@
 # What more we could do
 
-Ideas that are worth building, why they matter, and what they would cost. Kept
-honest: the ones that were considered and rejected are here too, with reasons.
+Ideas worth building, why they matter, and what they would cost — kept honest:
+what was considered and rejected is here too, with reasons. Everything already
+built is described in the [README](../README.md) and the [user guide](USER-GUIDE.md).
 
-Anything already built is in the [README](../README.md), not here.
-
----
-
-## Push, not pull
-
-The Copilot is a *pull* interface — you have to go and ask it. Almost everything
-below is *push*: the system notices something and tells you, which is where a
-ticket tool earns its keep.
-
-### The Monday digest
-
-Every Monday, per project: what moved, what stalled, what is overdue, what is
-blocked and on whom. Delivered to the inbox that already exists.
-
-The design point that makes it trustworthy: **detect in SQL, narrate with the
-model.** Cycle time, bounce-backs from Review, tickets untouched for N days —
-those are queries, and queries do not hallucinate. The model only writes the
-paragraph over numbers it was handed.
-
-- **Fits what exists.** The cron runs daily already (`/api/cron/recurring`),
-  `Notification` and the inbox are built, and `getTeamWorkload` computes most of
-  the numbers.
-- **Cost.** One call per project per week — roughly **$0.001/month** at the
-  measured 1,407 tokens per request.
-- **Effort.** Moderate. The queries are the work; the prose is a prompt.
-
-### At-risk detection
-
-A narrower, continuous version of the same idea: a ticket is at risk when it is
-past due, has not moved in longer than its type usually takes, is blocked by
-something that is itself not moving, or is a child whose siblings have all
-finished. Flag it on the board and in the digest.
-
-Worth doing **without** an LLM first. The detection is a query; the explanation
-is the only part that needs words.
+One rule governs every item: **free tiers only**. TaskForge runs on Vercel Hobby,
+Neon's free Postgres, Groq's free tier and the user's own SMTP/IMAP mailbox. An
+idea that needs a paid service is either rewritten to avoid it or left out.
 
 ---
 
-## Integrations
+## Contents
 
-### GitHub
+- [What the last roadmap became](#what-the-last-roadmap-became)
+- [Next](#next)
+- [Later](#later)
+- [Scale](#scale)
+- [Considered and rejected](#considered-and-rejected)
 
-The schema is already half-expecting this — `ResourceType.GITHUB` exists and
-tickets carry resource links.
+---
 
-- A webhook that links a pull request to the ticket named in its branch
-  (`RC-14-fix-sync`), comments the PR status on the ticket, and transitions to
-  Done on merge.
-- The signature-verification shape is already there in the `CRON_SECRET` guard.
-- **Effort.** Moderate, and mostly plumbing rather than judgement.
+## What the last roadmap became
+
+The previous version of this file (20 September 2026) listed these. All but two
+shipped, several in a stronger form than proposed.
+
+| Idea then | What exists now |
+|---|---|
+| Monday digest | A weekly manager digest, **and** an opt-in morning digest per project — counted from the records, emailed and posted to Teams |
+| At-risk detection | Status history kept by trigger; stuck cards, WIP limits and SLA clocks that pause while blocked, with alerts at 80% and on breach |
+| GitHub integration | A full GitHub App: branches, pull requests, CI and deployments on tickets, forward-only automation, several repositories per project, and the AI delivery loop on top |
+| Slack | Not built. Microsoft Teams was built instead (bot, brainstorm, channel links); outbound webhooks cover Slack relays |
+| Inbound email | Plus-addressed mail becomes tickets, replies become comments, with sender authentication and loop protection |
+| Auto-labelling and triage | History-based triage suggestions in the create dialog, and an opt-in Triage agent with reasons and undo |
+| Estimates from history | "Similar work took N days", points for triage from similar tickets, and Monte Carlo delivery forecasts |
+| Comment thread summarisation | Not built — see [Next](#next) |
+| pgvector at scale | Still not needed — see [Scale](#scale) |
+
+---
+
+## Next
+
+### Agents that earn their autonomy
+
+The one deliberately deferred. Each agent and model would carry a scorecard from
+real outcomes — pull requests merged, reopened or reverted, review verdicts
+confirmed or overruled by people — and autonomy would be granted by record: the
+Coder could pick up tickets labelled *ai-ready* by itself once its merge rate in
+that repository passes a threshold, and lose the right when it slips. The data is
+mostly collected already (acceptance per engine feeds model recommendations).
+Free; the work is the policy and its UI.
+
+### Catch me up
+
+Summarise a long comment thread — what was decided, what is still open, who is
+waiting on whom — on the ticket and for anyone mentioned into it late. One model
+call on the Copilot's engine, cached against the thread's last comment so it is
+paid for once.
+
+### Web push notifications
+
+The installable app could receive push notifications through the browser's own
+Web Push service (VAPID keys, free), so an assignment or an SLA breach reaches a
+phone without email. Needs a service worker and a subscriptions table; the
+notification pipeline already exists.
 
 ### Slack
 
-Two directions, of unequal value:
+The same shape as the Teams bot — a brainstorm that ends in a filed ticket, and
+channels linked to projects — on Slack's free Events API. The acting-as layer and
+the draft card already exist; the work is the Slack signature check and Block Kit.
 
-- **Outbound** (notifications to a channel) — easy, and largely duplicates the
-  inbox that already exists. Low value on its own.
-- **Inbound** (a message becomes a ticket) — genuinely useful, and now cheap:
-  it is the capture flow that already exists with a different front door.
+### Business hours for service targets
 
-### Inbound email
-
-`support@` becomes tickets, replies become comments. The most requested feature
-in tools like this and the most tedious to build well — threading, quoting,
-attachments, spam. Worth it only if the workspace actually receives email.
+SLA clocks run in calendar hours. Agencies promise *working* hours. A per-project
+calendar (working days, hours, holidays) applied to the existing pure clock
+function would make targets fair without changing how they are stored.
 
 ---
 
-## Making the model better at this workspace
+## Later
 
-### Auto-labelling and triage
-
-When a ticket arrives with just a title, propose the type, priority and labels —
-shown as a proposal, approved in bulk.
-
-**This one has already been done by hand.** Setting up Regency Ceramics involved
-applying component labels to existing tickets by reading their titles. A batch
-labeller would have done it in one pass, and the embeddings needed to match a
-title against a project's label vocabulary are now in place.
-
-Worth building *before* the next project starts, not after.
-
-### Estimates from history
-
-"Tickets like this one took about three weeks." Needs two things that now exist
-or nearly do: semantic similarity (built) and cycle-time history from the
-activity log (queryable). Grounded in real outcomes rather than the model's
-guess, which is the only version worth shipping.
-
-### Comment thread summarisation
-
-"Catch me up" on a long thread. Cheap, obvious, useful when joining a ticket
-late. Small enough to add whenever the thread length starts to hurt.
+- **A public status page** per project, fed by the uptime monitors that already
+  exist — static, cacheable, free.
+- **Customer satisfaction** on closed client requests: one question in the portal
+  and in the reply email, reported beside cycle time.
+- **Recurring reports to clients by email** — the monthly report already renders;
+  sending it on the first of the month is a cron line and a template.
+- **Two-way calendar** — due dates to an ICS feed people can subscribe to.
+- **Offline reading** in the installable app, for the ticket and handbook views.
 
 ---
 
@@ -104,43 +96,62 @@ late. Small enough to add whenever the thread length starts to hurt.
 
 ### pgvector, when a project gets big
 
-Similarity is currently scored with a sequential scan inside one project —
-`sum(a * b)` over a `real[]`, which measured **57ms across 2,167 tickets**. That
-is fine, and it keeps the app running on stock Postgres: no extension, so CI,
-a fresh clone and Neon all behave the same.
+Similarity and project memory are scored with a sequential scan inside one
+project — `sum(a * b)` over a `real[]`, measured at **57 ms across 2,167 tickets**.
+That keeps the app on stock Postgres (no extension: CI, a fresh clone and Neon all
+behave the same). It stops being fine somewhere around **10,000 rows in one
+project**, where the scan would pass ~250 ms. The answer then is a `vector(384)`
+column with an HNSW index, which Neon supports; the migration is mechanical,
+because the vectors are stored already and each query is isolated in one
+function. The limit is per project, not per workspace.
 
-It stops being fine somewhere around **10,000 tickets in a single project**,
-where the scan would pass ~250ms. At that point the answer is a `vector(384)`
-column with an HNSW index, which Neon supports (pgvector 0.8.6) — and the
-migration is mechanical, because the vectors are already stored and the query is
-already isolated in one function.
+### The free database
 
-Worth knowing: the limit is per *project*, not per workspace. A workspace of
-100,000 tickets spread across 50 projects never reaches it.
+Neon's free tier is 0.5 GB. What grows, and what keeps it in check:
+
+| Grows with | Kept in check by |
+|---|---|
+| Project memory | Capped at 3,000 pieces per project; deleted when memory is turned off |
+| Attachments (stored as bytes) | 5 MB per file, 20 per ticket |
+| Job queue | Finished jobs dropped after a week |
+| Status and cycle history, activity log | Small rows; the first to watch if a workspace grows large |
+| AI usage ledger | One row per model call |
+
+When the database nears its limit, the order of relief is: prune old activity
+and usage rows, move attachments to a free object store (Cloudflare R2's free
+tier), then consider Neon's paid tier.
 
 ### Caching
 
-Deliberately not done. Benchmarked at 26,042 tickets: every dashboard query came
-in under 5ms except `getTeamWorkload`, which was fixed by moving the aggregation
-into the database rather than by caching it. Adding a cache now would buy
-nothing and cost correctness.
+Deliberately not done. Benchmarked at 26,042 tickets: every dashboard query
+came in under 5 ms except `getTeamWorkload`, which was fixed by aggregating in
+the database rather than by caching. A cache now would buy nothing and cost
+correctness.
 
 ---
 
 ## Considered and rejected
 
-**AI-written ticket descriptions.** People distrust generated prose in a field
-they are accountable for, and rewrite it anyway. The capture flow already covers
-the case that matters — turning notes you *did* write into structure.
+**Held-open realtime connections.** Server-sent events or websockets would make
+live updates instant, but a serverless host bills every second a connection
+stays open. Live updates poll a one-line version every twenty seconds instead,
+only while a tab is visible, and only where a project turns them on.
 
-**A bigger chatbot.** The Copilot scores 100% across its evals. More tools would
-widen the surface faster than they add value; the returns are in the push
-features above.
+**AI-written ticket descriptions as the record.** Where a model shapes a request
+— email in, the Teams brainstorm — the original text is always kept beside it,
+and in the dialog people write their own. A generated paragraph nobody wrote is
+not something anyone can be accountable for.
 
-**AI-guessed estimates** without history. Confident guessing, presented as a
-number somebody plans around.
+**Unbounded autonomy.** The Copilot still proposes before it writes. What acts on
+its own is narrow, opt-in and reversible: auto-merge under a strict per-project
+policy, auto-heal twice per pull request at most, triage only on fields left at
+their defaults, with undo. An agent that silently edits tickets would make the
+audit log record automation rather than decisions.
 
-**Autonomous actions** — the Copilot acting without approval. The
-propose-then-confirm step is the feature, not an obstacle to it. An agent that
-silently edits tickets is one nobody can audit, and the audit log would record
-the automation rather than a decision anybody made.
+**AI-guessed estimates without history.** Confident guessing, presented as a
+number somebody plans around. Forecasts replay real throughput or say they
+cannot.
+
+**Accounts created by single sign-on.** Keycloak, Google and Microsoft admit only
+existing accounts. Letting a provider create them would turn "who has access" into
+a question about another system's configuration.
