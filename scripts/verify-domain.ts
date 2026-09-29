@@ -63,6 +63,7 @@ import { formatCriteriaReport } from '@/features/ai-review/service'
 import { criteriaLines } from '@/features/ai-fix/agent'
 import { averageTimeInStatus, dueAlerts, formatDuration, slaApplies, slaClocks, stuckDays, timeInStatus, wipState, type StatusChange } from '@/core/domain/flow'
 import { burnup, burnupUnit, fillToCapacity, nextCycleName } from '@/core/domain/cycles'
+import { billedAmount, decimalHours, formatMinutes, parseDuration, timerMinutes, weekOf } from '@/core/domain/time'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1162,6 +1163,22 @@ console.log('\n── Planning: burn-up and filling a cycle ──')
   check('an unpointed ticket counts as the median, marked assumed', fill.chosen.find((c) => c.key === 'A-3')?.weight === 3 && fill.chosen.find((c) => c.key === 'A-3')?.assumed === true)
   check('nothing that would exceed capacity is chosen', fill.load <= 10 && fill.skipped.some((s) => s.key === 'A-4'))
   check('cycles are numbered on', nextCycleName(['Sprint 1', 'Sprint 3', 'Launch'], 'SPRINT') === 'Sprint 4' && nextCycleName([], 'MILESTONE') === 'Milestone 1')
+}
+
+console.log('\n── Time: what people type into a duration box ──')
+{
+  const cases: Array<[string, number | null]> = [
+    ['45', 45], ['45m', 45], ['1h', 60], ['1.5h', 90], ['1,5h', 90], ['1h 30m', 90], ['1h30', 90], ['1:30', 90], ['2h15m', 135], ['1d', 480],
+    ['', null], ['soon', null], ['1h and a bit', null], ['0', null], ['25h', null], ['-1h', null], ['1:75', null],
+  ]
+  for (const [input, expected] of cases) check(`"${input}" → ${expected ?? 'refused'}`, parseDuration(input) === expected)
+  check('minutes print like a person says them', formatMinutes(45) === '45m' && formatMinutes(60) === '1h' && formatMinutes(95) === '1h 35m')
+  check('decimal hours for reports', decimalHours(90) === '1.5' && decimalHours(20) === '0.33')
+  check('a started timer always counts at least a minute', timerMinutes(new Date(0), new Date(10_000)) === 1)
+  const week = weekOf(new Date(Date.UTC(2026, 9, 1, 15)))
+  check('weeks start on Monday', week.start.toISOString().slice(0, 10) === '2026-09-28' && week.days.length === 7)
+  check('a Sunday belongs to the week before it', weekOf(new Date(Date.UTC(2026, 9, 4, 23))).start.toISOString().slice(0, 10) === '2026-09-28')
+  check('billing rounds to the cent', billedAmount(100, 75) === 125 && billedAmount(20, 50) === 16.67)
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)

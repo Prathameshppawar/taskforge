@@ -26,6 +26,8 @@ import { getDeliveryMetrics } from '@/features/delivery/queries'
 import { DeliveryMetrics } from '@/features/delivery/components/delivery-metrics'
 import { getProjectFlow } from '@/features/tickets/flow'
 import { ProjectFlowCard } from '@/features/tickets/components/project-flow'
+import { getProjectTime } from '@/features/time/queries'
+import { ProjectTimeCard } from '@/features/time/components/project-time'
 
 export const metadata: Metadata = { title: 'Insights' }
 
@@ -38,7 +40,10 @@ export default async function InsightsPage({
   const context = await getProjectViewContext(projectId)
   const scope = { projectId }
 
-  const [stats, completion, trend, priorities, labels, statuses, workload, delivery, flow] = await Promise.all([
+  const now = new Date()
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+  const [stats, completion, trend, priorities, labels, statuses, workload, delivery, flow, time] = await Promise.all([
     getStatCounts(context.actor, scope),
     getCompletionRate(context.actor, scope),
     getTicketTrend(context.actor, scope, 30),
@@ -48,6 +53,7 @@ export default async function InsightsPage({
     getTeamWorkload(context.actor, scope),
     getDeliveryMetrics(projectId),
     getProjectFlow(projectId),
+    getProjectTime(projectId, monthStart, monthEnd),
   ])
 
   const aiEnabled = (await isCopilotAvailable())
@@ -63,6 +69,7 @@ export default async function InsightsPage({
 
         <DeliveryMetrics metrics={delivery} />
         <ProjectFlowCard flow={flow} />
+        <ProjectTimeCard time={time} monthLabel={monthStart.toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })} />
         <p className="text-right text-xs">
           <a href={`/portal/report?project=${projectId}`} className="text-primary hover:underline">
             Monthly client report →

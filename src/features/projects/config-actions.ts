@@ -9,6 +9,8 @@ import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
 import {
+  billingSettingsSchema,
+  type BillingSettingsInput,
   flowSettingsSchema,
   type FlowSettingsInput,
   deleteConfigSchema,
@@ -506,6 +508,34 @@ export async function updateFlowSettingsAction(input: FlowSettingsInput): Promis
       })
     })
 
+    revalidatePath(`/projects/${data.projectId}`, 'layout')
+    return ok()
+  })
+}
+
+export async function updateBillingSettingsAction(input: BillingSettingsInput): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const data = billingSettingsSchema.parse(input)
+    const { actor } = await requireProjectPermission(data.projectId, 'project:manage-config')
+    try {
+      new Intl.NumberFormat('en', { style: 'currency', currency: data.currency })
+    } catch {
+      return fail(`${data.currency} is not a currency code.`)
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.projectSettings.update({
+        where: { projectId: data.projectId },
+        data: { hourlyRate: data.hourlyRate, currency: data.currency },
+      })
+      await recordActivity(tx, {
+        action: 'UPDATED',
+        entityType: 'PROJECT',
+        entityId: data.projectId,
+        projectId: data.projectId,
+        actorId: actor.id,
+        summary: data.hourlyRate === null ? 'cleared the hourly rate' : `set the hourly rate to ${data.hourlyRate} ${data.currency}`,
+      })
+    })
     revalidatePath(`/projects/${data.projectId}`, 'layout')
     return ok()
   })

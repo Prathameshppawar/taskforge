@@ -6,6 +6,7 @@ import { getProjectViewContext } from '@/features/projects/project-context'
 import { ProjectSettingsForm } from '@/features/projects/components/project-settings-form'
 import { WorkflowConfig } from '@/features/projects/components/workflow-config'
 import { FlowSettings } from '@/features/projects/components/flow-settings'
+import { BillingSettings } from '@/features/projects/components/billing-settings'
 import { getProjectRepos } from '@/features/github/queries'
 import { ProjectRepositories } from '@/features/github/components/project-repos'
 import { can } from '@/features/auth/guards'
@@ -94,6 +95,15 @@ export default async function ProjectSettingsPage({
           projectId={projectId}
           stuckAfterDays={project.settings?.stuckAfterDays ?? null}
           slaKinds={project.settings?.slaKinds ?? ''}
+          canEdit={context.can.manageConfig}
+        />
+
+        <Separator />
+
+        <BillingSettings
+          projectId={projectId}
+          hourlyRate={project.settings?.hourlyRate ?? null}
+          currency={project.settings?.currency ?? 'USD'}
           canEdit={context.can.manageConfig}
         />
 

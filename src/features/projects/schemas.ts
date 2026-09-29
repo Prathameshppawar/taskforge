@@ -169,3 +169,10 @@ export const flowSettingsSchema = z.object({
   slaKinds: z.array(z.enum(['TASK', 'FEATURE', 'ENHANCEMENT', 'BUG', 'PRODUCTION', 'DEPLOYMENT', 'RESEARCH'])).max(7),
 })
 export type FlowSettingsInput = z.infer<typeof flowSettingsSchema>
+
+export const billingSettingsSchema = z.object({
+  projectId: z.string().min(1),
+  hourlyRate: z.coerce.number().min(0).max(1_000_000).nullable(),
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Use a three-letter currency code, like USD or INR.'),
+})
+export type BillingSettingsInput = z.infer<typeof billingSettingsSchema>

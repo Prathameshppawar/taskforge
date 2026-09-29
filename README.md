@@ -111,6 +111,7 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Templates** | Each ticket type starts from its own description and criteria — a bug asks for steps to reproduce, a deployment for a rollback plan |
 | **Flow** | Every status change recorded by a database trigger: time in each status on the ticket, "where work waits" per project, stuck cards flagged on the board, soft WIP limits per column |
 | **Planning** | Sprints (one running at a time) and milestones (several at once, as client work runs), above a ranked backlog. Drag to plan and rank, fill to capacity, or ask the Planner; close with carry-over; a burn-up from recorded history per cycle |
+| **Time** | A timer on every ticket that follows you in the header, entries typed as `1h 30m` or `1:30`, a weekly timesheet, time by person and kind on Insights, and billable hours — with the amount, at the project's rate — in the monthly client report |
 | **Service targets** | Response and resolution hours per priority, for the kinds of ticket you choose. The resolution clock pauses while Blocked; alerts at 80% and on breach, once each |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
@@ -718,6 +719,35 @@ the planning page and the chart never disagree.
 
 The board, table, calendar and timeline filter by cycle (`?cycle=`), including
 *Backlog (unplanned)*, and saved filters keep it.
+
+### Time
+
+Anyone working a ticket can start a timer from its sidebar; it follows them in
+the header on every page until they stop it, and starting another stops the
+first. A partial unique index allows one running timer per person, so two tabs
+racing cannot leave two running. Time can also be typed in afterwards —
+[`parseDuration`](src/core/domain/time.ts) reads `45`, `45m`, `1.5h`, `1,5h`,
+`1h 30m`, `1h30`, `1:30` and `1d` (eight hours), and refuses anything it cannot
+read whole, so "1h and a bit" is an error rather than one hour. Entries default
+to billable and carry a note; an entry for a past day is placed at noon so no time
+zone moves it to the day before.
+
+Logging time is `ticket:update`: clients, who can comment, do not log hours.
+Entries belong to whoever logged them; only they edit one, and a project manager
+may remove it. The account link is nullable, so billing records outlive an
+account.
+
+Where it shows up:
+
+- **The ticket** — the total against the estimate, each person's share, billable
+  versus not, and the entries.
+- **Timesheet** — your week, a row per ticket and a column per day. Read-only on
+  purpose: time is logged on the ticket, where the work is.
+- **Insights** — this month by person, by kind of work, and the tickets that took
+  the most.
+- **The monthly client report** — billable hours, and with an hourly rate set in
+  Settings → Billing, the amount. Staff also see non-billable time and who logged
+  what; clients do not.
 
 ### Service targets
 

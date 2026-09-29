@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { requireUser, requireProjectViewPage, can } from '@/features/auth/guards'
 import { currentMonth, getClientReport } from '@/features/client-report/queries'
 import { PrintButton } from '@/features/client-report/print-button'
+import { decimalHours, formatMinutes } from '@/core/domain/time'
 
 export const metadata: Metadata = { title: 'Monthly report' }
 export const dynamic = 'force-dynamic'
@@ -68,6 +69,37 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
           ))
         )}
       </section>
+
+      {report.time.total > 0 && (
+        <section className="space-y-2">
+          <h2 className="font-semibold">Time</h2>
+          <p className="text-sm">
+            <strong>{decimalHours(report.time.billable)} billable hours</strong>
+            {report.time.amount !== null && (
+              <>
+                {' '}· {new Intl.NumberFormat('en', { style: 'currency', currency: report.time.currency }).format(report.time.amount)} at{' '}
+                {new Intl.NumberFormat('en', { style: 'currency', currency: report.time.currency }).format(report.time.rate!)}/h
+              </>
+            )}
+          </p>
+          {actor.roleKey !== 'CLIENT' && (
+            <div className="rounded-xl border border-dashed p-3 text-sm print:hidden">
+              <p className="text-xs text-muted-foreground">Staff only · {formatMinutes(report.time.total - report.time.billable)} not billable</p>
+              <ul className="mt-1 space-y-0.5">
+                {report.time.people.map((person) => (
+                  <li key={person.id} className="flex justify-between gap-2">
+                    <span>{person.name}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {formatMinutes(person.minutes)}
+                      {person.billable !== person.minutes ? ` (${formatMinutes(person.billable)} billable)` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="space-y-2">
         <h2 className="font-semibold">Reliability</h2>

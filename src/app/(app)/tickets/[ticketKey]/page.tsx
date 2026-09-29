@@ -20,6 +20,8 @@ import { TicketAttachments } from '@/features/tickets/components/ticket-attachme
 import { AcceptanceCriteria } from '@/features/tickets/components/acceptance-criteria'
 import { TicketFlowPanel } from '@/features/tickets/components/ticket-flow'
 import { getTicketFlow } from '@/features/tickets/flow'
+import { getTicketTime } from '@/features/time/queries'
+import { TicketTimePanel } from '@/features/time/components/ticket-time'
 import { WatchButton } from '@/features/tickets/components/watch-button'
 import { listTicketLinks } from '@/features/tickets/relations'
 import { listAttachments } from '@/features/attachments/actions'
@@ -66,7 +68,7 @@ export default async function TicketDetailPage({
 
   const context = await getProjectViewContext(ticket.project.id)
 
-  const [activity, links, attachments, watchers, estimate, development, flow] = await Promise.all([
+  const [activity, links, attachments, watchers, estimate, development, flow, time] = await Promise.all([
     getTicketActivity(ticket.id),
     listTicketLinks(ticket.id),
     listAttachments(ticket.id),
@@ -89,6 +91,7 @@ export default async function TicketDetailPage({
       typeId: ticket.type.id,
     }),
     getTicketFlow(ticket.id),
+    getTicketTime(ticket.id, actor.id),
   ])
 
   const canEdit = context.can.updateTicket
@@ -342,6 +345,16 @@ export default async function TicketDetailPage({
               </div>
             )}
           </div>
+
+          <Separator />
+
+          <TicketTimePanel
+            ticketId={ticket.id}
+            time={time}
+            estimateHours={ticket.estimateHours}
+            canLog={canEdit}
+            viewerId={actor.id}
+          />
 
           <Separator />
 

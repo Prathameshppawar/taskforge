@@ -2,6 +2,7 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { microsToUsd } from '@/core/domain/ai-budget'
 import { uptimePercent } from '@/core/domain/network'
 import { RELEASE_SECTIONS } from '@/core/domain/releases'
+import { getProjectTime } from '@/features/time/queries'
 
 /**
  * One project's month, for the client: what was delivered, what shipped,
@@ -17,7 +18,7 @@ export async function getClientReport(projectId: string, month: string, includeC
   const repos = await prisma.projectRepo.findMany({ where: { projectId }, select: { repoId: true } })
   const repoIds = repos.map((entry) => entry.repoId)
 
-  const [project, delivered, deployments, incidents, monitors, spend] = await Promise.all([
+  const [project, delivered, deployments, incidents, monitors, spend, time] = await Promise.all([
     prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { name: true, code: true } }),
     prisma.ticket.findMany({
       where: { projectId, completedAt: inMonth, status: { category: 'DONE' }, type: { kind: { notIn: ['DEPLOYMENT'] } } },
@@ -38,6 +39,7 @@ export async function getClientReport(projectId: string, month: string, includeC
     includeCosts
       ? prisma.aiUsageEvent.aggregate({ where: { projectId, createdAt: inMonth }, _sum: { costMicros: true, inputTokens: true, outputTokens: true }, _count: true })
       : Promise.resolve(null),
+    getProjectTime(projectId, from, to),
   ])
 
   const sections = RELEASE_SECTIONS.map((section) => ({
@@ -56,6 +58,7 @@ export async function getClientReport(projectId: string, month: string, includeC
       ...incident,
       hoursToFix: incident.completedAt ? Math.round(((incident.completedAt.getTime() - incident.createdAt.getTime()) / 3_600_000) * 10) / 10 : null,
     })),
+    time,
     uptime: monitors.map((monitor) => ({ name: monitor.name, percent: uptimePercent(monitor.checks), checks: monitor.checks.length })),
     spend: spend
       ? {

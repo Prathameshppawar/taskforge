@@ -12,6 +12,8 @@ import {
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { PeopleDirectoryProvider } from "@/components/shared/people-directory";
 import { getPeopleDirectory } from "@/features/profile/queries";
+import { getRunningTimer } from '@/features/time/queries'
+import { RunningTimer } from '@/features/time/components/running-timer'
 import {
   getNotificationPreferences,
   getUnreadCount,
@@ -21,11 +23,12 @@ export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const actor = await requireUser();
-  const [projects, unread, preferences, directory] = await Promise.all([
+  const [projects, unread, preferences, directory, timer] = await Promise.all([
     getSidebarProjects(actor),
     getUnreadCount(actor),
     getNotificationPreferences(actor),
     getPeopleDirectory(),
+    getRunningTimer(actor.id),
   ]);
   const aiEnabled = (await isCopilotAvailable());
 
@@ -43,6 +46,8 @@ export default async function AppLayout({
             <MobileNav projects={projects} permissions={actor.permissions} />
 
             <div className="flex-1" />
+
+            <RunningTimer timer={timer} />
 
             <ShellActions aiEnabled={aiEnabled} />
             <NotificationBell

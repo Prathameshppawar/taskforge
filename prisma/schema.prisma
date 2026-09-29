@@ -497,6 +497,7 @@ model User {
   recurringAssignee   RecurringTicket[]     @relation("RecurringAssignee")
   checklistDone       TicketChecklistItem[] @relation("ChecklistDoneBy")
   cyclesCreated       Cycle[]               @relation("CycleCreatedBy")
+  timeEntries         TimeEntry[]           @relation("TimeEntryUser")
   checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
@@ -806,44 +807,49 @@ model ProjectSettings {
   logoUrl          String?
 
   /// Roll a parent's status up automatically from its children's progress.
-  autoStatusRollup  Boolean @default(true)
+  autoStatusRollup  Boolean  @default(true)
   /// Allow creating child tickets under a parent.
-  allowSubtasks     Boolean @default(true)
+  allowSubtasks     Boolean  @default(true)
   /// Reject ticket creation without a due date.
-  requireDueDate    Boolean @default(false)
+  requireDueDate    Boolean  @default(false)
   /// Only members of the project may view it.
-  isPrivate         Boolean @default(false)
+  isPrivate         Boolean  @default(false)
   /// Let linked GitHub activity move tickets forward: a pull request opened
   /// moves one to Review, merged moves it to Done. Never moves one backward.
-  githubAutomation  Boolean @default(true)
+  githubAutomation  Boolean  @default(true)
   /// Let "Fix with AI" create and edit GitHub Actions workflows. Off by
   /// default: a workflow runs as soon as its pull request opens, so this is a
   /// deliberate per-project choice, and every workflow written is checked by
   /// `checkWorkflow` before it is committed.
-  aiWorkflows       Boolean @default(false)
+  aiWorkflows       Boolean  @default(false)
   /// When an AI-authored pull request's CI fails, let the Coder push a fix to
   /// it — at most twice per pull request, so a problem it cannot solve does
   /// not become an endless, billable loop.
-  aiAutoHeal        Boolean @default(false)
+  aiAutoHeal        Boolean  @default(false)
   /// SHA-256 of the secret in this project's error-ingest URL. Only the hash is
   /// kept; the URL is shown once, when it is generated.
-  errorIngestHash   String? @unique
+  errorIngestHash   String?  @unique
   /// AI pull requests open as drafts when the repository has CI, and are
   /// marked ready for review only once every check has passed.
-  aiDraftUntilGreen Boolean @default(false)
+  aiDraftUntilGreen Boolean  @default(false)
   /// Merge an AI pull request without a person, when every condition holds:
   /// see `evaluateAutoMerge`. Off by default, and deliberately narrow.
-  aiAutoMerge       Boolean @default(false)
+  aiAutoMerge       Boolean  @default(false)
   /// Largest change auto-merge will accept, in added plus deleted lines.
-  autoMergeMaxLines Int     @default(40)
+  autoMergeMaxLines Int      @default(40)
   /// Ticket kinds auto-merge may apply to, comma-separated.
-  autoMergeKinds    String  @default("TASK,ENHANCEMENT")
+  autoMergeKinds    String   @default("TASK,ENHANCEMENT")
   /// A ticket in progress, review or blocked for longer than this is flagged
   /// as stuck on the board. Null turns the flag off.
-  stuckAfterDays    Int?    @default(5)
+  stuckAfterDays    Int?     @default(5)
   /// Ticket kinds the priorities' response and resolution targets apply to,
   /// comma-separated.
-  slaKinds          String  @default("PRODUCTION,BUG")
+  slaKinds          String   @default("PRODUCTION,BUG")
+  /// What an hour of this project's billable time is charged at, for the
+  /// client report. Null shows hours only.
+  hourlyRate        Decimal? @db.Decimal(10, 2)
+  /// ISO 4217 code the rate is in.
+  currency          String   @default("USD")
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
@@ -1155,6 +1161,7 @@ model Ticket {
   checklist     TicketChecklistItem[]
   statusHistory TicketStatusChange[]
   cycleHistory  TicketCycleChange[]
+  timeEntries   TimeEntry[]
   slaAlerts     TicketSlaAlert[]
 
   createdAt DateTime @default(now())
@@ -1275,6 +1282,36 @@ model TicketCycleChange {
   @@index([toCycleId])
   @@index([fromCycleId])
   @@map("ticket_cycle_changes")
+}
+
+/// Time someone spent on a ticket: a running timer (no `endedAt`), a stopped
+/// one, or an entry typed in afterwards. Minutes are what counts; the start
+/// and end are kept so a day's timesheet can be read back.
+model TimeEntry {
+  id       String  @id @default(cuid())
+  ticketId String
+  ticket   Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  /// Nullable so the hours survive if an account is ever removed: billing
+  /// records outlive the people who made them.
+  userId   String?
+  user     User?   @relation("TimeEntryUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  startedAt DateTime
+  endedAt   DateTime?
+  /// Null only while a timer runs.
+  minutes   Int?
+  note      String?
+  billable  Boolean   @default(true)
+  /// TIMER or MANUAL.
+  source    String    @default("MANUAL")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ticketId])
+  @@index([userId, startedAt])
+  @@index([startedAt])
+  @@map("time_entries")
 }
 
 /// An SLA alert already sent, so each is sent once: "respond:warn",

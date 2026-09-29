@@ -192,7 +192,13 @@ export const getProjectDetail = cache(async (projectId: string) => {
     },
   })
 
-  return project
+  if (!project) return null
+  // The hourly rate is a NUMERIC, which Prisma returns as a Decimal instance —
+  // and these settings are handed to client components, which cannot take one.
+  const settings = project.settings
+    ? { ...project.settings, hourlyRate: project.settings.hourlyRate === null ? null : Number(project.settings.hourlyRate) }
+    : null
+  return { ...project, settings }
 })
 
 export type ProjectDetail = NonNullable<Awaited<ReturnType<typeof getProjectDetail>>>

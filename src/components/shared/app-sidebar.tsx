@@ -14,6 +14,7 @@ import {
   ListTodo,
   Plus,
   Settings,
+  Timer,
 } from 'lucide-react'
 import type { Permission } from '@/core/domain/rbac'
 import { WORKSPACE_PERMISSIONS } from '@/features/workspace/modules'
@@ -53,6 +54,7 @@ const MAIN_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/my-tickets', label: 'My Tickets', icon: ListTodo },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
+  { href: '/time', label: 'Timesheet', icon: Timer },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/activity', label: 'Activity', icon: Activity },
   {
