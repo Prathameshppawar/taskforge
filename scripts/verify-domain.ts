@@ -75,6 +75,8 @@ import { dailySeries, forecastCompletion, seededRandom } from '@/core/domain/for
 import { chunkMarkdown, isDocPath } from '@/core/domain/memory'
 import { isStale, nextAttemptAt } from '@/core/domain/jobs'
 import { appIconPng } from '@/lib/png'
+import { explain as explainFix } from '@/features/ai-fix/service'
+import { GithubApiError } from '@/infrastructure/github/client'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1358,6 +1360,14 @@ console.log('\n── Memory, and the job queue ──')
   check('retries back off: 1 min, 5 min, then longer', nextAttemptAt(1, t0).getTime() === 60_000 && nextAttemptAt(2, t0).getTime() === 300_000 && nextAttemptAt(9, t0).getTime() === 360 * 60_000)
   check('a lock held past ten minutes is stale', isStale(new Date(0), new Date(11 * 60_000)) && !isStale(new Date(0), new Date(60_000)) && !isStale(null, new Date()))
   check('the app icon is a PNG of the asked size', appIconPng(48).subarray(1, 4).toString() === 'PNG' && appIconPng(48).readUInt32BE(16) === 48)
+}
+
+console.log('\n── Fix with AI: saying what GitHub refused ──')
+{
+  const refused = new GithubApiError(403, '/repos/o/r/git/trees', 'Resource not accessible by integration')
+  check('a refused workflow write names the Workflows permission', explainFix(refused, true).includes('Workflows'))
+  check('any other refused write names Contents and Pull requests', explainFix(refused, false).includes('Contents and Pull requests'))
+  check('GitHub saying "workflow" is enough on its own', explainFix(new GithubApiError(422, '/repos/o/r/git/refs', 'refusing to allow a GitHub App to create or update workflow'), false).includes('Workflows'))
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)

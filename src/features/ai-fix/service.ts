@@ -286,7 +286,11 @@ export async function executeFixRun(runId: string): Promise<void> {
     await autoReview(ticket.id, repo.fullName, pull.number, run.requestedById)
   } catch (error) {
     console.error(`[ai-fix] run ${runId} failed:`, error)
-    await finish(runId, { status: 'FAILED', error: explain(error) })
+    // GitHub's refusal for a workflow file does not always say "workflow", so
+    // whether this run wrote one is read from its own record.
+    const record = await prisma.aiFixRun.findUnique({ where: { id: runId }, select: { transcript: true } }).catch(() => null)
+    const wroteWorkflow = /write_file \.github\/workflows\//.test(record?.transcript ?? '')
+    await finish(runId, { status: 'FAILED', error: explain(error, wroteWorkflow) })
   }
 }
 
@@ -368,11 +372,11 @@ async function finish(runId: string, data: Prisma.AiFixRunUpdateInput) {
 }
 
 /** A failure a person can act on, rather than a stack trace. */
-function explain(error: unknown): string {
+export function explain(error: unknown, wroteWorkflow = false): string {
   if (error instanceof AiProviderError) return error.message
   if (error instanceof GithubApiError) {
-    if (/workflow/i.test(error.message) && error.status >= 400 && error.status < 500) {
-      return 'GitHub refused to write a workflow file. The TaskForge app needs the Workflows permission (Read and write) — add it in the app’s settings on GitHub and accept it on the installation.'
+    if ((wroteWorkflow || /workflow/i.test(error.message)) && (error.status === 403 || error.status === 404 || /workflow/i.test(error.message)) && error.status >= 400 && error.status < 500) {
+      return 'GitHub refused to write a workflow file (.github/workflows). Workflow files need their own permission: in the TaskForge app’s settings on GitHub, set Repository permissions → Workflows to “Read and write”, then accept the new permission on the installation.'
     }
     if (error.status === 422 && /reference|fast.?forward|update is not a/i.test(error.message)) {
       return 'Someone pushed to the pull request while the fix was being written, so it was not applied. Run it again.'
