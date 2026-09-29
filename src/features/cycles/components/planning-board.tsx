@@ -63,6 +63,8 @@ import {
 import { CycleDialog, type CycleFormValue } from './cycle-dialog'
 import { CloseCycleDialog } from './close-cycle-dialog'
 import { ProposalDialog } from './proposal-dialog'
+import { ForecastLine } from '@/features/forecast/components/forecast-line'
+import type { CycleForecast } from '@/features/forecast/queries'
 
 const BACKLOG = 'backlog'
 
@@ -81,12 +83,14 @@ export function PlanningBoard({
   canPlan,
   canManage,
   plannerAvailable,
+  forecasts = {},
 }: {
   projectId: string
   planning: Planning
   canPlan: boolean
   canManage: boolean
   plannerAvailable: boolean
+  forecasts?: Record<string, CycleForecast | null>
 }) {
   const router = useRouter()
   const initial = React.useMemo<Section[]>(
@@ -334,6 +338,7 @@ export function PlanningBoard({
                     </div>
                   </div>
                   {cycle.goal && <p className="text-xs text-muted-foreground">Goal: {cycle.goal}</p>}
+                  <ForecastLine forecast={forecasts[cycle.id] ?? null} dueDate={cycle.endDate} />
                   <div className="flex items-center gap-3">
                     <Progress
                       value={cycle.capacity ? Math.min(100, (load / cycle.capacity) * 100) : load ? (done / load) * 100 : 0}

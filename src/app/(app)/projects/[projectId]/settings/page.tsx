@@ -8,6 +8,8 @@ import { WorkflowConfig } from '@/features/projects/components/workflow-config'
 import { FlowSettings } from '@/features/projects/components/flow-settings'
 import { BillingSettings } from '@/features/projects/components/billing-settings'
 import { CustomFieldsConfig } from '@/features/projects/components/custom-fields-config'
+import { AutomationSettings } from '@/features/memory/components/automation-settings'
+import { memoryStats } from '@/features/memory/index-service'
 import { ProjectEmailIntake } from '@/features/inbound-email/components/project-email-intake'
 import { getInboundSetting, projectIntakeAddress } from '@/features/inbound-email/service'
 import { getProjectRepos } from '@/features/github/queries'
@@ -36,7 +38,7 @@ export default async function ProjectSettingsPage({
   ])
 
   if (!project) notFound()
-  const [intake, monitors, fields, inbound] = await Promise.all([
+  const [intake, monitors, fields, inbound, memory] = await Promise.all([
     prisma.projectSettings.findUnique({ where: { projectId }, select: { errorIngestHash: true } }),
     getProjectMonitors(projectId),
     prisma.customField.findMany({
@@ -45,6 +47,7 @@ export default async function ProjectSettingsPage({
       select: { id: true, name: true, type: true, description: true, options: true, required: true, _count: { select: { values: true } } },
     }),
     getInboundSetting(),
+    memoryStats(projectId),
   ])
   const headerList = await headers()
   const origin = `${headerList.get('x-forwarded-proto') ?? 'http'}://${headerList.get('host')}`
@@ -57,6 +60,15 @@ export default async function ProjectSettingsPage({
       />
 
       <div className="mx-auto max-w-3xl space-y-8 p-4 sm:p-6">
+        {context.can.manageConfig && (
+          <p className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+            Moving from another tool?{' '}
+            <a href={`/projects/${projectId}/import`} className="font-medium text-primary hover:underline">
+              Import from Jira, Trello or a spreadsheet →
+            </a>
+          </p>
+        )}
+
         <ProjectSettingsForm
           canEdit={context.can.manageConfig}
           canArchive={context.can.archiveProject}
@@ -83,6 +95,21 @@ export default async function ProjectSettingsPage({
           repos={repos}
           canEdit={context.can.manageConfig}
           canManageIntegrations={can(context.actor, 'integration:manage')}
+        />
+
+        <Separator />
+
+        <AutomationSettings
+          projectId={projectId}
+          canEdit={context.can.manageConfig}
+          memory={memory}
+          values={{
+            memoryEnabled: project.settings?.memoryEnabled ?? true,
+            handbookAutoRefresh: project.settings?.handbookAutoRefresh ?? false,
+            triageAgent: project.settings?.triageAgent ?? false,
+            dailyDigest: project.settings?.dailyDigest ?? false,
+            liveUpdates: project.settings?.liveUpdates ?? false,
+          }}
         />
 
         <Separator />

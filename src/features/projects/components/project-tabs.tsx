@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Activity,
+  BookOpen,
   CalendarDays,
   CalendarRange,
   GanttChartSquare,
@@ -28,6 +29,7 @@ const TABS = [
   { segment: 'calendar', label: 'Calendar', icon: CalendarDays },
   { segment: 'timeline', label: 'Timeline', icon: GanttChartSquare },
   { segment: 'insights', label: 'Insights', icon: PieChart },
+  { segment: 'handbook', label: 'Handbook', icon: BookOpen },
   { segment: 'recurring', label: 'Recurring', icon: Repeat },
   { segment: 'labels', label: 'Labels', icon: Tags },
   { segment: 'members', label: 'Members', icon: Users },

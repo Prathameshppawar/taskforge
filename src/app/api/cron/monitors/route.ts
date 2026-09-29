@@ -4,6 +4,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { runDueMonitors } from '@/features/monitors/service'
 import { sweepSlaAlerts } from '@/features/tickets/flow'
 import { pollMailbox } from '@/features/inbound-email/service'
+import { drain } from '@/features/jobs/queue'
+import { sweepOutbox } from '@/features/webhooks-out/service'
 
 /**
  * Uptime checks, SLA alerts and email in, every five minutes.
@@ -40,5 +42,14 @@ export async function GET(request: NextRequest) {
       return { read: 0, outcomes: {}, error: error instanceof Error ? error.message : 'failed' }
     }),
   ])
-  return NextResponse.json({ ok: true, ...result, sla, email, durationMs: Date.now() - started })
+  // Webhook events from the histories, then whatever background work is due.
+  const outbox = await sweepOutbox().catch((error) => {
+    console.error('[cron] outbox sweep failed:', error)
+    return { queued: 0 }
+  })
+  const jobs = await drain({ limit: 20, budgetMs: 30_000 }).catch((error) => {
+    console.error('[cron] job drain failed:', error)
+    return { ran: 0, failed: -1 }
+  })
+  return NextResponse.json({ ok: true, ...result, sla, email, outbox, jobs, durationMs: Date.now() - started })
 }

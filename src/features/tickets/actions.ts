@@ -27,6 +27,7 @@ import {
 import { describeLink, ticketAudience, validateLink } from './relations'
 import { assertCanEnter } from './transitions'
 import { actingVia } from '@/features/auth/acting-as'
+import { triageLater } from '@/features/triage-agent/service'
 import { writeInitialFieldValues } from './fields'
 import { suggestTriage, type TriageSuggestion } from './triage'
 import {
@@ -228,6 +229,7 @@ export async function createTicketAction(
 
     alertManagersOfUrgentTicketLater(ticket.id, actor.id)
     announceTicketLater(ticket.id)
+    triageLater(ticket.id, data.projectId)
     revalidateTicket(data.projectId, ticket.key)
     return ok({ id: ticket.id, key: ticket.key })
   })

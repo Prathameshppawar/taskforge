@@ -29,6 +29,8 @@ export default auth((request) => {
     pathname.startsWith('/api/cron') ||
     // Bearer-token authenticated; a redirect to /login would be nonsense here.
     pathname.startsWith('/api/mcp') ||
+    // The REST API, bearer-token authenticated like the MCP bridge.
+    pathname.startsWith('/api/v1/') ||
     // Signed by GitHub with the app's webhook secret; verified in the route.
     pathname === '/api/github/webhook' ||
     // Signed by the Bot Connector; the route verifies the token itself.
@@ -109,6 +111,6 @@ export const config = {
      * must be excluded explicitly or the browser asks for a favicon and is
      * redirected to the sign-in page — which renders as a missing icon.
      */
-    '/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|pwa-icon|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

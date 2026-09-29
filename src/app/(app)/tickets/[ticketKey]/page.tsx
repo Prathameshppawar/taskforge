@@ -23,6 +23,7 @@ import { getTicketFlow } from '@/features/tickets/flow'
 import { getTicketTime } from '@/features/time/queries'
 import { TicketTimePanel } from '@/features/time/components/ticket-time'
 import { CustomFieldsPanel } from '@/features/tickets/components/custom-fields-panel'
+import { TriageUndo } from '@/features/triage-agent/components/triage-undo'
 import { WatchButton } from '@/features/tickets/components/watch-button'
 import { listTicketLinks } from '@/features/tickets/relations'
 import { listAttachments } from '@/features/attachments/actions'
@@ -96,6 +97,7 @@ export default async function TicketDetailPage({
   ])
 
   const canEdit = context.can.updateTicket
+  const triage = await prisma.triageRun.findFirst({ where: { ticketId: ticket.id, undoneAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, summary: true } })
   const canCode = canEdit && can(actor, 'ai:code')
   const aiFix = canCode ? await getAiFixPanel(ticket.id, ticket.project.id, actor.id) : null
   const kind = await prisma.ticketType.findUnique({ where: { id: ticket.type.id }, select: { kind: true } })
@@ -290,6 +292,8 @@ export default async function TicketDetailPage({
 
         {/* Sidebar */}
         <div className="space-y-4 lg:border-l lg:pl-6">
+          <TriageUndo run={triage} canEdit={canEdit} />
+
           <TicketDetailSidebar
             ticketId={ticket.id}
             canEdit={canEdit}

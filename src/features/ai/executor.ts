@@ -142,6 +142,26 @@ export async function executeTool(
       return updateTicket(parsed.data as never, context)
     case 'project_insights':
       return projectInsights(parsed.data as never, context)
+    case 'search_memory':
+      return searchProjectMemory(parsed.data as never, context)
+  }
+}
+
+type MemoryArgs = ReturnType<(typeof TOOL_SCHEMAS)['search_memory']['parse']>
+
+/** What the project already knows about something: past tickets, docs, the handbook. */
+async function searchProjectMemory(args: MemoryArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  const project = await resolveProject(ctx.actor, args.projectCode, ctx.currentProjectId)
+  const { searchMemory } = await import('@/features/memory/index-service')
+  const hits = await searchMemory(project.id, args.query, 5)
+  if (hits.length === 0) {
+    return { ok: true, summary: `Nothing in ${project.name}'s memory matches. It indexes finished tickets, linked repositories' docs and the handbook.` }
+  }
+  return {
+    ok: true,
+    summary: `From ${project.name}'s memory:\n${hits
+      .map((hit, index) => `${index + 1}. ${hit.title}${hit.url ? ` (${hit.url})` : ''}\n${hit.text.replace(/\s+/g, ' ').slice(0, 280)}`)
+      .join('\n')}\nCite the keys or links you use.`,
   }
 }
 

@@ -70,6 +70,11 @@ import { isAutomated, projectAddress, routeMessage, senderAuthenticated, stripQu
 import { BOT_ISSUER, cardMarkdown, checkBotClaims, draftCard, draftReady, isTrustedServiceUrl, parseCommand, stripMentions } from '@/core/domain/msteams'
 import { verifyBotJwt } from '@/infrastructure/msteams/client'
 import { appPackage, teamsManifest } from '@/features/msteams/app-package'
+import { detectSource, guessCategory, guessMapping, itemsFromCsv, itemsFromTrello, matchValue, parseCsv, parseLooseDate } from '@/core/domain/import'
+import { dailySeries, forecastCompletion, seededRandom } from '@/core/domain/forecast'
+import { chunkMarkdown, isDocPath } from '@/core/domain/memory'
+import { isStale, nextAttemptAt } from '@/core/domain/jobs'
+import { appIconPng } from '@/lib/png'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -110,7 +115,7 @@ function check(name: string, condition: boolean, detail?: string) {
 
 console.log('\n── AI tool contracts ──')
 const defs = getToolDefinitions()
-check('8 tools defined', defs.length === 8, `got ${defs.length}`)
+check('9 tools defined', defs.length === 9, `got ${defs.length}`)
 check('no $schema leaks to the provider', defs.every((d) => !('$schema' in d.parameters)))
 check('every tool has a description', defs.every((d) => d.description.trim().length > 0))
 
@@ -118,10 +123,12 @@ check('every tool has a description', defs.every((d) => d.description.trim().len
 // tool payload is re-sent on every request. An arbitrary minimum description
 // length is not the property worth protecting — the total budget is. Guard it,
 // so a future edit cannot quietly cost the user conversations per minute.
+// Raised from 1,100 to 1,200 for search_memory, which replaces several
+// searches with one and so costs less per conversation than it adds per call.
 const payloadTokens = Math.ceil(JSON.stringify(defs).length / 4)
 check(
-  `tool payload within budget (${payloadTokens} tokens, limit 1100)`,
-  payloadTokens <= 1100,
+  `tool payload within budget (${payloadTokens} tokens, limit 1200)`,
+  payloadTokens <= 1200,
   `${payloadTokens} tokens — trim tool descriptions`,
 )
 check('every tool exposes properties', defs.every((d) => 'properties' in d.parameters))
@@ -1292,6 +1299,65 @@ console.log('\n── Microsoft Teams: which tokens to believe, and what a messa
   const pkg = appPackage({ appId, host: 'taskforge.example', appName: 'TaskForge' })
   check('the app package is a zip with its manifest', pkg.subarray(0, 2).toString() === 'PK' && pkg.includes(Buffer.from('manifest.json')) && pkg.includes(Buffer.from(appId)))
   check('the manifest names the bot and the domain', teamsManifest({ appId, host: 'taskforge.example', appName: 'TaskForge' }).bots[0].botId === appId)
+}
+
+console.log('\n── Import: other trackers’ exports ──')
+{
+  const jira = 'Summary,Issue key,Issue Type,Status,Priority,Assignee,Created,Labels,Labels,Custom field (Story Points),Comment,Parent\n"Fix ""login"", now",ABC-2,Bug,In Progress,High,jo@x.com,29/Sep/26 2:03 PM,web,urgent,3,"29/Sep/26 3:00 PM;acc1;Looks bad\nsecond line",ABC-1\nEpic one,ABC-1,Epic,Done,Medium,,01/Sep/26 9:00 AM,,,,,\n'
+  const rows = parseCsv(jira)
+  check('a Jira export is recognised', detectSource('export.csv', jira) === 'jira' && detectSource('board.json', '{}') === 'trello' && detectSource('x.csv', 'Title,Status\na,b') === 'csv')
+  check('quotes, doubled quotes and newlines inside cells parse', rows[1][0] === 'Fix "login", now' && rows[1][10].includes('\n'))
+  const mapping = guessMapping(rows[0])
+  check('columns are guessed, repeated Labels kept', mapping[0] === 'title' && mapping[1] === 'ref' && mapping.filter((field) => field === 'labels').length === 2 && mapping[9] === 'storyPoints')
+  const [first] = itemsFromCsv(rows, mapping, 'jira')
+  check('a Jira row becomes an item', first.ref === 'ABC-2' && first.labels.join() === 'web,urgent' && first.storyPoints === 3 && first.parentRef === 'ABC-1')
+  check('Jira comments keep their date', first.comments[0].at === '2026-09-29T15:00:00.000Z' && first.comments[0].body.startsWith('Looks bad'))
+  check('Jira dates read as UTC', parseLooseDate('29/Sep/26 2:03 PM') === '2026-09-29T14:03:00.000Z' && parseLooseDate('29 Sep 2026') === '2026-09-29T00:00:00.000Z')
+  check('nonsense is not a date', parseLooseDate('next week') === null)
+  const trello = itemsFromTrello(JSON.stringify({
+    lists: [{ id: 'l1', name: 'Doing' }],
+    cards: [{ id: 'c1', idShort: 4, name: 'Card', idList: 'l1', labels: [{ name: 'ui' }] }, { id: 'c2', name: 'Old', idList: 'l1', closed: true }],
+    checklists: [{ id: 'k', idCard: 'c1', checkItems: [{ name: 'second', state: 'incomplete', pos: 2 }, { name: 'first', state: 'complete', pos: 1 }] }],
+    actions: [{ type: 'commentCard', date: '2026-09-01T10:00:00Z', data: { card: { id: 'c1' }, text: 'hi' }, memberCreator: { fullName: 'Jo' } }],
+  }))
+  check('a Trello card becomes an item, its list its status', trello.length === 1 && trello[0].status === 'Doing' && trello[0].ref === '#4')
+  check('archived cards stay behind', !trello.some((item) => item.title === 'Old'))
+  check('checklists become criteria, in order and with their state', trello[0].criteria.map((c) => `${c.text}:${c.done}`).join() === 'first:true,second:false')
+  check('Trello comments come along', trello[0].comments[0].author === 'Jo')
+  check('status names are read for their meaning', guessCategory("Won't do") === 'CANCELLED' && guessCategory('QA') === 'REVIEW' && guessCategory('Doing') === 'IN_PROGRESS' && guessCategory('Icebox') === 'BACKLOG')
+  const ours = [{ id: '1', name: 'Open', category: 'TODO' as const }, { id: '2', name: 'Shipped', category: 'DONE' as const }]
+  check('a value matches exactly first, then by meaning', matchValue('open', ours, true)?.id === '1' && matchValue('Closed', ours, true)?.id === '2')
+}
+
+console.log('\n── Forecasts: when will it be done ──')
+{
+  const busy = Array.from({ length: 28 }, (_, day) => (day % 7 >= 5 ? 0 : 2))
+  const result = forecastCompletion({ dailyThroughput: busy, remaining: 20, daysToDue: 14, seed: 7 })
+  check('a steady team finishing 10 a week needs about two weeks for 20', result.ok && result.forecast.p50 >= 12 && result.forecast.p50 <= 15)
+  check('the confidences are ordered', result.ok && result.forecast.p50 <= result.forecast.p85 && result.forecast.p85 <= result.forecast.p95)
+  check('the chance of the due date is a share of runs', result.ok && result.forecast.onTime! >= 0 && result.forecast.onTime! <= 1)
+  check('the same seed gives the same answer', JSON.stringify(forecastCompletion({ dailyThroughput: busy, remaining: 20, seed: 7 })) === JSON.stringify(forecastCompletion({ dailyThroughput: busy, remaining: 20, seed: 7 })))
+  check('too little history says so rather than guessing', !forecastCompletion({ dailyThroughput: [1, 1, 1], remaining: 5 }).ok)
+  check('a team that finished nothing cannot be forecast', !forecastCompletion({ dailyThroughput: Array(30).fill(0), remaining: 5 }).ok)
+  check('nothing left is done today', (forecastCompletion({ dailyThroughput: [], remaining: 0 }) as { ok: true; forecast: { p85: number } }).forecast.p85 === 0)
+  const now = new Date(Date.UTC(2026, 9, 10, 12))
+  const series = dailySeries([{ at: new Date(Date.UTC(2026, 9, 10, 1)), weight: 3 }, { at: new Date(Date.UTC(2026, 9, 9, 23)), weight: 1 }, { at: new Date(Date.UTC(2026, 8, 1)), weight: 9 }], 3, now)
+  check('completions land on their day, older ones outside the window', series.join() === '0,1,3')
+  const random = seededRandom(1)
+  check('the generator stays in [0, 1)', Array.from({ length: 1000 }, random).every((value) => value >= 0 && value < 1))
+}
+
+console.log('\n── Memory, and the job queue ──')
+{
+  const chunks = chunkMarkdown('# Setup\nInstall it.\n\n## Deploy\n' + 'word '.repeat(400) + '\n\n```\n# not a heading\n```')
+  check('docs split at headings and carry them', chunks[0].heading === 'Setup' && chunks.some((chunk) => chunk.heading === 'Deploy'))
+  check('no piece is longer than the limit', chunks.every((chunk) => chunk.text.length <= 1200))
+  check('a # inside a code block is not a heading', !chunks.some((chunk) => chunk.heading === 'not a heading'))
+  check('READMEs and docs are documentation; node_modules is not', isDocPath('README.md') && isDocPath('docs/setup/deploy.md') && isDocPath('AGENTS.md') && !isDocPath('node_modules/x/README.md') && !isDocPath('src/app.ts'))
+  const t0 = new Date(0)
+  check('retries back off: 1 min, 5 min, then longer', nextAttemptAt(1, t0).getTime() === 60_000 && nextAttemptAt(2, t0).getTime() === 300_000 && nextAttemptAt(9, t0).getTime() === 360 * 60_000)
+  check('a lock held past ten minutes is stale', isStale(new Date(0), new Date(11 * 60_000)) && !isStale(new Date(0), new Date(60_000)) && !isStale(null, new Date()))
+  check('the app icon is a PNG of the asked size', appIconPng(48).subarray(1, 4).toString() === 'PNG' && appIconPng(48).readUInt32BE(16) === 48)
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)

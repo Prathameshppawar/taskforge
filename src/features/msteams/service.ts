@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { getMember, sendActivity, type OutgoingActivity } from '@/infrastructure/msteams/client'
+import { getMember, sendActivity, teamsStatus, type OutgoingActivity } from '@/infrastructure/msteams/client'
 import { actAs, loadActor } from '@/features/auth/acting-as'
 import { requireProjectPermission, type Actor } from '@/features/auth/guards'
 import { createTicketAction } from '@/features/tickets/actions'
@@ -361,7 +361,7 @@ async function createFromDraft(activity: Activity, conversation: Conversation, a
  * from Teams are not echoed back — the thread that made them already knows.
  */
 export async function announceTicket(ticketId: string, via: string | null) {
-  if (via === 'teams') return
+  if (via === 'teams' || !(await teamsStatus()).connected) return
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketId },
     select: { key: true, title: true, projectId: true, priority: { select: { name: true } }, type: { select: { name: true } }, reporter: { select: { name: true } } },

@@ -5,6 +5,7 @@ import { getPlanning } from '@/features/cycles/queries'
 import { PlanningBoard } from '@/features/cycles/components/planning-board'
 import { agentEngine } from '@/features/ai-admin/engines'
 import { PageHeader } from '@/components/shared/page-header'
+import { forecastCycle } from '@/features/forecast/queries'
 
 export const metadata: Metadata = { title: 'Plan' }
 
@@ -12,6 +13,9 @@ export default async function PlanPage({ params }: { params: Promise<{ projectId
   const { projectId } = await params
   const context = await getProjectViewContext(projectId)
   const [planning, planner] = await Promise.all([getPlanning(context.actor, projectId), agentEngine('planner')])
+  const forecasts = Object.fromEntries(
+    await Promise.all(planning.cycles.map(async (cycle) => [cycle.id, await forecastCycle(cycle.id)] as const)),
+  )
 
   return (
     <div className="h-full overflow-y-auto">
@@ -26,6 +30,7 @@ export default async function PlanPage({ params }: { params: Promise<{ projectId
           canPlan={context.can.updateTicket}
           canManage={context.can.manageConfig}
           plannerAvailable={planner !== null}
+          forecasts={forecasts}
         />
       </div>
     </div>

@@ -33,6 +33,8 @@ declare module '@auth/core/jwt' {
     sessionVersion: number
     /** Epoch ms of the last database revalidation of this token. */
     checkedAt: number
+    /** The single sign-on provider this session came from, if any. */
+    sso?: string
   }
 }
 

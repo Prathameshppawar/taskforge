@@ -9,6 +9,8 @@ import { getInboundOverview } from '@/features/inbound-email/queries'
 import { EmailInCard } from '@/features/inbound-email/components/email-in-card'
 import { teamsStatus } from '@/infrastructure/msteams/client'
 import { TeamsCard } from '@/features/msteams/components/teams-card'
+import { WebhooksCard } from '@/features/webhooks-out/components/webhooks-card'
+import { queueSummary } from '@/features/jobs/queue'
 import { prisma } from '@/infrastructure/db/prisma'
 import { headers } from 'next/headers'
 import { PageHeader } from '@/components/shared/page-header'
@@ -33,7 +35,7 @@ export default async function IntegrationsPage({
   searchParams: Promise<{ error?: string; installed?: string }>
 }) {
   await requirePermissionPage('integration:manage')
-  const [{ error, installed }, overview, vercel, inbound, teams, channels, headerList] = await Promise.all([
+  const [{ error, installed }, overview, vercel, inbound, teams, channels, headerList, hooks, projects, jobs] = await Promise.all([
     searchParams,
     getIntegrationOverview(),
     vercelStatus(),
@@ -45,6 +47,12 @@ export default async function IntegrationsPage({
       take: 20,
     }),
     headers(),
+    prisma.outboundWebhook.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, url: true, events: true, active: true, lastStatus: true, lastError: true, lastDeliveredAt: true, project: { select: { name: true } } },
+    }),
+    prisma.project.findMany({ where: { isArchived: false }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    queueSummary(),
   ])
   const origin = `${headerList.get('x-forwarded-proto') ?? 'https'}://${headerList.get('host')}`
 
@@ -73,6 +81,12 @@ export default async function IntegrationsPage({
           status={teams}
           endpoint={`${origin}/api/msteams/messages`}
           channels={channels.map((channel) => ({ name: channel.name, project: channel.project?.name ?? null }))}
+        />
+        <WebhooksCard
+          apiBase={origin}
+          projects={projects}
+          jobs={jobs}
+          hooks={hooks.map(({ project, ...hook }) => ({ ...hook, project: project?.name ?? null }))}
         />
       </div>
     </div>

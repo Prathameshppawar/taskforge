@@ -94,6 +94,18 @@ export async function gatherTicketContext(ticketId: string, installationId: bigi
     add(label, [resource.notes, text ?? '(could not be read here — it may need a sign-in; treat the link as a reference)'].filter(Boolean).join('\n\n'))
   }
 
+  // What the project already knows that looks like this: how similar work
+  // went before, and what the docs say. Only strong matches, and never the
+  // ticket itself.
+  const self = await prisma.ticket.findUnique({ where: { id: ticketId }, select: { key: true, title: true, description: true, projectId: true } })
+  if (self) {
+    const { searchMemory } = await import('@/features/memory/index-service')
+    const hits = (await searchMemory(self.projectId, `${self.title}\n${self.description ?? ''}`.slice(0, 1000), 4, 0.45).catch(() => [])).filter(
+      (hit) => !hit.title.startsWith(`${self.key}:`),
+    )
+    if (hits.length) add('Related past work and docs (from project memory)', hits.slice(0, 3).map((hit) => `- ${hit.title}${hit.url ? ` (${hit.url})` : ''}\n  ${hit.text.replace(/\s+/g, ' ').slice(0, 500)}`).join('\n'))
+  }
+
   return sections.length ? sections.join('\n\n') : null
 }
 

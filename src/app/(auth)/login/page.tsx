@@ -6,18 +6,28 @@ import { getCurrentUser } from '@/features/auth/guards'
 import { LoginForm } from '@/features/auth/components/login-form'
 import { ThemeToggle } from '@/components/shared/theme-toggle'
 import { APP_NAME } from '@/lib/env'
+import { signIn } from '@/auth'
+import { ssoOptions } from '@/features/sso/providers'
+import { Button } from '@/components/ui/button'
+
+const SSO_ERRORS: Record<string, string> = {
+  'no-account': 'That account is not in this workspace. Ask your administrator to add you with the same email.',
+  unverified: 'Your provider has not verified that email address, so it cannot be used to sign in.',
+  inactive: 'Your account has been deactivated.',
+}
 
 export const metadata: Metadata = { title: 'Sign in' }
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ callbackUrl?: string }>
+  searchParams: Promise<{ callbackUrl?: string; error?: string }>
 }) {
   const user = await getCurrentUser()
   if (user) redirect('/dashboard')
 
-  const { callbackUrl } = await searchParams
+  const { callbackUrl, error } = await searchParams
+  const sso = ssoOptions()
 
   return (
     <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-muted/30 p-4">
@@ -47,6 +57,31 @@ export default async function LoginPage({
         </div>
 
         <div className="rounded-xl border bg-card p-6 shadow-sm">
+          {error && SSO_ERRORS[error] && (
+            <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+              {SSO_ERRORS[error]}
+            </p>
+          )}
+          {sso.length > 0 && (
+            <div className="mb-5 space-y-2">
+              {sso.map((option) => (
+                <form
+                  key={option.id}
+                  action={async () => {
+                    'use server'
+                    await signIn(option.id, { redirectTo: callbackUrl && callbackUrl.startsWith('/') ? callbackUrl : '/dashboard' })
+                  }}
+                >
+                  <Button type="submit" variant="outline" className="w-full">
+                    Continue with {option.label}
+                  </Button>
+                </form>
+              ))}
+              <div className="flex items-center gap-3 py-1 text-xs text-muted-foreground">
+                <span className="h-px flex-1 bg-border" /> or with your username <span className="h-px flex-1 bg-border" />
+              </div>
+            </div>
+          )}
           <LoginForm callbackUrl={callbackUrl} />
         </div>
 

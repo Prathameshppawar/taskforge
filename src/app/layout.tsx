@@ -19,6 +19,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
   applicationName: APP_NAME,
   manifest: '/manifest.webmanifest',
+  appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {

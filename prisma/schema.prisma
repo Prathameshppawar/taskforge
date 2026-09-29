@@ -513,6 +513,7 @@ model User {
   bulkOperations      BulkOperation[]       @relation("BulkOperationActor")
   inboundEmails       InboundEmail[]        @relation("InboundEmailSender")
   teamsAccounts       MsTeamsUser[]         @relation("MsTeamsAccount")
+  documentsWritten    ProjectDocument[]     @relation("DocumentAuthor")
   checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
@@ -789,6 +790,9 @@ model Project {
   cycles           Cycle[]
   customFields     CustomField[]
   teamsChannels    MsTeamsConversation[]
+  memoryChunks     MemoryChunk[]
+  documents        ProjectDocument[]
+  webhooks         OutboundWebhook[]
   activities       ActivityLog[]
   recurringTickets RecurringTicket[]
   savedFilters     SavedFilter[]
@@ -824,51 +828,63 @@ model ProjectSettings {
   logoUrl          String?
 
   /// Roll a parent's status up automatically from its children's progress.
-  autoStatusRollup  Boolean  @default(true)
+  autoStatusRollup    Boolean  @default(true)
   /// Allow creating child tickets under a parent.
-  allowSubtasks     Boolean  @default(true)
+  allowSubtasks       Boolean  @default(true)
   /// Reject ticket creation without a due date.
-  requireDueDate    Boolean  @default(false)
+  requireDueDate      Boolean  @default(false)
   /// Only members of the project may view it.
-  isPrivate         Boolean  @default(false)
+  isPrivate           Boolean  @default(false)
   /// Let linked GitHub activity move tickets forward: a pull request opened
   /// moves one to Review, merged moves it to Done. Never moves one backward.
-  githubAutomation  Boolean  @default(true)
+  githubAutomation    Boolean  @default(true)
   /// Let "Fix with AI" create and edit GitHub Actions workflows. Off by
   /// default: a workflow runs as soon as its pull request opens, so this is a
   /// deliberate per-project choice, and every workflow written is checked by
   /// `checkWorkflow` before it is committed.
-  aiWorkflows       Boolean  @default(false)
+  aiWorkflows         Boolean  @default(false)
   /// When an AI-authored pull request's CI fails, let the Coder push a fix to
   /// it — at most twice per pull request, so a problem it cannot solve does
   /// not become an endless, billable loop.
-  aiAutoHeal        Boolean  @default(false)
+  aiAutoHeal          Boolean  @default(false)
   /// SHA-256 of the secret in this project's error-ingest URL. Only the hash is
   /// kept; the URL is shown once, when it is generated.
-  errorIngestHash   String?  @unique
+  errorIngestHash     String?  @unique
   /// AI pull requests open as drafts when the repository has CI, and are
   /// marked ready for review only once every check has passed.
-  aiDraftUntilGreen Boolean  @default(false)
+  aiDraftUntilGreen   Boolean  @default(false)
   /// Merge an AI pull request without a person, when every condition holds:
   /// see `evaluateAutoMerge`. Off by default, and deliberately narrow.
-  aiAutoMerge       Boolean  @default(false)
+  aiAutoMerge         Boolean  @default(false)
   /// Largest change auto-merge will accept, in added plus deleted lines.
-  autoMergeMaxLines Int      @default(40)
+  autoMergeMaxLines   Int      @default(40)
   /// Ticket kinds auto-merge may apply to, comma-separated.
-  autoMergeKinds    String   @default("TASK,ENHANCEMENT")
+  autoMergeKinds      String   @default("TASK,ENHANCEMENT")
   /// A ticket in progress, review or blocked for longer than this is flagged
   /// as stuck on the board. Null turns the flag off.
-  stuckAfterDays    Int?     @default(5)
+  stuckAfterDays      Int?     @default(5)
   /// Ticket kinds the priorities' response and resolution targets apply to,
   /// comma-separated.
-  slaKinds          String   @default("PRODUCTION,BUG")
+  slaKinds            String   @default("PRODUCTION,BUG")
   /// What an hour of this project's billable time is charged at, for the
   /// client report. Null shows hours only.
-  hourlyRate        Decimal? @db.Decimal(10, 2)
+  hourlyRate          Decimal? @db.Decimal(10, 2)
   /// ISO 4217 code the rate is in.
-  currency          String   @default("USD")
+  currency            String   @default("USD")
   /// Whether email to this project's address (mailbox+code@) becomes tickets.
-  emailIntake       Boolean  @default(false)
+  emailIntake         Boolean  @default(false)
+  /// Index finished tickets and the repositories' docs for search and the
+  /// agents. Computed in-process, so it costs nothing but database space.
+  memoryEnabled       Boolean  @default(true)
+  /// Regenerate the project handbook every Monday.
+  handbookAutoRefresh Boolean  @default(false)
+  /// Let TaskForge Triage fill in what a new ticket left at its defaults.
+  triageAgent         Boolean  @default(false)
+  /// Email the managers (and post to linked Teams channels) a morning summary.
+  dailyDigest         Boolean  @default(false)
+  /// Refresh the board and table when someone else changes a ticket. Polls
+  /// lightly while the tab is visible, so it is off unless asked for.
+  liveUpdates         Boolean  @default(false)
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
@@ -1161,6 +1177,9 @@ model Ticket {
   cycle       Cycle?  @relation(fields: [cycleId], references: [id], onDelete: SetNull)
   /// Order in the backlog, lowest first; null sorts after every ranked ticket.
   backlogRank Float?
+  /// Where an imported ticket came from — "jira:ABC-12", "trello:#4" — so a
+  /// second run of the same import skips what the first already brought in.
+  externalRef String?
 
   /// Set when the ticket was materialized by a RecurringTicket schedule.
   recurringTicketId String?
@@ -1188,12 +1207,14 @@ model Ticket {
   timeEntries   TimeEntry[]
   fieldValues   TicketFieldValue[]
   inboundEmails InboundEmail[]
+  triageRuns    TriageRun[]
   slaAlerts     TicketSlaAlert[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([projectId, number])
+  @@unique([projectId, externalRef])
   @@index([projectId, statusId])
   @@index([projectId, isArchived])
   @@index([assigneeId, statusId])
@@ -1436,6 +1457,146 @@ model MsTeamsUser {
 
   @@index([userId])
   @@map("msteams_users")
+}
+
+/// A piece of project knowledge, embedded for search: a finished ticket and
+/// how it was resolved, a section of a repository's docs, the handbook.
+/// Capped per project, because the free database is small.
+model MemoryChunk {
+  id         String                 @id @default(cuid())
+  projectId  String
+  project    Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// TICKET, REPO_DOC or HANDBOOK.
+  sourceType String
+  sourceId   String
+  chunkIndex Int                    @default(0)
+  title      String
+  url        String?
+  text       String
+  /// md5 of `text`, so an unchanged source is not embedded again.
+  hash       String
+  /// 384-dimension sentence embedding, like tickets'. Raw SQL only.
+  embedding  Unsupported("real[]")?
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, sourceType, sourceId, chunkIndex])
+  @@index([projectId])
+  @@map("memory_chunks")
+}
+
+/// A generated or edited project document, every version kept. The handbook
+/// is the first kind: what a new member reads on their first day.
+model ProjectDocument {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind      String  @default("HANDBOOK")
+  version   Int
+  title     String
+  body      String
+  /// AI, FACTS (assembled without a model) or EDIT (a person's revision).
+  source    String
+  engine    String?
+  authorId  String?
+  author    User?   @relation("DocumentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, kind, version])
+  @@map("project_documents")
+}
+
+/// The latest version of a document someone has opened.
+model ProjectDocumentRead {
+  userId    String
+  projectId String
+  kind      String
+  version   Int
+  readAt    DateTime @default(now())
+
+  @@id([userId, projectId, kind])
+  @@map("project_document_reads")
+}
+
+/// What TaskForge Triage changed on a ticket, so it can be undone.
+model TriageRun {
+  id       String    @id @default(cuid())
+  ticketId String
+  ticket   Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  /// { field: { from, to } } for each field it set.
+  changes  Json
+  summary  String
+  undoneAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("triage_runs")
+}
+
+/// An HTTP endpoint told about ticket events, signed with HMAC-SHA256 like
+/// GitHub's webhooks. Deliveries go through the job queue, with retries.
+model OutboundWebhook {
+  id          String   @id @default(cuid())
+  name        String
+  url         String
+  secretEnc   String
+  /// ticket.created, ticket.status_changed, ticket.completed, comment.created
+  events      String[]
+  /// Null means every project.
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  active      Boolean  @default(true)
+  createdById String?
+
+  lastStatus      Int?
+  lastError       String?
+  lastDeliveredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("outbound_webhooks")
+}
+
+/// How far the webhook outbox has read the histories. One row.
+model OutboxCursor {
+  id              Int      @id @default(1)
+  statusChangesAt DateTime @default(now())
+  commentsAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("outbox_cursor")
+}
+
+/// Background work, queued in Postgres: webhook deliveries, triage, indexing.
+///
+/// A free-tier stand-in for a job service. Jobs are claimed with
+/// `FOR UPDATE SKIP LOCKED`, so two drains never take the same one; a failed
+/// job is retried with backoff; a job left RUNNING by a function that died is
+/// taken back after ten minutes. Drained right after the request that queued
+/// it, and by the five-minute cron for anything left over.
+model Job {
+  id          String    @id @default(cuid())
+  kind        String
+  payload     Json
+  /// PENDING, RUNNING, DONE or FAILED.
+  status      String    @default("PENDING")
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  runAt       DateTime  @default(now())
+  lockedAt    DateTime?
+  lastError   String?
+  /// Queuing the same key twice while the first is pending is a no-op.
+  dedupeKey   String?   @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, runAt])
+  @@index([kind, status])
+  @@map("jobs")
 }
 
 /// Email in, for the whole workspace. One row.

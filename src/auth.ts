@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { authConfig } from '@/auth.config'
 import { prisma } from '@/infrastructure/db/prisma'
 import { verifyPassword, fakeVerify } from '@/infrastructure/auth/password'
+import { ssoProviders, verifiedEmail } from '@/features/sso/providers'
 
 /**
  * Node-runtime Auth.js instance.
@@ -139,14 +140,61 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       },
     }),
+    ...ssoProviders(),
   ],
 
   callbacks: {
     ...authConfig.callbacks,
 
+    /**
+     * Single sign-on admits only existing accounts: the provider's verified
+     * email must match an active, human TaskForge account. Nothing is
+     * created, so accounts stay provisioned by an administrator, and an agent
+     * account can no more sign in this way than with a password.
+     */
+    async signIn({ account, profile }) {
+      if (!account || account.provider === 'credentials') return true
+      const email = verifiedEmail(account.provider, profile as Record<string, unknown> | undefined)
+      if (!email) return '/login?error=unverified'
+      const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: { id: true, isActive: true, isAgent: true },
+      })
+      if (!user || user.isAgent) return '/login?error=no-account'
+      if (!user.isActive) return '/login?error=inactive'
+      return true
+    },
+
     async jwt(params) {
       // Run the shared edge-safe logic first (sign-in hydration, update trigger).
       const token = authConfig.callbacks.jwt(params)
+
+      // A single sign-on: the token is filled from the TaskForge account the
+      // provider's email matched, never from the provider's profile.
+      if (params.user && params.account && params.account.provider !== 'credentials') {
+        const email = verifiedEmail(params.account.provider, params.profile as Record<string, unknown> | undefined)
+        const user = email
+          ? await prisma.user.findFirst({
+              where: { email: { equals: email, mode: 'insensitive' }, isActive: true, isAgent: false },
+              select: { id: true, username: true, name: true, avatarColor: true, sessionVersion: true, role: { select: { key: true } } },
+            })
+          : null
+        if (!user) return null
+        await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+        token.id = user.id
+        token.username = user.username
+        token.name = user.name
+        token.role = user.role.key
+        token.isActive = true
+        // Proven by the provider; there is no temporary password to replace.
+        token.mustChangePassword = false
+        token.avatarColor = user.avatarColor
+        token.sessionVersion = user.sessionVersion
+        token.checkedAt = Date.now()
+        token.sso = params.account.provider
+        token.picture = null
+        return token
+      }
 
       // Fresh sign-in already reflects the database.
       if (params.user) return token
@@ -178,7 +226,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       token.role = current.role.key
       token.isActive = current.isActive
-      token.mustChangePassword = current.mustChangePassword
+      // A single sign-on never had a temporary password to replace.
+      token.mustChangePassword = token.sso ? false : current.mustChangePassword
       token.name = current.name
       token.avatarColor = current.avatarColor
       token.checkedAt = Date.now()

@@ -106,6 +106,11 @@ export const findDuplicatesTool = z.object({
   projectCode: z.string().optional(),
 })
 
+export const searchMemoryTool = z.object({
+  query: z.string().min(3).max(300),
+  projectCode: z.string().optional(),
+})
+
 export const TOOL_SCHEMAS = {
   create_ticket: createTicketTool,
   bulk_create_tickets: bulkCreateTool,
@@ -115,6 +120,7 @@ export const TOOL_SCHEMAS = {
   find_duplicates: findDuplicatesTool,
   get_ticket: getTicketTool,
   comment_on_ticket: commentTool,
+  search_memory: searchMemoryTool,
 } as const
 
 export type ToolName = keyof typeof TOOL_SCHEMAS
@@ -131,11 +137,12 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   search_tickets: 'Find tickets by filter. Use for "show blocked", "my critical bugs".',
   update_ticket: 'Change a ticket: status, assignee, priority, due date, title.',
   project_insights:
-    'Everything about a project: description, dates, owner, team, labels, types, plus completion, overdue and workload. Use for "what is this project", "when is it due", "who is on it".',
+    'A project\'s facts and health: description, dates, owner, team, completion, overdue, workload.',
   find_duplicates: 'Check for similar existing tickets before creating one.',
   get_ticket:
     'Read one ticket in full: description, remarks, labels, dates, its parent and children, and recent comments.',
   comment_on_ticket: 'Post a comment. @username notifies that person.',
+  search_memory: 'Search past work, docs and the handbook. Use for "how did we…", "where is…".',
 }
 
 /**

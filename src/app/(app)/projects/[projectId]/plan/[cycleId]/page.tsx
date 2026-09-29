@@ -6,6 +6,8 @@ import { format } from 'date-fns'
 import { getProjectViewContext } from '@/features/projects/project-context'
 import { getCycleDetail } from '@/features/cycles/queries'
 import { BurnupChart } from '@/features/cycles/components/burnup-chart'
+import { forecastCycle } from '@/features/forecast/queries'
+import { ForecastLine } from '@/features/forecast/components/forecast-line'
 import { PageHeader } from '@/components/shared/page-header'
 import { Badge } from '@/components/ui/badge'
 import { PriorityBadge, StatusBadge } from '@/components/shared/badges'
@@ -19,6 +21,7 @@ export default async function CyclePage({ params }: { params: Promise<{ projectI
   if (!detail || detail.cycle.projectId !== projectId) notFound()
 
   const { cycle, series, unit, tickets } = detail
+  const forecast = await forecastCycle(cycle.id)
   const last = series.at(-1)
   const summary = (cycle.summary ?? null) as { completed?: number; carried?: number; carriedTo?: string; carriedKeys?: string[] } | null
   const added = series.length > 1 ? Math.max(0, (last?.scope ?? 0) - series[0].scope) : 0
@@ -40,6 +43,8 @@ export default async function CyclePage({ params }: { params: Promise<{ projectI
         <Link href={`/projects/${projectId}/plan`} className="text-xs text-muted-foreground hover:text-foreground">
           ← Plan
         </Link>
+
+        <ForecastLine forecast={forecast} dueDate={cycle.endDate} className="rounded-lg border bg-card px-3 py-2" />
 
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Dates" value={`${cycle.startDate ? format(cycle.startDate, 'd MMM') : '…'} → ${cycle.endDate ? format(cycle.endDate, 'd MMM') : '…'}`} />

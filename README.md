@@ -115,6 +115,15 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Fields and rules** | Per-project fields — text, number, one or several choices, date, yes/no, link, person — that agents read too; and rules a ticket must meet before a person moves it into a status: an assignee, an estimate, every criterion met, a linked or merged pull request, a field filled in |
 | **Email in** | Email a request to `mailbox+demo@` and it becomes a ticket in DEMO — structured by the Copilot into a title, description, type, priority and acceptance criteria, attachments included. Reply to any TaskForge email about a ticket and the reply becomes a comment. Senders must be authenticated and act with their own permissions |
 | **Microsoft Teams** | A bot people brainstorm with, in a chat or a project's channel: it asks what is missing, keeps a draft card everyone in the thread shapes, and files the ticket when someone presses Create — as them. Linked channels hear about the project's new tickets |
+| **Import** | From Jira's CSV export, a Trello board's JSON, or any CSV: parsed in the browser, columns and values mapped with a preview, imported in batches with comments, checklists, labels and parents. Running it again skips what is already there |
+| **Forecasts** | "85% likely by 17 Oct" for every sprint and milestone — a Monte Carlo replay of the team's real throughput, on the plan, the cycle page and the client portal |
+| **Project memory** | Finished tickets, the repositories' docs and the handbook, embedded in-process and searchable by meaning — by the Copilot (`search_memory`) and by every agent before it starts work |
+| **Handbook** | The knowledge-transfer document for anyone joining a project, written from what it already records — people, workflow, the code, current focus, decisions — versioned, editable, and pointed out to new members |
+| **Triage agent** | Opt-in: fills in what a new ticket left at its defaults, from the project's history, with reasons and one-click undo |
+| **Morning digest** | Opt-in: stuck, at risk, due and waiting on the client, emailed to managers and posted to linked Teams channels |
+| **API and webhooks** | A REST API on personal access tokens, and signed outbound webhooks with retries, fed from the recorded histories |
+| **Single sign-on** | Keycloak (which can broker Google, Microsoft and LDAP), or Google and Microsoft directly — admitting only existing accounts |
+| **Live and installable** | Opt-in live board updates by a cheap version poll; an installable app with generated icons |
 | **Service targets** | Response and resolution hours per priority, for the kinds of ticket you choose. The resolution clock pauses while Blocked; alerts at 80% and on breach, once each |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
@@ -861,6 +870,143 @@ Every message read is recorded once, by Message-ID, with what became of it —
 created, commented, rejected (and why), ignored — on Workspace → Integrations,
 next to *Check now*. The five-minute cron that runs uptime checks reads the
 mailbox too.
+
+## Moving in, planning ahead, and knowing the project
+
+### Import from Jira, Trello or a spreadsheet
+
+Project Settings → *Import*. The file is parsed in the browser
+([`core/domain/import.ts`](src/core/domain/import.ts)) — it never has to be stored
+on the server — and recognised by its shape: Jira's CSV export (it has *Issue key*
+and *Summary*), a Trello board's JSON, or any other CSV. Columns are guessed from
+their headers and shown with an example value to correct; statuses, types,
+priorities and people are matched by name — statuses also by meaning, so *Code
+Review* lands in a Review status and *Won't Do* in Cancelled — and whatever does
+not match is the person's choice, with the project's default as the fallback. The
+CSV reader handles quoted commas, doubled quotes and newlines inside cells; dates
+are read as exports write them (`29/Sep/26 2:03 PM`), and a date without a zone is
+the same date everywhere.
+
+Comments come along ("Originally by … on …"), Trello checklists become acceptance
+criteria with their ticks, labels are created as needed, and parents are linked
+once every batch has landed — refused, not forced, where TaskForge's two-level
+hierarchy would be broken. Each ticket keeps its original key in `externalRef`, so
+running the same import again skips what the first brought in. Imports notify
+nobody: a thousand "assigned to you" emails is not an import, it is an incident.
+
+### Forecasts
+
+A sprint or milestone shows *85% likely by 17 Oct · 50% by 12 Oct · 72% chance of
+the due date* — on the Plan tab, the cycle page, and in the client portal under
+*Coming up*. It is a Monte Carlo forecast ([`core/domain/forecast.ts`](src/core/domain/forecast.ts)):
+each simulated day draws one real day's throughput from the last eight weeks of
+status history, and two thousand runs give the spread. Nobody is asked to
+estimate, weekends and slow days are in the history so they are in the forecast,
+and the generator is seeded so the page gives the same answer for the same data.
+In points where the project points its work, with unpointed tickets counted at the
+median on both sides — so leaving points off neither hides work nor makes the team
+look faster. With too little history it says so instead of guessing.
+
+### Project memory and the handbook
+
+**Memory** indexes what a project already knows — each finished ticket with the
+last words on it and the pull requests that closed it, every linked repository's
+README and `docs/`, and the handbook — split at headings and embedded by the same
+free, in-process model as ticket similarity. It is refreshed nightly and only
+changed text is embedded again; it is capped at 3,000 pieces per project because
+the free database is small, and turning it off deletes the index. The Copilot
+searches it with `search_memory` ("how did we add Apple Pay?"), and the Coder,
+Planner and Reviewer get the three closest past pieces of work with every ticket.
+
+**The handbook** is the knowledge-transfer document for someone joining a project
+([`features/memory/handbook.ts`](src/features/memory/handbook.ts)). Facts are
+gathered first — the project and its dates, the people and what to go to them
+for, the statuses and the rules for entering them, service targets and fields,
+the current sprint, what has been finished in 90 days and what needs attention,
+the links people attached, and for each repository its languages, layout, scripts,
+dependencies, CI workflows, README and conventions file. The Release Manager then
+writes it up in eight sections ending with *Your first week*; with no engine
+connected, the facts themselves are the handbook. Every version is kept, a
+person's edit is a version too, and anyone who joined in the last month sees a
+banner pointing to it until they have opened the latest version. It can refresh
+itself every Monday.
+
+### Triage and the morning digest
+
+Both are per-project switches, off by default. **TaskForge Triage** fills in what
+a new ticket — from any path: the dialog, email, Teams, the API — left at its
+defaults: type, priority, labels, points (the median of similar finished tickets),
+and an assignee from the people who did similar work, weighed against their open
+load, and never a client. The evidence comes from the project's history; the
+Copilot's engine only chooses between those candidates, and nothing off the
+project's own lists is applied. It explains itself in a comment, flags likely
+duplicates, and **Undo** puts back everything nobody has changed since.
+
+**The morning digest** is counted, not written: what is stuck, at risk of or past
+its service target, due in three days or overdue, and waiting on the client for
+approval, plus yesterday's finished count and the running sprint's forecast —
+emailed to the project's managers and posted to its linked Teams channels. A quiet
+day sends nothing.
+
+## Integrating: API, webhooks, jobs and sign-in
+
+**The REST API** (`/api/v1`) is a thin HTTP shape over the Copilot's tools, the
+same trust boundary as the MCP server
+([`features/public-api/handler.ts`](src/features/public-api/handler.ts)): a personal
+access token resolves to the same Actor as a browser session, arguments are
+validated by the same schemas, and every write goes through the same Server
+Action as a click.
+
+```
+GET    /api/v1/projects
+GET    /api/v1/tickets?project=DEMO&q=checkout&category=DONE&assignee=me
+POST   /api/v1/tickets            { project, title, description?, type?, priority?, assignee?, labels?, acceptanceCriteria? }
+GET    /api/v1/tickets/DEMO-12
+PATCH  /api/v1/tickets/DEMO-12    { status?, priority?, assignee?, title?, dueInDays?, addLabels? }
+POST   /api/v1/tickets/DEMO-12/comments { body }
+```
+
+**Outbound webhooks** (Workspace → Integrations) announce `ticket.created`,
+`ticket.status_changed`, `ticket.completed` and `comment.created`, for one
+project or all, signed `X-TaskForge-Signature: sha256=…` with a secret shown
+once. Events are read from the histories the database already keeps rather than
+emitted from each write path, so none can be missed; private and local addresses
+are refused, so a webhook cannot probe the network TaskForge runs in.
+
+**Background jobs** run on a queue kept in Postgres
+([`features/jobs/queue.ts`](src/features/jobs/queue.ts)) instead of a paid job
+service: claimed with `FOR UPDATE SKIP LOCKED`, retried with backoff (1 min, 5 min,
+30 min, 2 h, 6 h), reclaimed from a function that died, drained right after the
+request that queued them and by the five-minute cron, and pruned after a week.
+Webhook deliveries, triage, memory indexing and handbooks all run on it.
+
+**Single sign-on** ([`features/sso/providers.ts`](src/features/sso/providers.ts)):
+set `KEYCLOAK_ISSUER`, `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET` and
+*Continue with Keycloak* appears on the sign-in page; Google
+(`AUTH_GOOGLE_ID/SECRET`) and Microsoft Entra ID (`AUTH_MICROSOFT_ENTRA_ID_ID/SECRET`,
+and `…_ISSUER` for one tenant) work the same way. Keycloak comes first because an
+organisation that runs one already manages its people there, and it can broker
+Google, Microsoft and LDAP itself. No provider creates accounts: a sign-in is
+admitted only when the provider has verified the email and it belongs to an
+existing, active, human account. Tested against Keycloak 26 — the known person
+signed in, a stranger with a verified address was turned away.
+
+**Live updates** are a per-project switch: the board and table poll a one-line
+version (a ticket count and the latest change, one indexed aggregate) every twenty
+seconds while visible, and refresh only when it moves — far cheaper on a
+serverless host than a connection held open and billed by the second. **The app
+installs** on phones and desktops, with icons drawn in code from the favicon's own
+shapes ([`lib/png.ts`](src/lib/png.ts)).
+
+### What it costs
+
+| | Cost on the free tiers |
+|---|---|
+| Import, forecasts, digest, webhooks, API, jobs, SSO | Nothing — computed or sent from what already runs |
+| Project memory | Database space, capped at 3,000 pieces per project; embeddings are in-process |
+| Handbook, triage | One AI call each (a handbook, or a new ticket), on the engine you assign — free on Groq |
+| Live updates | One small request per open tab every 20 s, which counts against function calls — hence opt-in |
+| Keycloak | Free and open source, but a server of its own; for anyone without one, Google or Microsoft need none |
 
 ## Microsoft Teams
 
@@ -1673,6 +1819,9 @@ a decision rather than plumbing.
 | [`core/domain/flow.ts`](src/core/domain/flow.ts) | SLA clocks that pause while blocked, time in status, stuck and WIP — pure, and pinned by the domain suite. |
 | [`features/auth/acting-as.ts`](src/features/auth/acting-as.ts) | How an email or a Teams message acts as its sender: the same Server Actions, permissions and audit as a click — with no authority of its own. |
 | [`core/domain/inbound-email.ts`](src/core/domain/inbound-email.ts) | Plus-address routing, DMARC/DKIM/SPF trust, loop protection and quote stripping — every rule that decides what an email may do, pure and tested. |
+| [`features/jobs/queue.ts`](src/features/jobs/queue.ts) | A job queue in Postgres — `SKIP LOCKED`, backoff, dead-worker recovery — so background work needs no paid service. |
+| [`core/domain/forecast.ts`](src/core/domain/forecast.ts) | Delivery dates from a seeded Monte Carlo replay of real throughput, instead of estimates. |
+| [`features/memory/handbook.ts`](src/features/memory/handbook.ts) | A knowledge-transfer document written from everything the project records, facts first. |
 | [`infrastructure/msteams/client.ts`](src/infrastructure/msteams/client.ts) | Bot Framework without the SDK: JWT verification against published keys, endorsements, and a token that is only ever sent to Microsoft. |
 | [`core/domain/markdown.ts`](src/core/domain/markdown.ts) | A Markdown parser that produces data, not HTML — so no ticket, email or model output is ever injected as markup. |
 | [`e2e/helpers.ts`](e2e/helpers.ts) | The overflow detector that names the element responsible instead of just reporting a number. |

@@ -1,5 +1,8 @@
 import { notFound } from 'next/navigation'
-import { Archive } from 'lucide-react'
+import Link from 'next/link'
+import { Archive, BookOpen } from 'lucide-react'
+import { prisma } from '@/infrastructure/db/prisma'
+import { LiveRefresher } from '@/features/live/live-refresher'
 
 import { requireProjectViewPage } from '@/features/auth/guards'
 import { getProjectDetail } from '@/features/projects/queries'
@@ -20,12 +23,24 @@ export default async function ProjectLayout({
 
   // Redirects to /forbidden for a project the actor may not see, rather than
   // surfacing a 500 for what is really an access decision.
-  await requireProjectViewPage(projectId)
+  const { actor } = await requireProjectViewPage(projectId)
 
   const project = await getProjectDetail(projectId)
   if (!project) notFound()
 
   const color = project.settings?.color ?? 'indigo'
+
+  // Someone who joined in the last month and has not opened the latest
+  // handbook is pointed at it until they do.
+  const joined = project.members.find((member) => member.user.id === actor.id)?.joinedAt
+  const [handbook, read] =
+    joined && Date.now() - joined.getTime() < 30 * 86_400_000
+      ? await Promise.all([
+          prisma.projectDocument.findFirst({ where: { projectId, kind: 'HANDBOOK' }, orderBy: { version: 'desc' }, select: { version: true } }),
+          prisma.projectDocumentRead.findUnique({ where: { userId_projectId_kind: { userId: actor.id, projectId, kind: 'HANDBOOK' } }, select: { version: true } }),
+        ])
+      : [null, null]
+  const showHandbook = Boolean(handbook && (!read || read.version < handbook.version))
 
   return (
     <div className="flex h-full flex-col">
@@ -84,8 +99,18 @@ export default async function ProjectLayout({
         </div>
 
         <ProjectTabs projectId={projectId} />
+        {showHandbook && (
+          <p className="flex flex-wrap items-center gap-2 border-t bg-primary/5 px-4 py-2 text-sm sm:px-6">
+            <BookOpen className="size-4 text-primary" aria-hidden />
+            New to {project.name}?
+            <Link href={`/projects/${projectId}/handbook`} className="font-medium text-primary hover:underline">
+              Read the handbook — it takes about ten minutes.
+            </Link>
+          </p>
+        )}
       </div>
 
+      <LiveRefresher projectId={projectId} enabled={project.settings?.liveUpdates ?? false} />
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </div>
   )

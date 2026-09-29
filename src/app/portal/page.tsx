@@ -8,6 +8,9 @@ import { NewRequest } from '@/features/portal/components/new-request'
 import { ApproveButton } from '@/features/portal/components/approve-button'
 import { canInProject } from '@/core/domain/rbac'
 import { getProjectAccess } from '@/features/auth/guards'
+import { prisma } from '@/infrastructure/db/prisma'
+import { forecastCycle } from '@/features/forecast/queries'
+import { ForecastLine } from '@/features/forecast/components/forecast-line'
 
 export const metadata: Metadata = { title: 'Client portal' }
 export const dynamic = 'force-dynamic'
@@ -37,6 +40,8 @@ export default async function PortalPage() {
               </div>
 
               {canRequest && <NewRequest projectId={project.id} />}
+
+              <Milestones projectId={project.id} />
 
               <div className="space-y-2">
                 <h2 className="text-sm font-semibold">Waiting for your approval</h2>
@@ -103,6 +108,39 @@ export default async function PortalPage() {
           )
         }),
       )}
+    </div>
+  )
+}
+
+/**
+ * Open milestones and running sprints, with when they are likely to land — the
+ * question a client asks most, answered from the team's real pace rather than
+ * a promise.
+ */
+async function Milestones({ projectId }: { projectId: string }) {
+  const cycles = await prisma.cycle.findMany({
+    where: { projectId, state: { not: 'CLOSED' }, OR: [{ kind: 'MILESTONE' }, { state: 'ACTIVE' }] },
+    orderBy: [{ endDate: { sort: 'asc', nulls: 'last' } }],
+    select: { id: true, name: true, goal: true, endDate: true, kind: true },
+    take: 5,
+  })
+  if (cycles.length === 0) return null
+  const forecasts = await Promise.all(cycles.map((cycle) => forecastCycle(cycle.id)))
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-semibold">Coming up</h2>
+      <ul className="divide-y rounded-xl border">
+        {cycles.map((cycle, index) => (
+          <li key={cycle.id} className="space-y-1 p-3">
+            <p className="text-sm font-medium">
+              {cycle.name}
+              {cycle.goal && <span className="font-normal text-muted-foreground"> — {cycle.goal}</span>}
+            </p>
+            <ForecastLine forecast={forecasts[index]} dueDate={cycle.endDate} />
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-muted-foreground">Forecasts replay the team’s pace over the last eight weeks, thousands of times. They move as work finishes.</p>
     </div>
   )
 }

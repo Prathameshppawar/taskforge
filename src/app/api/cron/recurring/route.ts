@@ -8,6 +8,8 @@ import { loadCredentials } from '@/infrastructure/github/client'
 import { sendWeeklyUsageReport } from '@/features/ai-admin/reports'
 import { refreshModelPrices } from '@/features/ai-admin/pricing'
 import { sendManagerDigests } from '@/features/reports/digest'
+import { sendDailyDigests } from '@/features/reports/daily-digest'
+import { drain, enqueue } from '@/features/jobs/queue'
 
 /**
  * Recurring ticket scheduler.
@@ -101,8 +103,28 @@ export async function GET(request: NextRequest) {
         })
       : null
 
+    const dailyDigest = await sendDailyDigests().catch((error) => {
+      console.error('[cron/recurring] daily digest failed:', error)
+      return { projects: 0, emailed: -1 }
+    })
+
+    // Memory is refreshed nightly, handbooks on Mondays where asked for —
+    // queued, so a slow repository cannot hold the rest of the sweep up.
+    const indexed = await prisma.project.findMany({ where: { isArchived: false, settings: { memoryEnabled: true } }, select: { id: true } })
+    for (const project of indexed) await enqueue('memory.index', { projectId: project.id }, { dedupeKey: `memory:${project.id}`, drainSoon: false })
+    if (monday) {
+      const handbooks = await prisma.project.findMany({ where: { isArchived: false, settings: { handbookAutoRefresh: true } }, select: { id: true } })
+      for (const project of handbooks) await enqueue('handbook.generate', { projectId: project.id }, { dedupeKey: `handbook:${project.id}`, drainSoon: false })
+    }
+    const jobs = await drain({ limit: 10, budgetMs: 60_000 }).catch((error) => {
+      console.error('[cron/recurring] job drain failed:', error)
+      return { ran: 0, failed: -1 }
+    })
+
     return NextResponse.json({
       ok: true,
+      dailyDigest,
+      jobs,
       github,
       usageReport,
       managerDigest,
