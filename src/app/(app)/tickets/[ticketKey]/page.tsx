@@ -111,7 +111,7 @@ export default async function TicketDetailPage({
           Projects
         </Link>
         <ChevronRight className="size-3" />
-        <Link href={`/projects/${ticket.project.id}/board`} className="hover:text-foreground">
+        <Link href={`/projects/${ticket.project.id}`} className="hover:text-foreground">
           {ticket.project.name}
         </Link>
         {ticket.parent && (

@@ -265,6 +265,7 @@ export async function updateProjectSettingsAction(
           requireDueDate: data.requireDueDate,
           isPrivate: data.isPrivate,
           defaultAssigneeId: data.defaultAssigneeId || null,
+          ...(data.defaultView ? { defaultView: data.defaultView } : {}),
         },
       })
 

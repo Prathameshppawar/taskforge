@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'Import' }
 export default async function ImportPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const context = await getProjectViewContext(projectId)
-  if (!context.can.manageConfig) redirect(`/projects/${projectId}/board`)
+  if (!context.can.manageConfig) redirect(`/projects/${projectId}`)
 
   const [statuses, members] = await Promise.all([
     prisma.status.findMany({ where: { projectId }, orderBy: { position: 'asc' }, select: { id: true, name: true, category: true } }),

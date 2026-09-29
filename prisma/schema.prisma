@@ -828,6 +828,9 @@ model ProjectSettings {
   logoUrl          String?
 
   /// Roll a parent's status up automatically from its children's progress.
+  /// The view opening the project lands on: one of LANDING_VIEWS in
+  /// src/features/projects/views.ts. Insights by default.
+  defaultView         String   @default("insights")
   autoStatusRollup    Boolean  @default(true)
   /// Allow creating child tickets under a parent.
   allowSubtasks       Boolean  @default(true)

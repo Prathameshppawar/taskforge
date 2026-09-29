@@ -32,6 +32,7 @@ import { DatePicker } from '@/components/shared/date-picker'
 import { UserPicker, type PickableUser } from '@/components/shared/user-picker'
 import { ColorPicker } from '@/components/shared/color-picker'
 import { ProjectLogo } from '@/components/shared/project-logo'
+import { LANDING_VIEWS, landingView, type LandingView } from '../views'
 import {
   archiveProjectAction,
   updateProjectAction,
@@ -62,6 +63,7 @@ export function ProjectSettingsForm({
       requireDueDate: boolean
       isPrivate: boolean
       defaultAssigneeId: string | null
+      defaultView: string
       logoUrl: string | null
     } | null
   }
@@ -90,6 +92,7 @@ export function ProjectSettingsForm({
     requireDueDate: project.settings?.requireDueDate ?? false,
     isPrivate: project.settings?.isPrivate ?? false,
     defaultAssigneeId: project.settings?.defaultAssigneeId ?? null,
+    defaultView: landingView(project.settings?.defaultView),
     logoUrl: project.settings?.logoUrl ?? '',
   })
 
@@ -274,6 +277,29 @@ export function ProjectSettingsForm({
             disabled={!canEdit || isPending}
             onChange={(value) => saveSettings({ ...settings, isPrivate: value })}
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="default-view">Opens on</Label>
+          <Select
+            value={settings.defaultView}
+            onValueChange={(value) => saveSettings({ ...settings, defaultView: value as LandingView })}
+            disabled={!canEdit || isPending}
+          >
+            <SelectTrigger id="default-view" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANDING_VIEWS.map((view) => (
+                <SelectItem key={view.segment} value={view.segment}>
+                  {view.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Where opening this project takes everyone: the sidebar, project cards and search.
+          </p>
         </div>
 
         <div className="space-y-1.5">

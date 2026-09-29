@@ -122,7 +122,7 @@ refusal comes before the approval rather than after.
 
 | | |
 |---|---|
-| **Views** | Kanban (dnd-kit) · Table (TanStack) · Calendar · Timeline · Tree · Dashboards (Recharts) |
+| **Views** | Kanban (dnd-kit) · Table (TanStack) · Calendar · Timeline · Tree · Dashboards (Recharts). A project opens on **Insights**, or on whichever view its settings choose |
 | **Hierarchy** | Two-level, enforced in the domain layer. Progress rollup, automatic parent status |
 | **Links** | `blocks` · `relates to` · `duplicates`, stored once and read from both ends; an unresolved blocker is surfaced on the ticket |
 | **Watchers** | Follow a ticket without owning it — gated on *viewing*, because the people who most need to watch often should not be editing |

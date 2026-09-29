@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { LANDING_VIEW_SEGMENTS } from './views'
+
 const projectCode = z
   .string()
   .trim()
@@ -66,6 +68,7 @@ export const projectSettingsSchema = z.object({
   requireDueDate: z.boolean(),
   isPrivate: z.boolean(),
   defaultAssigneeId: z.string().nullable().optional(),
+  defaultView: z.enum(LANDING_VIEW_SEGMENTS).optional(),
 })
 export type ProjectSettingsInput = z.infer<typeof projectSettingsSchema>
 

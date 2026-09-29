@@ -390,7 +390,7 @@ export function CommandPalette({
               <CommandItem
                 key={project.id}
                 value={`project-${project.id}`}
-                onSelect={() => run(() => router.push(`/projects/${project.id}/board`))}
+                onSelect={() => run(() => router.push(`/projects/${project.id}`))}
               >
                 <span
                   className={cn('size-3 shrink-0 rounded-sm', colorClasses(project.color).dot)}
