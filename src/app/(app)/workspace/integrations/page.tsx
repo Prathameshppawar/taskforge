@@ -5,6 +5,8 @@ import { getIntegrationOverview } from '@/features/github/queries'
 import { GithubIntegration } from '@/features/github/components/github-integration'
 import { vercelStatus } from '@/features/vercel/service'
 import { VercelCard } from '@/features/vercel/components/vercel-card'
+import { getInboundOverview } from '@/features/inbound-email/queries'
+import { EmailInCard } from '@/features/inbound-email/components/email-in-card'
 import { PageHeader } from '@/components/shared/page-header'
 
 export const metadata: Metadata = { title: 'Integrations' }
@@ -27,10 +29,11 @@ export default async function IntegrationsPage({
   searchParams: Promise<{ error?: string; installed?: string }>
 }) {
   await requirePermissionPage('integration:manage')
-  const [{ error, installed }, overview, vercel] = await Promise.all([
+  const [{ error, installed }, overview, vercel, inbound] = await Promise.all([
     searchParams,
     getIntegrationOverview(),
     vercelStatus(),
+    getInboundOverview(),
   ])
 
   return (
@@ -53,6 +56,7 @@ export default async function IntegrationsPage({
         )}
         <GithubIntegration overview={overview} />
         <VercelCard status={vercel} />
+        <EmailInCard overview={inbound} />
       </div>
     </div>
   )

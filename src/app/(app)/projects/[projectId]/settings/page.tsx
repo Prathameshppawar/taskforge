@@ -8,6 +8,8 @@ import { WorkflowConfig } from '@/features/projects/components/workflow-config'
 import { FlowSettings } from '@/features/projects/components/flow-settings'
 import { BillingSettings } from '@/features/projects/components/billing-settings'
 import { CustomFieldsConfig } from '@/features/projects/components/custom-fields-config'
+import { ProjectEmailIntake } from '@/features/inbound-email/components/project-email-intake'
+import { getInboundSetting, projectIntakeAddress } from '@/features/inbound-email/service'
 import { getProjectRepos } from '@/features/github/queries'
 import { ProjectRepositories } from '@/features/github/components/project-repos'
 import { can } from '@/features/auth/guards'
@@ -34,7 +36,7 @@ export default async function ProjectSettingsPage({
   ])
 
   if (!project) notFound()
-  const [intake, monitors, fields] = await Promise.all([
+  const [intake, monitors, fields, inbound] = await Promise.all([
     prisma.projectSettings.findUnique({ where: { projectId }, select: { errorIngestHash: true } }),
     getProjectMonitors(projectId),
     prisma.customField.findMany({
@@ -42,6 +44,7 @@ export default async function ProjectSettingsPage({
       orderBy: { position: 'asc' },
       select: { id: true, name: true, type: true, description: true, options: true, required: true, _count: { select: { values: true } } },
     }),
+    getInboundSetting(),
   ])
   const headerList = await headers()
   const origin = `${headerList.get('x-forwarded-proto') ?? 'http'}://${headerList.get('host')}`
@@ -80,6 +83,16 @@ export default async function ProjectSettingsPage({
           repos={repos}
           canEdit={context.can.manageConfig}
           canManageIntegrations={can(context.actor, 'integration:manage')}
+        />
+
+        <Separator />
+
+        <ProjectEmailIntake
+          projectId={projectId}
+          address={projectIntakeAddress(project.code)}
+          enabled={project.settings?.emailIntake ?? false}
+          workspaceEnabled={inbound.enabled}
+          canEdit={context.can.manageConfig}
         />
 
         <Separator />

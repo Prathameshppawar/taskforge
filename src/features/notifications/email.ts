@@ -37,35 +37,45 @@ async function emailNotifications(ids: string[]): Promise<void> {
       title: true,
       body: true,
       user: { select: { email: true, name: true } },
-      ticket: { select: { key: true, title: true } },
+      ticket: { select: { key: true, title: true, projectId: true } },
     },
   })
 
+  const { replyAddressFor } = await import('@/features/inbound-email/service')
   for (const row of rows) {
-    await sendMail({ to: [row.user.email], ...renderNotificationEmail(row) })
+    // Where email in is on for the project, replying to the email comments on
+    // the ticket.
+    const replyTo = row.ticket ? await replyAddressFor(row.ticket.projectId, row.ticket.key) : null
+    await sendMail({ to: [row.user.email], ...renderNotificationEmail(row, Boolean(replyTo)), ...(replyTo ? { replyTo } : {}) })
   }
 }
 
-export function renderNotificationEmail(row: {
-  title: string
-  body: string | null
-  ticket: { key: string; title: string } | null
-}) {
+export function renderNotificationEmail(
+  row: {
+    title: string
+    body: string | null
+    ticket: { key: string; title: string } | null
+  },
+  replyable = false,
+) {
   const app = appName()
   const link = row.ticket ? `${appUrl()}/tickets/${row.ticket.key}` : `${appUrl()}/inbox`
   const footer = `You are receiving this because notifications are emailed to you. Turn them off in Settings → Notifications: ${appUrl()}/settings/notifications`
 
+  const replyNote = replyable && row.ticket ? `Reply to this email to comment on ${row.ticket.key}.` : ''
   return {
-    subject: row.title,
+    // The key in brackets lets a reply find its ticket even from a mail
+    // client that drops the Reply-To.
+    subject: replyable && row.ticket && !row.title.includes(`[${row.ticket.key}]`) ? `${row.title} [${row.ticket.key}]` : row.title,
     html: layout(
       app,
       `<h2 style="margin:4px 0 12px;font:600 18px system-ui">${escapeHtml(row.title)}</h2>
 ${row.ticket ? `<p style="margin:0 0 8px;color:#737373">${escapeHtml(row.ticket.key)} · ${escapeHtml(row.ticket.title)}</p>` : ''}
 ${row.body && row.body !== row.ticket?.title ? `<blockquote style="margin:12px 0;padding:8px 12px;border-left:3px solid #e5e5e5;color:#404040">${escapeHtml(row.body)}</blockquote>` : ''}
-${button(row.ticket ? `Open ${row.ticket.key}` : 'Open inbox', link)}`,
+${button(row.ticket ? `Open ${row.ticket.key}` : 'Open inbox', link)}${replyNote ? `<p style="margin:12px 0 0;color:#737373;font-size:13px">${escapeHtml(replyNote)}</p>` : ''}`,
       `You are receiving this because notifications are emailed to you. <a href="${escapeHtml(`${appUrl()}/settings/notifications`)}" style="color:#737373">Turn them off</a>.`,
     ),
-    text: `${row.title}\n${row.ticket ? `${row.ticket.key} · ${row.ticket.title}\n` : ''}${row.body && row.body !== row.ticket?.title ? `\n${row.body}\n` : ''}\n${link}\n\n${footer}\n`,
+    text: `${row.title}\n${row.ticket ? `${row.ticket.key} · ${row.ticket.title}\n` : ''}${row.body && row.body !== row.ticket?.title ? `\n${row.body}\n` : ''}\n${link}\n${replyNote ? `\n${replyNote}\n` : ''}\n${footer}\n`,
   }
 }
 

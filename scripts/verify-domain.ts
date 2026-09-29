@@ -66,6 +66,7 @@ import { burnup, burnupUnit, fillToCapacity, nextCycleName } from '@/core/domain
 import { billedAmount, decimalHours, formatMinutes, parseDuration, timerMinutes, weekOf } from '@/core/domain/time'
 import { displayFieldValue, normaliseFieldValue, parseOptions, type FieldDefinition } from '@/core/domain/custom-fields'
 import { describeUnmet, unmetRequirements } from '@/core/domain/transitions'
+import { isAutomated, projectAddress, routeMessage, senderAuthenticated, stripQuoted, subjectToTitle } from '@/core/domain/inbound-email'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1209,6 +1210,38 @@ console.log('\n── Custom fields and the rules for entering a status ──')
   check('a rule on a deleted field is not held against anyone', !unmet.some((entry) => entry.includes('gone')))
   check('no rules, nothing to meet', unmetRequirements([], facts).length === 0)
   check('the refusal reads as a sentence', describeUnmet('Done', ['it needs an assignee', 'its pull request is not merged']) === 'Done can’t be reached yet: it needs an assignee and its pull request is not merged.')
+}
+
+console.log('\n── Email in: routing, senders, and the new part of a reply ──')
+{
+  const box = 'team.desk@gmail.com'
+  check('a plus address with a code is a project', JSON.stringify(routeMessage(['teamdesk+demo@gmail.com'], box, 'Printer broken')) === '{"kind":"project","code":"DEMO"}')
+  check('a plus address with a key is a ticket', JSON.stringify(routeMessage(['Team.Desk+DEMO-12@gmail.com'], box, 'Re: x')) === '{"kind":"ticket","key":"DEMO-12"}')
+  check('a key in the subject finds the ticket when the plus address was lost', JSON.stringify(routeMessage(['team.desk+demo@gmail.com'], box, 'Re: [DEMO-7] Printer')) === '{"kind":"ticket","key":"DEMO-7"}')
+  check('mail for someone else is not ours', routeMessage(['other+demo@gmail.com'], box, 'x') === null)
+  check('the bare mailbox is the mailbox, not a project', routeMessage(['team.desk@gmail.com'], box, 'x')?.kind === 'mailbox')
+  check('outside Gmail, dots are part of the address', routeMessage(['a.b+demo@acme.io'], 'ab@acme.io', 'x') === null)
+  check('a project address reads as code', projectAddress('team.desk@gmail.com', 'DEMO') === 'team.desk+demo@gmail.com')
+
+  const gmail = ['mx.google.com; dkim=pass header.i=@acme.com header.s=s1; spf=pass (google.com: domain of a@acme.com designates 1.2.3.4) smtp.mailfrom=a@acme.com; dmarc=pass (p=REJECT) header.from=acme.com']
+  check('DMARC pass for the From domain is trusted', senderAuthenticated(gmail, 'a@acme.com').ok)
+  check('a subdomain of the signing domain is the same organisation', senderAuthenticated(['mx; dkim=pass header.i=@mail.acme.com'], 'a@acme.com').ok)
+  check('a pass for somebody else’s domain is not trusted', !senderAuthenticated(['mx; dkim=pass header.i=@evil.com; spf=pass smtp.mailfrom=x@evil.com'], 'ceo@acme.com').ok)
+  check('a DMARC failure is not trusted', senderAuthenticated(['mx; dmarc=fail (p=NONE) header.from=acme.com'], 'a@acme.com').reason === 'DMARC fail')
+  check('no verdict at all is not trusted', !senderAuthenticated([], 'a@acme.com').ok)
+  check('out-of-office replies are automated', isAutomated({ 'Auto-Submitted': 'auto-replied' }, 'a@acme.com'))
+  check('mailing lists are automated', isAutomated({ 'List-Id': '<x.lists>' }, 'a@acme.com'))
+  check('bounces are automated', isAutomated({}, 'MAILER-DAEMON@acme.com'))
+  check('a person is not', !isAutomated({ 'Auto-Submitted': 'no' }, 'a@acme.com'))
+
+  const reply = 'Yes — works for me now.\n\nThanks!\n\nOn Tue, 29 Sep 2026 at 10:02, TaskForge <team.desk@gmail.com> wrote:\n> DEMO-12 is waiting for you\n> Open it'
+  check('a reply loses its quoted history', stripQuoted(reply) === 'Yes — works for me now.\n\nThanks!')
+  check('an Outlook reply loses its header block', stripQuoted('Done.\n\nFrom: TaskForge\nSent: Tuesday\nTo: me') === 'Done.')
+  check('a signature is dropped', stripQuoted('Fixed it\n-- \nJo Bloggs\nCTO') === 'Fixed it')
+  check('trailing quote lines with no attribution are dropped', stripQuoted('ok\n> earlier\n> text') === 'ok')
+  check('a message with nothing quoted is kept whole', stripQuoted('Line one\n> a quote in the middle\nLine two') === 'Line one\n> a quote in the middle\nLine two')
+  check('subjects lose their reply and forward prefixes', subjectToTitle('Re: Fwd: [DEMO-3] Printer on fire', 'x') === 'Printer on fire')
+  check('an empty subject falls back', subjectToTitle('  ', 'Email from a@b.c') === 'Email from a@b.c')
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)

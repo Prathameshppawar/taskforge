@@ -113,6 +113,7 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Planning** | Sprints (one running at a time) and milestones (several at once, as client work runs), above a ranked backlog. Drag to plan and rank, fill to capacity, or ask the Planner; close with carry-over; a burn-up from recorded history per cycle |
 | **Time** | A timer on every ticket that follows you in the header, entries typed as `1h 30m` or `1:30`, a weekly timesheet, time by person and kind on Insights, and billable hours — with the amount, at the project's rate — in the monthly client report |
 | **Fields and rules** | Per-project fields — text, number, one or several choices, date, yes/no, link, person — that agents read too; and rules a ticket must meet before a person moves it into a status: an assignee, an estimate, every criterion met, a linked or merged pull request, a field filled in |
+| **Email in** | Email a request to `mailbox+demo@` and it becomes a ticket in DEMO — structured by the Copilot into a title, description, type, priority and acceptance criteria, attachments included. Reply to any TaskForge email about a ticket and the reply becomes a comment. Senders must be authenticated and act with their own permissions |
 | **Service targets** | Response and resolution hours per priority, for the kinds of ticket you choose. The resolution clock pauses while Blocked; alerts at 80% and on breach, once each |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
@@ -804,6 +805,61 @@ notified — in the app and by email — as **TaskForge Ops**. Each alert is sen
 once: the row in `ticket_sla_alerts` is inserted before anyone is told, so two
 overlapping sweeps cannot both send it, and a breach found on the first look
 records its warning without sending it.
+
+## Email in
+
+People who already know what they want usually write it in an email. TaskForge
+reads the mailbox it already sends from — the same Gmail account and app
+password as the outgoing mail, over IMAP — so there is nothing new to host or pay
+for.
+
+**Addresses.** Plus addressing does the routing
+([`core/domain/inbound-email.ts`](src/core/domain/inbound-email.ts)):
+`mailbox+demo@gmail.com` files a ticket in project DEMO, and
+`mailbox+demo-12@gmail.com` comments on DEMO-12. Every notification about a ticket
+carries that address as its Reply-To and `[DEMO-12]` in its subject, so replying
+to any TaskForge email just works — including from a mail client that drops the
+Reply-To. Each project opts in from its settings, which show its address.
+
+**Only our mail is read.** The mailbox is a real inbox, so the poller lists unread
+mail from the last few days by envelope alone, picks out what is addressed to a
+plus address, and fetches and marks read only that. Nothing else in the inbox is
+opened or changed. (Gmail's IMAP search tokenises addresses — `to: mailbox+`
+matches nothing — which is why the choice is made in code.)
+
+**Who may act.** Anyone can type any From address, so a message acts for an
+account only when the receiving server vouches for the sender: DMARC passed, or
+DKIM or SPF passed for the sender's own domain (a subdomain counts; someone
+else's domain does not). The one exception is mail the mailbox's owner sends to
+their own plus address, which never leaves Gmail and so carries no verdict — but
+Gmail labels it Sent, which only the account holder can cause. The address must
+then belong to an active account, and the message runs the *same* Server Actions
+the UI does, as that person
+([`acting-as.ts`](src/features/auth/acting-as.ts)): a client can file into their
+project and comment where they could anyway; nobody can do by email what they
+could not do by hand. Out-of-office replies, bounces and mailing lists are
+ignored, and TaskForge marks its own mail `Auto-Submitted`, so two robots can
+never email each other forever.
+
+**What an email becomes.** With *Structure with the Copilot* on (the default when
+an engine is connected), the Copilot's engine turns the email into a title, a
+clear Markdown description, a type and priority chosen from the project's own
+lists — "fairly urgent" is High, not Blocker — and acceptance criteria, including
+any `- [ ]` lines the sender wrote. The original email is always kept, quoted, at
+the bottom of the description: a model's summary can never lose what someone
+wrote. Without AI, the subject is the title and the text the description.
+Attachments come with it, within the usual limits. The sender gets a reply with
+the key and a link, and replying to *that* adds to the ticket.
+
+Replies lose their quoted history and signature before they become comments —
+conservatively, because a comment with a little quoted text is better than one
+with the answer cut off — and a forwarded email keeps everything, because a
+forward's content *is* the quoted part.
+
+Every message read is recorded once, by Message-ID, with what became of it —
+created, commented, rejected (and why), ignored — on Workspace → Integrations,
+next to *Check now*. The five-minute cron that runs uptime checks reads the
+mailbox too.
 
 ## Links that mean something
 
@@ -1563,6 +1619,8 @@ a decision rather than plumbing.
 | [`prisma/migrations/…_status_history_and_sla`](prisma/migrations/20261002010000_status_history_and_sla/migration.sql) | History written by triggers, so no write path can forget it — and rebuilt for existing tickets from the audit log. |
 | [`core/domain/cycles.ts`](src/core/domain/cycles.ts) | A burn-up that replays two trigger-kept histories day by day, and a fill-to-capacity that explains every ticket it skipped. |
 | [`core/domain/flow.ts`](src/core/domain/flow.ts) | SLA clocks that pause while blocked, time in status, stuck and WIP — pure, and pinned by the domain suite. |
+| [`features/auth/acting-as.ts`](src/features/auth/acting-as.ts) | How an email or a Teams message acts as its sender: the same Server Actions, permissions and audit as a click — with no authority of its own. |
+| [`core/domain/inbound-email.ts`](src/core/domain/inbound-email.ts) | Plus-address routing, DMARC/DKIM/SPF trust, loop protection and quote stripping — every rule that decides what an email may do, pure and tested. |
 | [`core/domain/markdown.ts`](src/core/domain/markdown.ts) | A Markdown parser that produces data, not HTML — so no ticket, email or model output is ever injected as markup. |
 | [`e2e/helpers.ts`](e2e/helpers.ts) | The overflow detector that names the element responsible instead of just reporting a number. |
 | [`prisma/migrations/…_configurable_roles_and_teams`](prisma/migrations/20260919080811_configurable_roles_and_teams/migration.sql) | Hand-written. Converts an enum column in place and reproduces the old permission matrix as data, without dropping the search indexes Prisma wants to remove on every migration. |

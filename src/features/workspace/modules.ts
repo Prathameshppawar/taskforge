@@ -55,7 +55,7 @@ export const WORKSPACE_SECTIONS: NavSection[] = [
       {
         href: '/workspace/integrations',
         label: 'Integrations',
-        description: 'GitHub: repositories, pull requests and CI.',
+        description: 'GitHub, Vercel, email in and Microsoft Teams.',
         icon: 'plug',
         anyOf: ['integration:manage'],
       },

@@ -86,7 +86,15 @@ const resolveRole = cache(
  *
  * Wrapped in React's `cache` so multiple guards in one pass share one read.
  */
-export const getCurrentUser = cache(async (): Promise<Actor | null> => {
+export async function getCurrentUser(): Promise<Actor | null> {
+  // A channel acting for a known person (email, Teams) — see acting-as.ts.
+  // Checked outside the per-request cache, so it can never be served a
+  // result cached before or after the callback.
+  const { actingActor } = await import('./acting-as')
+  return actingActor() ?? sessionOrTokenActor()
+}
+
+const sessionOrTokenActor = cache(async (): Promise<Actor | null> => {
   const session = await auth()
 
   if (session?.user?.id) {

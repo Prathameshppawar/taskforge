@@ -511,6 +511,7 @@ model User {
   cyclesCreated       Cycle[]               @relation("CycleCreatedBy")
   timeEntries         TimeEntry[]           @relation("TimeEntryUser")
   bulkOperations      BulkOperation[]       @relation("BulkOperationActor")
+  inboundEmails       InboundEmail[]        @relation("InboundEmailSender")
   checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
@@ -864,6 +865,8 @@ model ProjectSettings {
   hourlyRate        Decimal? @db.Decimal(10, 2)
   /// ISO 4217 code the rate is in.
   currency          String   @default("USD")
+  /// Whether email to this project's address (mailbox+code@) becomes tickets.
+  emailIntake       Boolean  @default(false)
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
@@ -1182,6 +1185,7 @@ model Ticket {
   cycleHistory  TicketCycleChange[]
   timeEntries   TimeEntry[]
   fieldValues   TicketFieldValue[]
+  inboundEmails InboundEmail[]
   slaAlerts     TicketSlaAlert[]
 
   createdAt DateTime @default(now())
@@ -1344,6 +1348,43 @@ model TicketFieldValue {
   @@id([ticketId, fieldId])
   @@index([fieldId, value])
   @@map("ticket_field_values")
+}
+
+/// Every email the mailbox read, and what became of it. The unique Message-ID
+/// is what makes polling idempotent: a message read twice is handled once.
+model InboundEmail {
+  id          String   @id @default(cuid())
+  messageId   String   @unique
+  fromAddress String
+  subject     String
+  receivedAt  DateTime
+  /// CREATED, COMMENTED, REJECTED, IGNORED or FAILED.
+  outcome     String
+  reason      String?
+
+  ticketId String?
+  ticket   Ticket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  userId   String?
+  user     User?   @relation("InboundEmailSender", fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("inbound_emails")
+}
+
+/// Email in, for the whole workspace. One row.
+model InboundEmailSetting {
+  id              Int       @id @default(1)
+  enabled         Boolean   @default(false)
+  /// Let the Copilot's engine turn an email into a structured ticket: type,
+  /// priority and acceptance criteria. Off, the email is filed as written.
+  structureWithAi Boolean   @default(true)
+  lastPolledAt    DateTime?
+  lastError       String?
+  updatedAt       DateTime  @updatedAt
+
+  @@map("inbound_email_settings")
 }
 
 /// A bulk edit, remembered so it can be undone: what each ticket looked like

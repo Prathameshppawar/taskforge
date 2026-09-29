@@ -3,9 +3,10 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { runDueMonitors } from '@/features/monitors/service'
 import { sweepSlaAlerts } from '@/features/tickets/flow'
+import { pollMailbox } from '@/features/inbound-email/service'
 
 /**
- * Uptime checks and SLA alerts, every five minutes.
+ * Uptime checks, SLA alerts and email in, every five minutes.
  *
  * Driven by `.github/workflows/uptime.yml` rather than Vercel Cron, which runs
  * at most daily on the hobby plan. Guarded by the same CRON_SECRET as the
@@ -27,13 +28,17 @@ export async function GET(request: NextRequest) {
   }
 
   const started = Date.now()
-  const [result, sla] = await Promise.all([
+  const [result, sla, email] = await Promise.all([
     runDueMonitors(),
     // A failed sweep must not hide the monitors' result, or the reverse.
     sweepSlaAlerts().catch((error) => {
       console.error('[cron] SLA sweep failed:', error)
       return { checked: 0, sent: 0, error: true }
     }),
+    pollMailbox().catch((error) => {
+      console.error('[cron] mailbox poll failed:', error)
+      return { read: 0, outcomes: {}, error: error instanceof Error ? error.message : 'failed' }
+    }),
   ])
-  return NextResponse.json({ ok: true, ...result, sla, durationMs: Date.now() - started })
+  return NextResponse.json({ ok: true, ...result, sla, email, durationMs: Date.now() - started })
 }

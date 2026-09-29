@@ -33,12 +33,28 @@ export async function sendMail(message: {
   subject: string
   html: string
   text: string
+  /** Where a reply goes — a ticket's own address, so answering is commenting. */
+  replyTo?: string
+  /** Threading: the Message-ID being answered. */
+  inReplyTo?: string
+  references?: string[]
 }): Promise<{ sent: boolean; reason?: string }> {
   if (!isEmailConfigured()) return { sent: false, reason: 'Email is not configured (EMAIL_HOST).' }
   if (message.to.length === 0) return { sent: false, reason: 'Nobody is subscribed.' }
 
   const from = process.env.EMAIL_FROM || `${process.env.NEXT_PUBLIC_APP_NAME || 'TaskForge'} <${process.env.EMAIL_USER}>`
-  const content = { from, subject: message.subject, html: message.html, text: message.text }
+  const content = {
+    from,
+    subject: message.subject,
+    html: message.html,
+    text: message.text,
+    ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+    ...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
+    ...(message.references?.length ? { references: message.references } : {}),
+    // Mark every message TaskForge sends as automated, so another system's
+    // auto-reply does not answer it — and TaskForge ignores the ones that do.
+    headers: { 'Auto-Submitted': 'auto-generated' },
+  }
   if (message.to.length === 1) {
     // Addressed to one person (their welcome email, say): put them in To, where
     // a mail client expects to see its owner.

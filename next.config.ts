@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // @xenova/transformers ships native ONNX bindings and loads model weights at
   // runtime; bundling it breaks both.
-  serverExternalPackages: ['@prisma/client', 'bcryptjs', '@xenova/transformers'],
+  serverExternalPackages: ['@prisma/client', 'bcryptjs', '@xenova/transformers', 'imapflow', 'mailparser'],
   experimental: {
     optimizePackageImports: ['lucide-react', 'date-fns', 'recharts'],
   },
