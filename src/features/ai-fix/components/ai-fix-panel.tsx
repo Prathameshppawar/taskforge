@@ -59,7 +59,7 @@ export function AiFixPanel({
   suggestedRepoName?: string
 }) {
   const router = useRouter()
-  const [engine, setEngine] = React.useState<string>(data.engines[0]?.id ?? '')
+  const [engine, setEngine] = React.useState<string>(data.agents.coder?.id ?? data.engines[0]?.id ?? '')
   const [repoId, setRepoId] = React.useState(data.repos[0]?.id ?? '')
   const [instructions, setInstructions] = React.useState('')
   const [mode, setMode] = React.useState<'FIX' | 'PLAN'>('FIX')
@@ -152,12 +152,19 @@ export function AiFixPanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {data.engines.map((candidate) => (
-                    <SelectItem key={candidate.id} value={candidate.id} className="text-xs">
-                      {candidate.label}
-                      <span className="ml-1.5 font-mono text-muted-foreground">{candidate.model}</span>
-                    </SelectItem>
-                  ))}
+                  {data.engines.map((candidate) => {
+                    const agent = mode === 'PLAN' ? data.agents.planner : data.agents.coder
+                    const model = agent?.id === candidate.id ? agent.model : candidate.model
+                    return (
+                      <SelectItem key={candidate.id} value={candidate.id} className="text-xs">
+                        {candidate.label}
+                        <span className="ml-1.5 font-mono text-muted-foreground">{model}</span>
+                        {agent?.id === candidate.id && agent.assigned && (
+                          <span className="ml-1.5 text-muted-foreground">· {mode === 'PLAN' ? "the Planner's" : "the Coder's"}</span>
+                        )}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>

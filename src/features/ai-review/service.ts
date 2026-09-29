@@ -95,7 +95,7 @@ export async function reviewPullRequest(input: {
     sections.push(`### ${file.filename} (${file.status})\n${text}`)
   }
 
-  const provider = metered(await getEngineProvider(input.engine), {
+  const provider = metered(await getEngineProvider(input.engine, input.engineModel), {
     feature: 'PR_REVIEW',
     userId: input.requestedById,
     projectId: ticket.projectId,

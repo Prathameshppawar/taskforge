@@ -6,6 +6,7 @@ import { listBudgets } from './budgets'
 import { dailyUsage, usageReport } from './reports'
 import { PRICE_CATALOG_PAGE } from './pricing'
 import { getAgentRoster } from '@/features/agents/queries'
+import { getAgentModels } from '@/features/agents/models'
 
 /** Everything Workspace → AI shows, in one pass. */
 export async function getAiAdminPage() {
@@ -32,6 +33,7 @@ export async function getAiAdminPage() {
       prisma.project.findMany({ where: { isArchived: false }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' } }),
       getAgentRoster(),
     ])
+  const agentModels = await getAgentModels()
   const [monthDays, last30Days] = await Promise.all([
     dailyUsage(monthStart(now), new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))),
     dailyUsage(new Date(now.getTime() - 29 * 86_400_000), new Date(now.getTime() + 86_400_000)),
@@ -76,6 +78,7 @@ export async function getAiAdminPage() {
     },
     priceCatalogPage: PRICE_CATALOG_PAGE,
     agents,
+    agentModels,
   }
 }
 

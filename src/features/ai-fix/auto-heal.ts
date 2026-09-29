@@ -1,7 +1,7 @@
 import { after } from 'next/server'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { listCodingEngines } from '@/features/ai-admin/engines'
+import { agentEngine } from '@/features/ai-admin/engines'
 import { assertWithinBudget } from '@/features/ai-admin/usage'
 import { executeFixRun } from './service'
 
@@ -35,7 +35,8 @@ export async function maybeAutoHeal(repoId: string, prNumbers: number[]) {
     if (previous.some((run) => run.status === 'QUEUED' || run.status === 'RUNNING')) continue
     if (previous.length >= MAX_HEAL_ATTEMPTS) continue
 
-    const engine = (await listCodingEngines()).find((candidate) => candidate.id === origin.provider)
+    // Healing is the Coder's job, on the Coder's engine.
+    const engine = await agentEngine('coder')
     if (!engine) continue
     try {
       await assertWithinBudget({ projectId: origin.ticket.projectId, provider: engine.id })

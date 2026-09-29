@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { prisma } from '@/infrastructure/db/prisma'
 import { AiProviderError } from '@/infrastructure/ai'
 import { requireProjectPermission } from '@/features/auth/guards'
-import { listCodingEngines } from '@/features/ai-admin/engines'
+import { agentEngine } from '@/features/ai-admin/engines'
 import { assertWithinBudget } from '@/features/ai-admin/usage'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
@@ -29,7 +29,7 @@ export async function draftReleaseNotesAction(
     if (!ticket) throw new NotFoundError('Ticket', data.ticketId)
 
     const { actor } = await requireProjectPermission(ticket.projectId, data.publish ? 'project:manage-config' : 'ticket:update')
-    const engine = (await listCodingEngines())[0]
+    const engine = await agentEngine('release')
     if (!engine) throw new BusinessRuleError('No AI engine is configured.')
     await assertWithinBudget({ projectId: ticket.projectId, provider: engine.id })
 

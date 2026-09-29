@@ -1617,6 +1617,13 @@ model AiModelPrice {
   /// price applies. Used by engines on the "custom" billing plan.
   customInputPerMTok  Decimal? @db.Decimal(10, 4)
   customOutputPerMTok Decimal? @db.Decimal(10, 4)
+  /// What the model can do, as the public catalogue records it. Null when the
+  /// catalogue does not say — unknown, not false.
+  supportsTools       Boolean?
+  supportsReasoning   Boolean?
+  supportsVision      Boolean?
+  /// Largest input it accepts, in tokens.
+  contextTokens       Int?
 
   updatedAt DateTime @updatedAt
 
@@ -1857,4 +1864,16 @@ model GithubUserToken {
   updatedAt        DateTime  @updatedAt
 
   @@map("github_user_tokens")
+}
+
+/// Which engine and model one agent uses. An agent with no row, or whose
+/// engine is not usable, falls back to the workspace default.
+model AgentSetting {
+  /// "copilot", "coder", "planner", "reviewer", "release" or "ops".
+  agent     String   @id
+  engineId  String
+  model     String
+  updatedAt DateTime @updatedAt
+
+  @@map("agent_settings")
 }

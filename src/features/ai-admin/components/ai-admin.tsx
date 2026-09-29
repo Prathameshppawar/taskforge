@@ -29,6 +29,7 @@ import {
 import type { AiAdminPage } from '../queries'
 import type { UsageRow } from '../reports'
 import { AgentRoster } from '@/features/agents/components/agent-roster'
+import { AgentModels } from '@/features/agents/components/agent-models'
 import { UsageTimeline } from './usage-timeline'
 
 type Result<T> = { success: true; data: T } | { success: false; error: string }
@@ -79,6 +80,7 @@ export function AiAdmin({ data }: { data: AiAdminPage }) {
         <Reports data={data} />
       </TabsContent>
       <TabsContent value="agents" className="space-y-6">
+        <AgentModels data={data.agentModels} />
         <AgentRoster data={data.agents} />
       </TabsContent>
     </Tabs>

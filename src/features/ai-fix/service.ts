@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import { type CodingEngineId, AiProviderError } from '@/infrastructure/ai'
-import { getEngineProvider } from '@/features/ai-admin/engines'
+import { agentEngine, getEngineProvider } from '@/features/ai-admin/engines'
 import { metered } from '@/features/ai-admin/usage'
 import { asInstallation, GithubApiError } from '@/infrastructure/github/client'
 import { recordActivity } from '@/features/activity/service'
@@ -64,7 +64,7 @@ export async function executeFixRun(runId: string): Promise<void> {
   const byline = `${run.provider} · ${run.model}`
 
   try {
-    const provider = metered(await getEngineProvider(run.provider as CodingEngineId), {
+    const provider = metered(await getEngineProvider(run.provider as CodingEngineId, run.model), {
       feature: 'AI_FIX',
       userId: run.requestedById,
       projectId: ticket.projectId,
@@ -281,7 +281,7 @@ export async function executeFixRun(runId: string): Promise<void> {
     // A second pair of eyes before any person looks: the Reviewer reads the
     // Coder's pull request against the ticket. Best effort — a failed review
     // must not turn a successful fix into a failed run.
-    await autoReview(ticket.id, repo.fullName, pull.number, run.provider as CodingEngineId, run.model, run.requestedById)
+    await autoReview(ticket.id, repo.fullName, pull.number, run.requestedById)
   } catch (error) {
     console.error(`[ai-fix] run ${runId} failed:`, error)
     await finish(runId, { status: 'FAILED', error: explain(error) })
@@ -331,8 +331,6 @@ async function autoReview(
   ticketId: string,
   fullName: string,
   prNumber: number,
-  engine: CodingEngineId,
-  model: string,
   requestedById: string | null,
 ) {
   try {
@@ -346,12 +344,16 @@ async function autoReview(
       if (!ref) await new Promise((resolve) => setTimeout(resolve, 2000))
     }
     if (!ref) return
+    // The Reviewer's own engine, not the Coder's: a second opinion is worth
+    // more from a different model than from the one that wrote the change.
+    const reviewer = await agentEngine('reviewer')
+    if (!reviewer) return
     const { reviewPullRequest } = await import('@/features/ai-review/service')
     await reviewPullRequest({
       ticketId,
       refId: ref.id,
-      engine,
-      engineModel: model,
+      engine: reviewer.id,
+      engineModel: reviewer.model,
       requestedById: requestedById ?? (await agentUserId('coder')),
     })
   } catch (error) {

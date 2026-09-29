@@ -1,5 +1,5 @@
 import { prisma } from '@/infrastructure/db/prisma'
-import { listCodingEngines } from '@/features/ai-admin/engines'
+import { agentEngine, listCodingEngines } from '@/features/ai-admin/engines'
 import { expireStaleRuns } from './service'
 import { githubConnection } from '@/features/github/user-auth'
 
@@ -59,6 +59,12 @@ export async function getAiFixPanel(ticketId: string, projectId: string, actorId
     // For "Start a new repository": the person's own GitHub, and the accounts
     // the app is installed on, which are where a new repository can go.
     github: await githubConnection(actorId),
+    // Which engine each agent uses, so the panel starts on the right one.
+    agents: {
+      coder: await agentEngine('coder'),
+      planner: await agentEngine('planner'),
+      reviewer: await agentEngine('reviewer'),
+    },
     owners: (
       await prisma.githubInstallation.findMany({ where: { removedAt: null, suspendedAt: null }, select: { accountLogin: true, accountType: true } })
     ).map((entry) => ({ login: entry.accountLogin, type: entry.accountType })),

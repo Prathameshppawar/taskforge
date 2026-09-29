@@ -114,22 +114,53 @@ export async function listCodingEngines(): Promise<ResolvedEngine[]> {
   return preferred ? [...ready.filter((e) => e.id === preferred), ...ready.filter((e) => e.id !== preferred)] : ready
 }
 
-export async function getEngineProvider(id: CodingEngineId): Promise<AiProvider> {
+/**
+ * A provider for one engine. `model` overrides the engine's own: an agent may
+ * use a different model of the same provider, and a run that recorded which
+ * model it was started with must run on exactly that one.
+ */
+export async function getEngineProvider(id: CodingEngineId, model?: string): Promise<AiProvider> {
   const engine = (await loadEngines()).find((candidate) => candidate.id === id)
   if (!engine || !usable(engine)) {
     throw new AiProviderError(`The ${engine?.label ?? id} engine is not configured or is switched off.`, id, 'unauthorized')
   }
   const key = engine.apiKey!
+  const chosen = model || engine.model
   switch (engine.definition.adapter) {
     case 'anthropic':
-      return new AnthropicProvider(key, engine.model)
+      return new AnthropicProvider(key, chosen)
     case 'openai':
-      return new OpenAiProvider(key, engine.model)
+      return new OpenAiProvider(key, chosen)
     case 'groq':
-      return new GroqProvider(engine.model, key)
+      return new GroqProvider(chosen, key)
     case 'openai-compatible':
-      return new OpenAiProvider(key, engine.model, { id: engine.id, label: engine.label, baseURL: engine.baseUrl! })
+      return new OpenAiProvider(key, chosen, { id: engine.id, label: engine.label, baseURL: engine.baseUrl! })
   }
+}
+
+/**
+ * The engine and model an agent works with: its own assignment when that
+ * engine is usable, otherwise the workspace default — the Copilot's choice for
+ * the Copilot, the first ready engine for everyone else. Null when nothing is
+ * configured at all.
+ */
+export async function agentEngine(role: string): Promise<{ id: CodingEngineId; label: string; model: string; assigned: boolean } | null> {
+  const [setting, ready] = await Promise.all([prisma.agentSetting.findUnique({ where: { agent: role } }), listCodingEngines()])
+  const own = setting ? ready.find((engine) => engine.id === setting.engineId) : undefined
+  if (own && setting) return { id: own.id, label: own.label, model: setting.model, assigned: true }
+  if (role === 'copilot') {
+    const workspace = await getWorkspaceSetting()
+    const chosen = ready.find((engine) => engine.id === workspace.copilotProvider) ?? ready.find((engine) => engine.id === 'groq') ?? ready[0]
+    return chosen ? { id: chosen.id, label: chosen.label, model: chosen.model, assigned: false } : null
+  }
+  const first = ready[0]
+  return first ? { id: first.id, label: first.label, model: first.model, assigned: false } : null
+}
+
+export async function agentProvider(role: string): Promise<AiProvider> {
+  const engine = await agentEngine(role)
+  if (!engine) throw new AiProviderError('No AI engine is configured. Connect one on Workspace → AI.', 'none', 'unauthorized')
+  return getEngineProvider(engine.id, engine.model)
 }
 
 export async function getWorkspaceSetting() {
@@ -148,6 +179,15 @@ export async function getWorkspaceSetting() {
  * page's choice first; otherwise the environment's AI_PROVIDER, as before.
  */
 export async function resolveCopilotProvider(): Promise<AiProvider> {
+  // The Copilot's own assignment first, when it has one that works.
+  const own = await prisma.agentSetting.findUnique({ where: { agent: 'copilot' } })
+  if (own) {
+    try {
+      return await getEngineProvider(own.engineId, own.model)
+    } catch {
+      // Assigned engine switched off or lost its key: fall back below.
+    }
+  }
   const workspace = await getWorkspaceSetting()
   const chosen = workspace.copilotProvider
 

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { prisma } from '@/infrastructure/db/prisma'
 import { AiProviderError } from '@/infrastructure/ai'
 import { can, requireProjectPermission } from '@/features/auth/guards'
-import { listCodingEngines } from '@/features/ai-admin/engines'
+import { agentEngine, listCodingEngines } from '@/features/ai-admin/engines'
 import { assertWithinBudget } from '@/features/ai-admin/usage'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/errors'
@@ -41,7 +41,10 @@ export async function reviewPullRequestAction(
         ticketId: data.ticketId,
         refId: data.refId,
         engine: engine.id,
-        engineModel: engine.model,
+        engineModel: await (async () => {
+          const reviewer = await agentEngine('reviewer')
+          return reviewer && reviewer.id === engine.id ? reviewer.model : engine.model
+        })(),
         requestedById: actor.id,
       })
       revalidatePath(`/tickets/${ticket.key}`)

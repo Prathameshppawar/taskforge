@@ -16,6 +16,11 @@ export interface CatalogPrice {
   model: string
   inputPerMTok: number
   outputPerMTok: number
+  /** Capability facts; null where the catalogue does not say (unknown, not false). */
+  supportsTools: boolean | null
+  supportsReasoning: boolean | null
+  supportsVision: boolean | null
+  contextTokens: number | null
 }
 
 /** LiteLLM provider name → the engine it prices, and that provider's key prefix. */
@@ -51,7 +56,18 @@ export function parsePriceCatalog(raw: unknown, mapping: CatalogMapping): Catalo
     const model = key.startsWith(prefix) ? key.slice(prefix.length) : key
     if (!model || model.includes(' ')) continue
 
-    prices.push({ provider: target.engineId, model, inputPerMTok, outputPerMTok })
+    const flag = (value: unknown) => (typeof value === 'boolean' ? value : null)
+    const context = Number(entry.max_input_tokens)
+    prices.push({
+      provider: target.engineId,
+      model,
+      inputPerMTok,
+      outputPerMTok,
+      supportsTools: flag(entry.supports_function_calling),
+      supportsReasoning: flag(entry.supports_reasoning),
+      supportsVision: flag(entry.supports_vision),
+      contextTokens: Number.isInteger(context) && context > 0 ? context : null,
+    })
   }
   return prices
 }

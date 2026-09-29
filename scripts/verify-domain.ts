@@ -80,6 +80,8 @@ import { ENGINE_CATALOG, engineDefinition, priceCatalogMapping } from '@/core/do
 
 import { clip, htmlToText, isTextAttachment, parseGithubLink } from '@/core/domain/ticket-context'
 
+import { recommend, scoreCandidate, type ModelCandidate } from '@/core/domain/agent-models'
+
 let passed = 0
 let failed = 0
 
@@ -1015,6 +1017,30 @@ check('a GitHub repository link means its README', parseGithubLink('https://gith
 check('other hosts are not GitHub links', parseGithubLink('https://gitlab.com/acme/web') === null)
 check('clipping says what was cut', clip('a\n'.repeat(100), 50).includes('more characters not shown'))
 check('short text is left alone', clip('short', 50) === 'short')
+
+
+console.log('\n── Agents: which model suits which job ──')
+const cand = (over: Partial<ModelCandidate>): ModelCandidate => ({
+  engineId: 'x', engineLabel: 'X', model: 'm', free: false, inputPerMTok: 1, outputPerMTok: 4,
+  supportsTools: true, supportsReasoning: true, contextTokens: 200_000, ...over,
+})
+const opus = cand({ engineId: 'anthropic', model: 'claude-opus-5', inputPerMTok: 5, outputPerMTok: 25, contextTokens: 1_000_000 })
+const glmFree = cand({ engineId: 'zhipu', model: 'glm-4.7-flash', free: true, inputPerMTok: 0, outputPerMTok: 0, contextTokens: 200_000 })
+const ossFree = cand({ engineId: 'groq', model: 'openai/gpt-oss-120b', free: true, inputPerMTok: 0.15, outputPerMTok: 0.6, contextTokens: 131_072 })
+const reasonerNoTools = cand({ engineId: 'deepseek', model: 'deepseek-reasoner', supportsTools: false, inputPerMTok: 0.28, outputPerMTok: 0.42 })
+check('the Coder prefers a frontier model over a free flash one', recommend('coder', [glmFree, opus, ossFree])[0].candidate.model === 'claude-opus-5')
+check('the Copilot prefers a free model', recommend('copilot', [opus, glmFree])[0].candidate.free)
+check('the Release Manager prefers cheap writing', recommend('release', [opus, ossFree])[0].candidate.model === 'openai/gpt-oss-120b')
+check('a model that cannot call tools is never offered to the Coder', !recommend('coder', [reasonerNoTools, glmFree]).some((r) => r.candidate.model === 'deepseek-reasoner'))
+check('…but may write a post-mortem, which needs no tools', scoreCandidate('ops', reasonerNoTools).eligible)
+check('too small a context is excluded, with the reason', !scoreCandidate('reviewer', cand({ contextTokens: 8_000 })).eligible)
+const provenCheap = { ...ossFree, acceptance: { rate: 0.95, decided: 20 } }
+const provenBad = { ...opus, acceptance: { rate: 0.1, decided: 20 } }
+check('a strong acceptance record can outrank price', recommend('coder', [provenBad, provenCheap])[0].candidate.model === 'openai/gpt-oss-120b')
+check('two decided pull requests are not yet evidence', !scoreCandidate('coder', { ...ossFree, acceptance: { rate: 1, decided: 2 } }).reasons.some((r) => r.includes('merged')))
+check('the capability reason admits it is a proxy', scoreCandidate('coder', opus).reasons.some((r) => r.includes('rough capability signal')))
+check('a free model still states its list price, so a tie can be explained', scoreCandidate('coder', ossFree).reasons.some((r) => r.includes('list $0.15/$0.6')))
+check('unknown facts score in the middle, not as failures', scoreCandidate('coder', cand({ supportsTools: null, supportsReasoning: null, contextTokens: null })).eligible)
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

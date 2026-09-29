@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { prisma } from '@/infrastructure/db/prisma'
-import { listCodingEngines } from '@/features/ai-admin/engines'
+import { agentEngine, listCodingEngines } from '@/features/ai-admin/engines'
 import { assertWithinBudget } from '@/features/ai-admin/usage'
 import { can, requireProjectPermission } from '@/features/auth/guards'
 import { ok, type ActionResult } from '@/core/domain/result'
@@ -87,6 +87,10 @@ export async function startAiFixAction(
       if (!plan) throw new BusinessRuleError('That plan is not available to build.')
     }
 
+    // The agent's own model when it is the agent's engine that was chosen.
+    const agent = await agentEngine(data.mode === 'PLAN' ? 'planner' : 'coder')
+    const model = agent && agent.id === engine.id ? agent.model : engine.model
+
     const batchId = links.length > 1 ? randomUUID() : null
     const scope = (current: (typeof links)[number]) =>
       links.length > 1
@@ -103,7 +107,7 @@ export async function startAiFixAction(
             repoId: link.repoId,
             requestedById: actor.id,
             provider: engine.id,
-            model: engine.model,
+            model,
             instructions: [scope(link), data.instructions].filter(Boolean).join('\n\n') || null,
             mode: data.targetPrNumber ? 'HEAL_CI' : data.mode,
             planRunId: data.planRunId ?? null,
@@ -199,7 +203,10 @@ export async function startScaffoldAction(input: z.input<typeof scaffoldSchema>)
         repoId: created.repoId,
         requestedById: actor.id,
         provider: engine.id,
-        model: engine.model,
+        model: await (async () => {
+          const coder = await agentEngine('coder')
+          return coder && coder.id === engine.id ? coder.model : engine.model
+        })(),
         mode: 'SCAFFOLD',
       },
       select: { id: true },

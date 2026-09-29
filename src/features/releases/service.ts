@@ -69,7 +69,7 @@ export async function draftReleaseNotes(input: {
     throw new Error(`Nothing has been finished in this project since ${previousKey ?? since.toISOString().slice(0, 10)}.`)
   }
 
-  const provider = metered(await getEngineProvider(input.engine), {
+  const provider = metered(await getEngineProvider(input.engine, input.engineModel), {
     feature: 'RELEASE_NOTES',
     userId: input.requestedById,
     projectId: ticket.projectId,

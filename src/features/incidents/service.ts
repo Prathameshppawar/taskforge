@@ -87,7 +87,7 @@ export async function draftPostmortem(input: { ticketId: string; engine: CodingE
       : ['- none recorded']),
   ].join('\n')
 
-  const provider = metered(await getEngineProvider(input.engine), {
+  const provider = metered(await getEngineProvider(input.engine, input.engineModel), {
     feature: 'POSTMORTEM',
     userId: input.requestedById,
     projectId: ticket.projectId,

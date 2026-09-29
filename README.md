@@ -848,6 +848,20 @@ is enough for small, contained fixes; for real ones, use Anthropic.
   knowingly — code sent to a Chinese provider is processed in China, and
   Gemini's free tier may train on prompts. A custom endpoint must be public
   https, by the same address check as uptime monitors.
+- **Each agent its own model.** The Copilot, Coder, Planner, Reviewer, Release
+  Manager and Ops each have a written specialty and can run on a different
+  engine and model — chat on something fast and free, code on something
+  strong. With no assignment an agent uses the workspace default. The Agents
+  tab recommends models **from connected engines only**, ranked for that job
+  ([`agent-models.ts`](src/core/domain/agent-models.ts)): a model that cannot
+  call tools is never offered to an agent that works through tools (DeepSeek's
+  reasoner, say), and too small a context is excluded. Nothing measures coding
+  quality directly, so list price stands in as a *rough* capability signal —
+  every reason that leans on it says so, and states the price — while the
+  Coder's own record of merged versus closed pull requests on each engine
+  outweighs it, more heavily the more of it there is. The Reviewer uses its
+  own engine, not the Coder's, because a second opinion is worth more from a
+  different model.
 - **What you actually pay.** Each engine has a billing plan — *free tier*
   (nothing billed), *pay as you go* (list price) or *custom rate* (what the
   workspace really pays, for a negotiated price or a subscription). Every call

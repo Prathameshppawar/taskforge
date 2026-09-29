@@ -33,7 +33,15 @@ export async function refreshModelPrices() {
     await prisma.aiModelPrice.upsert({
       where: { provider_model: { provider: price.provider, model: price.model } },
       create: { ...price, source: 'auto' },
-      update: { inputPerMTok: price.inputPerMTok, outputPerMTok: price.outputPerMTok, source: 'auto' },
+      update: {
+        inputPerMTok: price.inputPerMTok,
+        outputPerMTok: price.outputPerMTok,
+        source: 'auto',
+        supportsTools: price.supportsTools,
+        supportsReasoning: price.supportsReasoning,
+        supportsVision: price.supportsVision,
+        contextTokens: price.contextTokens,
+      },
     })
     updated++
   }

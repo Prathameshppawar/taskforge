@@ -265,3 +265,31 @@ export async function sendReportNowAction(): Promise<ActionResult<{ recipients: 
     return ok({ recipients: result.recipients })
   })
 }
+
+const agentSchema = z.object({
+  agent: z.enum(['copilot', 'coder', 'planner', 'reviewer', 'release', 'ops']),
+  engineId: z.string().refine(isEngineId, 'Unknown engine.').nullable(),
+  model: z.string().trim().max(160).nullable(),
+})
+
+/** Gives one agent its own engine and model, or (null) returns it to the workspace default. */
+export async function setAgentModelAction(input: z.infer<typeof agentSchema>): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requirePermission('ai:manage')
+    const data = agentSchema.parse(input)
+    if (!data.engineId || !data.model) {
+      await prisma.agentSetting.deleteMany({ where: { agent: data.agent } })
+      await audit(actor.id, `returned the ${data.agent} agent to the workspace default engine`)
+    } else {
+      await prisma.agentSetting.upsert({
+        where: { agent: data.agent },
+        create: { agent: data.agent, engineId: data.engineId, model: data.model },
+        update: { engineId: data.engineId, model: data.model },
+      })
+      await ensurePrice(data.engineId, data.model).catch(() => null)
+      await audit(actor.id, `set the ${data.agent} agent to ${engineDefinition(data.engineId)?.label ?? data.engineId} · ${data.model}`)
+    }
+    revalidatePath(PATH)
+    return ok()
+  })
+}
