@@ -751,28 +751,38 @@ model ProjectSettings {
   logoUrl          String?
 
   /// Roll a parent's status up automatically from its children's progress.
-  autoStatusRollup Boolean @default(true)
+  autoStatusRollup  Boolean @default(true)
   /// Allow creating child tickets under a parent.
-  allowSubtasks    Boolean @default(true)
+  allowSubtasks     Boolean @default(true)
   /// Reject ticket creation without a due date.
-  requireDueDate   Boolean @default(false)
+  requireDueDate    Boolean @default(false)
   /// Only members of the project may view it.
-  isPrivate        Boolean @default(false)
+  isPrivate         Boolean @default(false)
   /// Let linked GitHub activity move tickets forward: a pull request opened
   /// moves one to Review, merged moves it to Done. Never moves one backward.
-  githubAutomation Boolean @default(true)
+  githubAutomation  Boolean @default(true)
   /// Let "Fix with AI" create and edit GitHub Actions workflows. Off by
   /// default: a workflow runs as soon as its pull request opens, so this is a
   /// deliberate per-project choice, and every workflow written is checked by
   /// `checkWorkflow` before it is committed.
-  aiWorkflows      Boolean @default(false)
+  aiWorkflows       Boolean @default(false)
   /// When an AI-authored pull request's CI fails, let the Coder push a fix to
   /// it — at most twice per pull request, so a problem it cannot solve does
   /// not become an endless, billable loop.
-  aiAutoHeal       Boolean @default(false)
+  aiAutoHeal        Boolean @default(false)
   /// SHA-256 of the secret in this project's error-ingest URL. Only the hash is
   /// kept; the URL is shown once, when it is generated.
-  errorIngestHash  String? @unique
+  errorIngestHash   String? @unique
+  /// AI pull requests open as drafts when the repository has CI, and are
+  /// marked ready for review only once every check has passed.
+  aiDraftUntilGreen Boolean @default(false)
+  /// Merge an AI pull request without a person, when every condition holds:
+  /// see `evaluateAutoMerge`. Off by default, and deliberately narrow.
+  aiAutoMerge       Boolean @default(false)
+  /// Largest change auto-merge will accept, in added plus deleted lines.
+  autoMergeMaxLines Int     @default(40)
+  /// Ticket kinds auto-merge may apply to, comma-separated.
+  autoMergeKinds    String  @default("TASK,ENHANCEMENT")
 
   defaultAssigneeId String?
   defaultAssignee   User?   @relation("ProjectDefaultAssignee", fields: [defaultAssigneeId], references: [id], onDelete: SetNull)
@@ -1450,18 +1460,21 @@ model TicketGitRef {
   /// Branch name, pull request number, or commit sha — unique within a kind.
   externalId String
 
-  title          String
-  url            String
-  state          GitRefState?
-  checkState     GitCheckState?
-  authorLogin    String?
+  title           String
+  url             String
+  state           GitRefState?
+  checkState      GitCheckState?
+  authorLogin     String?
   /// For pull requests: the head commit, which is what CI reports against.
-  headSha        String?
-  headBranch     String?
-  mergedAt       DateTime?
+  headSha         String?
+  headBranch      String?
+  mergedAt        DateTime?
   /// The commit a merge produced on the base branch — what a production
   /// deployment of that branch will actually contain.
-  mergeCommitSha String?
+  mergeCommitSha  String?
+  /// The Reviewer's last verdict on this pull request: looks_good,
+  /// minor_issues or needs_work. Auto-merge requires looks_good.
+  aiReviewVerdict String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1505,6 +1518,12 @@ model AiFixRun {
 
   planRunId String?
 
+  /// Runs started together for one ticket across several repositories share
+
+  /// a batch, so their pull requests can point at each other.
+
+  batchId String?
+
   status       AiFixStatus @default(QUEUED)
   branch       String?
   prNumber     Int?
@@ -1528,6 +1547,7 @@ model AiFixRun {
 
   @@index([ticketId, createdAt])
   @@index([status])
+  @@index([batchId])
   @@map("ai_fix_runs")
 }
 

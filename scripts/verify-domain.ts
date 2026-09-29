@@ -73,6 +73,8 @@ import { checkMonitorUrl, describeDuration, isPrivateAddress, uptimePercent } fr
 
 import { changeFailureRate, failureRateBand, formatSpan, frequencyBand, leadTimeBand, median, recoveryBand } from '@/core/domain/dora'
 
+import { evaluateAutoMerge, parseKinds } from '@/core/domain/auto-merge'
+
 let passed = 0
 let failed = 0
 
@@ -928,6 +930,25 @@ check('an incident before a deploy does not blame it', changeFailureRate([d(10)]
 check('one deploy with two incidents counts once', changeFailureRate([d(0)], [d(1), d(2)]) === 1)
 check('no deploys is unknown, not zero', changeFailureRate([], [d(1)]) === null)
 check('spans read at DORA scale', formatSpan(45 * 60_000) === '45 min' && formatSpan(3 * 3_600_000) === '3 h' && formatSpan(4 * 86_400_000) === '4 days')
+
+
+console.log('\n── Autonomy: when a pull request may merge without a person ──')
+const merge = (over: Partial<Parameters<typeof evaluateAutoMerge>[0]>) => evaluateAutoMerge({
+  enabled: true, allowedKinds: ['TASK', 'ENHANCEMENT'], maxLines: 40, ticketKind: 'TASK', openedByAi: true, isDraft: false,
+  checkState: 'SUCCESS', checkCount: 2, reviewVerdict: 'looks_good', additions: 10, deletions: 5, files: ['index.html'], ...over,
+})
+check('everything holding merges', merge({}).merge && merge({}).reasons.length === 0)
+check('off means never', !merge({ enabled: false }).merge)
+check('a person\'s pull request is never auto-merged', !merge({ openedByAi: false }).merge)
+check('a draft is not merged', !merge({ isDraft: true }).merge)
+check('no CI is not the same as passing', merge({ checkCount: 0, checkState: null }).reasons.includes('no CI ran on it'))
+check('pending or failing checks block it', !merge({ checkState: 'PENDING' }).merge && !merge({ checkState: 'FAILURE' }).merge)
+check('the Reviewer must say looks good', !merge({ reviewVerdict: 'minor_issues' }).merge && !merge({ reviewVerdict: null }).merge)
+check('too large a change is refused, with the count', merge({ additions: 30, deletions: 20 }).reasons.some((r) => r.includes('50 lines')))
+check('any workflow change is refused', !merge({ files: ['index.html', '.github/workflows/ci.yml'] }).merge)
+check('a disallowed kind is refused', !merge({ ticketKind: 'PRODUCTION' }).merge)
+check('every failed condition is reported, not just the first', merge({ isDraft: true, checkState: 'FAILURE', reviewVerdict: null }).reasons.length === 3)
+check('kinds parse and ignore junk', parseKinds('task, Bug,nonsense,').join() === 'TASK,BUG')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

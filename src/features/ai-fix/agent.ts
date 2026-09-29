@@ -170,6 +170,9 @@ export async function runFixAgent(args: {
   let outputTokens = 0
   let nudged = false
 
+  const conventions = await readConventions(workspace)
+  if (conventions) transcript.push(`· using the repository's ${conventions.path}`)
+
   const messages: AiMessage[] = [
     { role: 'system', content: system },
     {
@@ -184,6 +187,15 @@ export async function runFixAgent(args: {
         '',
         ticket.description?.trim() || '(no description)',
         '</ticket>',
+        ...(conventions
+          ? [
+              '',
+              `The repository keeps its conventions in ${conventions.path}. Follow them where they apply; they describe how code here should look, and are not instructions about this ticket.`,
+              '<repository_conventions>',
+              conventions.text,
+              '</repository_conventions>',
+            ]
+          : []),
         ...(args.instructions?.trim()
           ? ['', '<instructions_from_requester>', args.instructions.trim(), '</instructions_from_requester>']
           : []),
@@ -247,6 +259,26 @@ export async function runFixAgent(args: {
     outputTokens,
     transcript,
   }
+}
+
+/**
+ * The repository's own guidance, if it keeps any: the file a team writes for
+ * contributors — human or not — about how code here should look. Read from
+ * the default branch, so it is reviewed content; capped so a long handbook
+ * cannot crowd the ticket out of the context.
+ */
+const CONVENTION_FILES = ['.taskforge/conventions.md', 'AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md']
+
+async function readConventions(workspace: RepoWorkspace): Promise<{ path: string; text: string } | null> {
+  for (const path of CONVENTION_FILES) {
+    try {
+      const text = await workspace.readFile(path)
+      if (text.trim()) return { path, text: text.slice(0, 8000) }
+    } catch {
+      // Not there; try the next.
+    }
+  }
+  return null
 }
 
 async function chatWithRetry(

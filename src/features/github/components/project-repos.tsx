@@ -21,6 +21,7 @@ import {
 import {
   linkRepoAction,
   setAiWorkflowsAction,
+  setAutoMergePolicyAction,
   setGithubAutomationAction,
   setRepoRoleAction,
   syncProjectReposAction,
@@ -279,6 +280,49 @@ export function ProjectRepositories({
                 onCheckedChange={(enabled) => run(() => setAiWorkflowsAction({ projectId, enabled, setting: 'aiAutoHeal' }))}
               />
             </div>
+            <div className="flex items-center justify-between gap-4 border-t pt-2">
+              <div className="space-y-0.5">
+                <Label htmlFor="ai-draft-green">Open AI pull requests as drafts until CI passes</Label>
+                <p className="text-xs text-muted-foreground">
+                  Only in repositories that have CI. Marked ready for review the moment every check is green; a workflow
+                  change always stays a draft.
+                </p>
+              </div>
+              <Switch
+                id="ai-draft-green"
+                checked={repos.aiDraftUntilGreen}
+                disabled={!canEdit || isPending}
+                onCheckedChange={(enabled) => run(() => setAiWorkflowsAction({ projectId, enabled, setting: 'aiDraftUntilGreen' }))}
+              />
+            </div>
+            <div className="space-y-2 border-t pt-2">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="ai-auto-merge">Auto-merge small, green, reviewed AI pull requests</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Only when all of these hold: the Coder opened it, it is not a draft, CI ran and passed, the Reviewer found
+                    nothing, it touches no workflow, it is within the size limit, and the ticket kind is allowed.
+                  </p>
+                </div>
+                <Switch
+                  id="ai-auto-merge"
+                  checked={repos.aiAutoMerge}
+                  disabled={!canEdit || isPending}
+                  onCheckedChange={(enabled) => {
+                    if (enabled && !window.confirm('Merge AI pull requests without a person when every condition holds?')) return
+                    run(() => setAiWorkflowsAction({ projectId, enabled, setting: 'aiAutoMerge' }))
+                  }}
+                />
+              </div>
+              {repos.aiAutoMerge && (
+                <AutoMergeLimits
+                  maxLines={repos.autoMergeMaxLines}
+                  kinds={repos.autoMergeKinds}
+                  disabled={!canEdit || isPending}
+                  onSave={(maxLines, kinds) => run(() => setAutoMergePolicyAction({ projectId, maxLines, kinds }))}
+                />
+              )}
+            </div>
             {repos.aiWorkflows && (
               <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px]">
                 GitHub also requires the app to hold the <strong>Workflows: Read and write</strong> permission.{' '}
@@ -296,6 +340,49 @@ export function ProjectRepositories({
         </>
       )}
     </section>
+  )
+}
+
+const MERGEABLE_KINDS = ['TASK', 'ENHANCEMENT', 'BUG', 'FEATURE'] as const
+
+function AutoMergeLimits({
+  maxLines,
+  kinds,
+  disabled,
+  onSave,
+}: {
+  maxLines: number
+  kinds: string[]
+  disabled: boolean
+  onSave: (maxLines: number, kinds: string[]) => void
+}) {
+  const [lines, setLines] = React.useState(String(maxLines))
+  const [selected, setSelected] = React.useState<string[]>(kinds)
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-md bg-muted/30 p-2 text-xs">
+      <div className="space-y-1">
+        <Label htmlFor="merge-lines" className="text-xs">At most (lines changed)</Label>
+        <Input id="merge-lines" value={lines} onChange={(event) => setLines(event.target.value)} className="h-7 w-20 text-xs" inputMode="numeric" />
+      </div>
+      <fieldset className="space-y-1">
+        <legend className="text-xs font-medium">For tickets of kind</legend>
+        <div className="flex flex-wrap gap-2">
+          {MERGEABLE_KINDS.map((kind) => (
+            <label key={kind} className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={selected.includes(kind)}
+                onChange={(event) => setSelected((current) => (event.target.checked ? [...current, kind] : current.filter((entry) => entry !== kind)))}
+              />
+              {kind.toLowerCase()}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <Button size="sm" variant="outline" className="h-7" disabled={disabled} onClick={() => onSave(Number(lines) || 40, selected)}>
+        Save limits
+      </Button>
+    </div>
   )
 }
 

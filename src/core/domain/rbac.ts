@@ -69,6 +69,11 @@ export const PERMISSIONS = [
   'ticket:delete',
   'ticket:assign',
   'ticket:transition',
+  /**
+   * Approve work waiting on you: move a ticket from a Review status to Done.
+   * Exists for clients, who may sign work off but not otherwise move it.
+   */
+  'ticket:approve',
 
   // Collaboration
   'comment:create',
@@ -178,6 +183,7 @@ export const PERMISSION_GROUPS: ReadonlyArray<{
       { key: 'ticket:update', label: 'Edit tickets' },
       { key: 'ticket:update-any', label: "Edit anyone's ticket" },
       { key: 'ticket:transition', label: 'Change status' },
+      { key: 'ticket:approve', label: 'Approve work in review', note: 'Review → Done only. What the Client role is for.' },
       { key: 'ticket:assign', label: 'Assign tickets' },
       { key: 'ticket:delete', label: 'Delete tickets' },
     ],
@@ -255,6 +261,7 @@ const PROJECT_MANAGER_PERMISSIONS: Permission[] = [
   'ticket:update-any',
   'ticket:delete',
   'ticket:assign',
+  'ticket:approve',
   'comment:delete-any',
   'recurring:manage',
   'team:manage-members',

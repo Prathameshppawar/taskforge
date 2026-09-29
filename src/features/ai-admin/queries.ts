@@ -4,11 +4,12 @@ import { monthStart } from '@/core/domain/ai-budget'
 import { ENGINE_META, getWorkspaceSetting, listAvailableModels, listEngines } from './engines'
 import { listBudgets } from './budgets'
 import { usageReport } from './reports'
+import { getAgentRoster } from '@/features/agents/queries'
 
 /** Everything Workspace → AI shows, in one pass. */
 export async function getAiAdminPage() {
   const now = new Date()
-  const [engines, workspace, prices, budgets, month, last30, subscriptions, users, teams, projects] =
+  const [engines, workspace, prices, budgets, month, last30, subscriptions, users, teams, projects, agents] =
     await Promise.all([
       listEngines(),
       getWorkspaceSetting(),
@@ -25,9 +26,10 @@ export async function getAiAdminPage() {
           team: { select: { id: true, name: true, _count: { select: { members: true } } } },
         },
       }),
-      prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, email: true }, orderBy: { name: 'asc' } }),
+      prisma.user.findMany({ where: { isActive: true, isAgent: false }, select: { id: true, name: true, email: true }, orderBy: { name: 'asc' } }),
       prisma.team.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
       prisma.project.findMany({ where: { isArchived: false }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' } }),
+      getAgentRoster(),
     ])
 
   // Model lists are fetched live from each provider that has a key, in parallel.
@@ -57,6 +59,7 @@ export async function getAiAdminPage() {
     teams,
     projects,
     emailConfigured: isEmailConfigured(),
+    agents,
   }
 }
 

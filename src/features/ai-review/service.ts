@@ -164,6 +164,12 @@ export async function reviewPullRequest(input: {
     },
   })
 
+  await prisma.ticketGitRef.update({ where: { id: input.refId }, data: { aiReviewVerdict: review.verdict } })
+  // A verdict is one of the facts auto-merge waits on.
+  const { considerAiPullRequest } = await import('@/features/ai-fix/autonomy')
+  const refRow = await prisma.ticketGitRef.findUniqueOrThrow({ where: { id: input.refId }, select: { repoId: true } })
+  await considerAiPullRequest(refRow.repoId, number).catch((error) => console.error('[ai-review] autonomy check failed:', error))
+
   await agentComment(
     'reviewer',
     ticket.id,

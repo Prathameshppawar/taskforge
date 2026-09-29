@@ -105,7 +105,15 @@ export async function getProjectRepos(projectId: string) {
     }),
     prisma.projectSettings.findUnique({
       where: { projectId },
-      select: { githubAutomation: true, aiWorkflows: true, aiAutoHeal: true },
+      select: {
+        githubAutomation: true,
+        aiWorkflows: true,
+        aiAutoHeal: true,
+        aiDraftUntilGreen: true,
+        aiAutoMerge: true,
+        autoMergeMaxLines: true,
+        autoMergeKinds: true,
+      },
     }),
     prisma.githubApp.findUnique({ where: { id: 1 }, select: { slug: true, ownerLogin: true } }),
   ])
@@ -118,6 +126,10 @@ export async function getProjectRepos(projectId: string) {
     automation: settings?.githubAutomation ?? true,
     aiWorkflows: settings?.aiWorkflows ?? false,
     aiAutoHeal: settings?.aiAutoHeal ?? false,
+    aiDraftUntilGreen: settings?.aiDraftUntilGreen ?? false,
+    aiAutoMerge: settings?.aiAutoMerge ?? false,
+    autoMergeMaxLines: settings?.autoMergeMaxLines ?? 40,
+    autoMergeKinds: (settings?.autoMergeKinds ?? 'TASK,ENHANCEMENT').split(',').filter(Boolean),
     /** Where the app's permissions are edited — needed to grant Workflows. */
     appPermissionsUrl: app ? `https://github.com/settings/apps/${app.slug}/permissions` : null,
     hasGithub: available.length > 0 || linked.length > 0,

@@ -41,7 +41,7 @@ export async function executeFixRun(runId: string): Promise<void> {
           description: true,
           projectId: true,
           type: { select: { kind: true } },
-          project: { select: { settings: { select: { aiWorkflows: true } } } },
+          project: { select: { settings: { select: { aiWorkflows: true, aiDraftUntilGreen: true } } } },
         },
       },
       repo: {
@@ -205,6 +205,15 @@ export async function executeFixRun(runId: string): Promise<void> {
     const branch = uniqueBranch(base, new Set(existing.map((ref) => ref.ref.replace('refs/heads/', ''))))
 
     const workflows = await workspace.touchesWorkflows()
+    // Draft until green only where there is CI to turn it green; a repository
+    // without checks would leave the pull request a draft forever.
+    const hasCi =
+      (ticket.project.settings?.aiDraftUntilGreen ?? false) &&
+      (
+        await asInstallation<{ total_count: number }>(installationId, `/repos/${repo.fullName}/commits/${workspace.baseSha}/check-suites`).catch(
+          () => ({ total_count: 0 }),
+        )
+      ).total_count > 0
     const commit = await workspace.commit(branch, `${ticket.key}: ${result.title}\n\n${result.summary}\n\n${footer}`)
 
     const pull = await asInstallation<{ number: number; html_url: string }>(
@@ -218,7 +227,7 @@ export async function executeFixRun(runId: string): Promise<void> {
           base: repo.defaultBranch,
           // A workflow runs the moment it is merged, so these never open ready
           // to merge: someone has to mark them ready, having read them.
-          draft: workflows,
+          draft: workflows || hasCi,
           body: [
             ...(workflows
               ? [

@@ -635,11 +635,15 @@ export async function handleWebhook(event: string, payload: any): Promise<Webhoo
         where: { repoId: repo.id, kind: 'PULL_REQUEST', headSha: suite.head_sha },
         data: { checkState },
       })
-      if (checkState === 'FAILURE') {
-        const prNumbers = ((payload.check_suite.pull_requests ?? []) as Array<{ number: number }>).map((pr) => pr.number)
-        if (prNumbers.length > 0) {
-          const { maybeAutoHeal } = await import('@/features/ai-fix/auto-heal')
-          await maybeAutoHeal(repo.id, prNumbers)
+      const prNumbers = ((payload.check_suite.pull_requests ?? []) as Array<{ number: number }>).map((pr) => pr.number)
+      if (checkState === 'FAILURE' && prNumbers.length > 0) {
+        const { maybeAutoHeal } = await import('@/features/ai-fix/auto-heal')
+        await maybeAutoHeal(repo.id, prNumbers)
+      }
+      if (checkState === 'SUCCESS' && prNumbers.length > 0) {
+        const { considerAiPullRequest } = await import('@/features/ai-fix/autonomy')
+        for (const prNumber of prNumbers) {
+          await considerAiPullRequest(repo.id, prNumber).catch((error) => console.error('[github] autonomy check failed:', error))
         }
       }
       return { handled: true, tickets: [], note: `${updated.count} pull request refs` }

@@ -234,11 +234,11 @@ export async function setAiWorkflowsAction(input: {
   projectId: string
   enabled: boolean
   /** Which switch: workflow writing (default) or automatic CI healing. */
-  setting?: 'aiWorkflows' | 'aiAutoHeal'
+  setting?: 'aiWorkflows' | 'aiAutoHeal' | 'aiDraftUntilGreen' | 'aiAutoMerge'
 }): Promise<ActionResult<void>> {
   return runAction(async () => {
     const data = z
-      .object({ projectId: z.string().min(1), enabled: z.boolean(), setting: z.enum(['aiWorkflows', 'aiAutoHeal']).default('aiWorkflows') })
+      .object({ projectId: z.string().min(1), enabled: z.boolean(), setting: z.enum(['aiWorkflows', 'aiAutoHeal', 'aiDraftUntilGreen', 'aiAutoMerge']).default('aiWorkflows') })
       .parse(input)
     const { actor } = await requireProjectPermission(data.projectId, 'project:manage-config')
 
@@ -255,12 +255,49 @@ export async function setAiWorkflowsAction(input: {
         actorId: actor.id,
         field: data.setting,
         summary:
-          data.setting === 'aiAutoHeal'
+          data.setting === 'aiAutoMerge'
+            ? `${data.enabled ? 'enabled' : 'disabled'} auto-merge of AI pull requests`
+            : data.setting === 'aiDraftUntilGreen'
+              ? `${data.enabled ? 'enabled' : 'disabled'} draft-until-green for AI pull requests`
+              : data.setting === 'aiAutoHeal'
             ? `${data.enabled ? 'enabled' : 'disabled'} automatic fixing of failing CI on AI pull requests`
             : `${data.enabled ? 'allowed' : 'stopped'} Fix with AI ${data.enabled ? 'to write' : 'writing'} CI workflows`,
       })
     })
 
+    revalidatePath(`/projects/${data.projectId}/settings`)
+    return ok()
+  })
+}
+
+/** The auto-merge limits: the largest change, and which ticket kinds. */
+export async function setAutoMergePolicyAction(input: {
+  projectId: string
+  maxLines: number
+  kinds: string[]
+}): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const data = z
+      .object({
+        projectId: z.string().min(1),
+        maxLines: z.coerce.number().int().min(1).max(500),
+        kinds: z.array(z.enum(['TASK', 'FEATURE', 'ENHANCEMENT', 'BUG', 'PRODUCTION', 'DEPLOYMENT', 'RESEARCH'])).max(7),
+      })
+      .parse(input)
+    const { actor } = await requireProjectPermission(data.projectId, 'project:manage-config')
+    await prisma.projectSettings.update({
+      where: { projectId: data.projectId },
+      data: { autoMergeMaxLines: data.maxLines, autoMergeKinds: data.kinds.join(',') },
+    })
+    await recordActivity(prisma, {
+      action: 'UPDATED',
+      entityType: 'PROJECT',
+      entityId: data.projectId,
+      projectId: data.projectId,
+      actorId: actor.id,
+      field: 'autoMergePolicy',
+      summary: `set auto-merge to at most ${data.maxLines} lines, for ${data.kinds.join(', ').toLowerCase() || 'no'} tickets`,
+    })
     revalidatePath(`/projects/${data.projectId}/settings`)
     return ok()
   })

@@ -26,6 +26,7 @@ import {
 } from '../actions'
 import type { AiAdminPage } from '../queries'
 import type { UsageRow } from '../reports'
+import { AgentRoster } from '@/features/agents/components/agent-roster'
 
 type Result<T> = { success: true; data: T } | { success: false; error: string }
 
@@ -59,6 +60,7 @@ export function AiAdmin({ data }: { data: AiAdminPage }) {
         <TabsTrigger value="usage">Usage</TabsTrigger>
         <TabsTrigger value="budgets">Budgets</TabsTrigger>
         <TabsTrigger value="reports">Reports</TabsTrigger>
+        <TabsTrigger value="agents">Agents</TabsTrigger>
       </TabsList>
       <TabsContent value="engines" className="space-y-6">
         <WorkspaceChoice data={data} />
@@ -74,6 +76,9 @@ export function AiAdmin({ data }: { data: AiAdminPage }) {
       </TabsContent>
       <TabsContent value="reports" className="space-y-6">
         <Reports data={data} />
+      </TabsContent>
+      <TabsContent value="agents" className="space-y-6">
+        <AgentRoster data={data.agents} />
       </TabsContent>
     </Tabs>
   )
