@@ -21,6 +21,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { MarkdownEditor } from '@/components/shared/markdown-editor'
+import { applyDescriptionTemplate } from '@/core/domain/ticket-templates'
 import {
   Form,
   FormControl,
@@ -51,7 +53,7 @@ export interface TicketFormConfig {
   projectId: string
   statuses: ConfigOption[]
   priorities: PriorityOption[]
-  types: ConfigOption[]
+  types: Array<ConfigOption & { descriptionTemplate?: string | null; checklistTemplate?: string[] }>
   labels: ConfigOption[]
   members: PickableUser[]
   parents: Array<{ id: string; key: string; title: string }>
@@ -132,11 +134,43 @@ export function CreateTicketDialog({
       setSimilar([])
       setTriage(null)
       setTriageDismissed(false)
+      setCriteria('')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultStatusId, defaultParentId, config.projectId])
 
   const title = form.watch('title')
+  const typeId = form.watch('typeId')
+
+  // Criteria are edited as lines; what the person keeps is what is created.
+  const [criteria, setCriteria] = React.useState('')
+  const previousType = React.useRef<string | undefined>(undefined)
+
+  /*
+   * A type's template fills the description and criteria — but only where
+   * nothing has been written yet, or where what is there is still another
+   * type's untouched template. Switching Bug → Task after typing keeps the
+   * typing.
+   */
+  React.useEffect(() => {
+    if (!open) {
+      previousType.current = undefined
+      return
+    }
+    const type = config.types.find((entry) => entry.id === typeId)
+    const before = config.types.find((entry) => entry.id === previousType.current)
+    previousType.current = typeId
+    const templates = config.types.map((entry) => entry.descriptionTemplate ?? null)
+    const description = form.getValues('description') ?? ''
+    const next = applyDescriptionTemplate(description, type?.descriptionTemplate ?? null, templates)
+    if (next !== description) form.setValue('description', next)
+    setCriteria((current) =>
+      current.trim() === '' || current === (before?.checklistTemplate ?? []).join('\n')
+        ? (type?.checklistTemplate ?? []).join('\n')
+        : current,
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, typeId, config.types])
 
   // Debounced duplicate detection — runs while typing, never blocks submission.
   React.useEffect(() => {
@@ -162,7 +196,10 @@ export function CreateTicketDialog({
 
   function onSubmit(values: CreateTicketInput) {
     startTransition(async () => {
-      const result = await createTicketAction(values)
+      const result = await createTicketAction({
+        ...values,
+        acceptanceCriteria: criteria.split('\n').map((line) => line.trim()).filter(Boolean),
+      })
 
       if (!result.success) {
         if (result.fieldErrors) {
@@ -305,18 +342,34 @@ export function CreateTicketDialog({
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea
-                          {...field}
+                        <MarkdownEditor
                           value={field.value ?? ''}
-                          rows={4}
-                          placeholder="What needs to happen, and how will we know it is done?"
+                          onChange={field.onChange}
+                          rows={5}
+                          placeholder="What needs to happen, and why?"
                           disabled={isPending}
+                          aria-label="Description"
                         />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
+                <div className="space-y-1.5">
+                  <label htmlFor="new-ticket-criteria" className="text-sm font-medium">
+                    Acceptance criteria
+                  </label>
+                  <Textarea
+                    id="new-ticket-criteria"
+                    value={criteria}
+                    onChange={(event) => setCriteria(event.target.value)}
+                    rows={2}
+                    placeholder={'How will we know it is done? One per line.'}
+                    disabled={isPending}
+                    className="text-[13px]"
+                  />
+                </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <FormField

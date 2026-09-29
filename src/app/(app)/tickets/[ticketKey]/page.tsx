@@ -17,6 +17,7 @@ import { TicketLinks } from '@/features/tickets/components/ticket-links'
 import { HistoricalEstimate } from '@/features/tickets/components/historical-estimate'
 import { estimateFromHistory } from '@/features/tickets/estimates'
 import { TicketAttachments } from '@/features/tickets/components/ticket-attachments'
+import { AcceptanceCriteria } from '@/features/tickets/components/acceptance-criteria'
 import { WatchButton } from '@/features/tickets/components/watch-button'
 import { listTicketLinks } from '@/features/tickets/relations'
 import { listAttachments } from '@/features/attachments/actions'
@@ -187,6 +188,8 @@ export default async function TicketDetailPage({
               updatedAt={ticket.updatedAt}
             />
           </section>
+
+          <AcceptanceCriteria ticketId={ticket.id} items={ticket.checklist} canEdit={canEdit} />
 
           {(ticket.remarks || canEdit) && (
             <section className="space-y-2">

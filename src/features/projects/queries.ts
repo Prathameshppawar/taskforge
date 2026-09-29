@@ -169,6 +169,8 @@ export const getProjectDetail = cache(async (projectId: string) => {
           position: true,
           isDefault: true,
           kind: true,
+          descriptionTemplate: true,
+          checklistTemplate: true,
           _count: { select: { tickets: true } },
         },
         orderBy: { position: 'asc' },

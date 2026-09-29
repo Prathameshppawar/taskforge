@@ -9,6 +9,7 @@ import { metered } from '@/features/ai-admin/usage'
 import { agentComment, agentUserId } from '@/features/agents/service'
 import { recordActivity } from '@/features/activity/service'
 import { annotatePatch, partitionComments } from '@/core/domain/diff'
+import { criteriaLines } from '@/features/ai-fix/agent'
 
 /**
  * AI review of a pull request against the ticket it is meant to resolve.
@@ -33,10 +34,21 @@ const SUBMIT = z.object({
     )
     .max(15)
     .describe('Specific issues only. No praise, no nitpicks about style the codebase does not follow.'),
+  criteria: z
+    .array(
+      z.object({
+        number: z.number().int().describe('The criterion number as listed in the ticket.'),
+        status: z.enum(['met', 'not_met', 'unclear']).describe('unclear when the diff alone cannot show it.'),
+        note: z.string().describe('One sentence: where in the diff, or what is missing.'),
+      }),
+    )
+    .max(30)
+    .default([])
+    .describe('One entry per acceptance criterion in the ticket, if it lists any.'),
 })
 
 const SYSTEM = `You review one pull request against the ticket it claims to resolve. Judge:
-1. Does it actually do what the ticket asks — fully, and nothing unrelated?
+1. Does it actually do what the ticket asks — fully, and nothing unrelated? If the ticket lists acceptance criteria, judge each one by number: met, not met, or unclear from the diff alone.
 2. Every removed line (marked "-"). For each one, ask whether the ticket called for removing it. Code, rules or content deleted as a side effect — often while inserting something next to it — is the most common bug in automated changes and the easiest to miss. If something was removed without being replaced, say so on the nearest numbered line.
 3. Bugs: logic errors, missed cases, broken behaviour, security problems.
 4. Anything a reviewer must check that the diff cannot show.
@@ -59,7 +71,16 @@ export async function reviewPullRequest(input: {
     select: {
       externalId: true,
       repo: { select: { fullName: true, installation: { select: { installationId: true } } } },
-      ticket: { select: { id: true, key: true, title: true, description: true, projectId: true } },
+      ticket: {
+        select: {
+          id: true,
+          key: true,
+          title: true,
+          description: true,
+          projectId: true,
+          checklist: { select: { text: true, isDone: true }, orderBy: { position: 'asc' } },
+        },
+      },
     },
   })
   const { repo, ticket } = ref
@@ -112,6 +133,7 @@ export async function reviewPullRequest(input: {
         '<ticket>',
         `${ticket.key}: ${ticket.title}`,
         ticket.description?.trim() || '(no description)',
+        ...criteriaLines(ticket.checklist),
         '</ticket>',
         '',
         '<pull_request>',
@@ -143,10 +165,12 @@ export async function reviewPullRequest(input: {
 
   const { inline, general } = partitionComments(review.comments, commentable)
   const verdict = { looks_good: '✅ Looks good', minor_issues: '🟡 Minor issues', needs_work: '🔴 Needs work' }[review.verdict]
+  const criteriaReport = formatCriteriaReport(ticket.checklist, review.criteria)
   const body = [
     `**TaskForge Reviewer** · ${verdict}`,
     '',
     review.summary,
+    ...criteriaReport,
     ...(general.length
       ? ['', '**Also noted:**', ...general.map((comment) => `- \`${comment.path}\`${comment.line ? `:${comment.line}` : ''} — ${comment.body}`)]
       : []),
@@ -173,7 +197,7 @@ export async function reviewPullRequest(input: {
   await agentComment(
     'reviewer',
     ticket.id,
-    `Reviewed [#${number}](${pull.html_url}): ${verdict}.\n\n${review.summary}${
+    `Reviewed [#${number}](${pull.html_url}): ${verdict}.\n\n${review.summary}${criteriaReport.length ? `\n${criteriaReport.join('\n')}` : ''}${
       review.comments.length ? `\n\n${review.comments.length} ${review.comments.length === 1 ? 'comment' : 'comments'} on the pull request.` : ''
     }`,
   )
@@ -189,4 +213,28 @@ export async function reviewPullRequest(input: {
   })
 
   return { verdict: review.verdict, inline: inline.length, general: general.length, url: pull.html_url }
+}
+
+/**
+ * The reviewer's judgement of each criterion, as Markdown lines. Criteria the
+ * model skipped are listed as unjudged rather than silently dropped — a
+ * missing verdict is information too.
+ */
+export function formatCriteriaReport(
+  criteria: Array<{ text: string }>,
+  judged: Array<{ number: number; status: 'met' | 'not_met' | 'unclear'; note: string }>,
+): string[] {
+  if (criteria.length === 0) return []
+  const byNumber = new Map(judged.map((entry) => [entry.number, entry]))
+  const icon = { met: '✅', not_met: '❌', unclear: '❔' }
+  return [
+    '',
+    '**Acceptance criteria**',
+    ...criteria.map((item, index) => {
+      const entry = byNumber.get(index + 1)
+      return entry
+        ? `- ${icon[entry.status]} ${item.text} — ${entry.note}`
+        : `- ➖ ${item.text} — not judged`
+    }),
+  ]
 }

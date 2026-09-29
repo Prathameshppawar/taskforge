@@ -8,6 +8,7 @@ import {
 } from '@/core/domain/ticket-rules'
 import { NotFoundError } from '@/core/domain/errors'
 import { recordActivity } from '@/features/activity/service'
+import { normaliseCriterion } from '@/core/domain/ticket-templates'
 
 /**
  * Ticket domain operations that need database access.
@@ -246,3 +247,33 @@ export async function resolveMentions(
     select: { id: true, username: true },
   })
 }
+
+/**
+ * Writes acceptance criteria onto a ticket, after any it already has.
+ * Blank and duplicate lines are dropped; at most 30 are kept.
+ */
+export async function addChecklistItems(
+  tx: Tx,
+  args: { ticketId: string; texts: string[]; actorId: string | null },
+): Promise<number> {
+  const existing = await tx.ticketChecklistItem.findMany({
+    where: { ticketId: args.ticketId },
+    select: { text: true, position: true },
+  })
+  const seen = new Set(existing.map((item) => item.text.toLowerCase()))
+  let position = existing.reduce((max, item) => Math.max(max, item.position), 0)
+
+  const rows: Prisma.TicketChecklistItemCreateManyInput[] = []
+  for (const raw of args.texts) {
+    const text = normaliseCriterion(raw)
+    if (!text || seen.has(text.toLowerCase())) continue
+    if (existing.length + rows.length >= MAX_CRITERIA) break
+    seen.add(text.toLowerCase())
+    position += 1000
+    rows.push({ ticketId: args.ticketId, text, position, createdById: args.actorId })
+  }
+  if (rows.length) await tx.ticketChecklistItem.createMany({ data: rows })
+  return rows.length
+}
+
+export const MAX_CRITERIA = 30

@@ -57,6 +57,10 @@ import { applyEdit, checkRepoPath, uniqueBranch } from '@/core/domain/ai-fix'
 import { codingToolDefinitions, resolveToolName } from '@/features/ai-fix/agent'
 import { echoable } from '@/infrastructure/ai/anthropic'
 
+import { parseInline, parseMarkdown, safeHref, extractTaskItems, markdownToPlain } from '@/core/domain/markdown'
+import { KIND_TEMPLATES, applyDescriptionTemplate, normaliseCriterion } from '@/core/domain/ticket-templates'
+import { formatCriteriaReport } from '@/features/ai-review/service'
+import { criteriaLines } from '@/features/ai-fix/agent'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1041,6 +1045,40 @@ check('two decided pull requests are not yet evidence', !scoreCandidate('coder',
 check('the capability reason admits it is a proxy', scoreCandidate('coder', opus).reasons.some((r) => r.includes('rough capability signal')))
 check('a free model still states its list price, so a tie can be explained', scoreCandidate('coder', ossFree).reasons.some((r) => r.includes('list $0.15/$0.6')))
 check('unknown facts score in the middle, not as failures', scoreCandidate('coder', cand({ supportsTools: null, supportsReasoning: null, contextTokens: null })).eligible)
+
+console.log('\n── Markdown: what tickets are written in ──')
+{
+  const inline = parseInline('**bold** *it* `a*b` see DEMO-12 and @prathamesh')
+  check('bold, italic and code parse', inline[0].type === 'strong' && inline[2].type === 'em' && inline[4].type === 'code')
+  check('code spans keep their asterisks literally', inline[4].type === 'code' && inline[4].text === 'a*b')
+  check('ticket keys and mentions are recognised', inline.some((n) => n.type === 'ticket' && n.key === 'DEMO-12') && inline.some((n) => n.type === 'mention' && n.username === 'prathamesh'))
+  const js = parseInline('[click](javascript:alert(1))')
+  check('a javascript: link loses its href and keeps its text', js.every((n) => n.type !== 'link') && JSON.stringify(js).includes('click'))
+  check('data: links are refused too', safeHref('data:text/html,x') === null && safeHref('/tickets/A-1') === '/tickets/A-1' && safeHref('//evil.com') === null)
+  check('a bare URL becomes a link without its trailing full stop', JSON.stringify(parseInline('see https://a.com/b.')).includes('"href":"https://a.com/b"'))
+  check('arithmetic asterisks stay text', parseInline('2 * 3 * 4').length === 1)
+  check('snake_case is not italic', parseInline('a_b_c').length === 1)
+  const blocks = parseMarkdown('## Steps\n1. Open\n2. Click\n\n- [ ] Offline\n- [x] Fast\n\n```ts\nconst a = 1\n```\n> note\n\n| a | b |\n|---|---|\n| 1 | 2 |')
+  check('headings, lists, code, quotes and tables parse', blocks.map((b) => b.type).join(',') === 'heading,list,list,code,quote,table')
+  const tasks = blocks[2]
+  check('task items carry their state', tasks.type === 'list' && tasks.items[0].checked === false && tasks.items[1].checked === true)
+  check('an unclosed fence still ends the document', parseMarkdown('```\ncode').length === 1)
+  check('task items can seed criteria', JSON.stringify(extractTaskItems('- [ ] Works **offline**\n- [x] Fast')) === JSON.stringify([{ text: 'Works offline', done: false }, { text: 'Fast', done: true }]))
+  check('plain text for previews drops the syntax', markdownToPlain('**Release notes** — 3\n\n- a\n- b') === 'Release notes — 3 • a • b')
+}
+
+console.log('\n── Templates and acceptance criteria ──')
+check('every kind has a template entry', Object.keys(KIND_TEMPLATES).length === 7)
+check('a bug starts with steps to reproduce', KIND_TEMPLATES.BUG.description?.includes('Steps to reproduce') === true)
+check('an empty draft takes the template', applyDescriptionTemplate('', 'T', []) === 'T')
+check('another type\'s untouched template is swapped', applyDescriptionTemplate('Bug template', 'Story template', ['Bug template']) === 'Story template')
+check('anything a person typed is kept', applyDescriptionTemplate('my notes', 'T', ['Bug template']) === 'my notes')
+check('criteria are one tidy line', normaliseCriterion('  works\n   offline  ') === 'works offline')
+const report = formatCriteriaReport([{ text: 'Works offline' }, { text: 'Is fast' }], [{ number: 1, status: 'met', note: 'service worker added' }])
+check('the review lists each criterion with its verdict', report.includes('- ✅ Works offline — service worker added'))
+check('a criterion the model skipped is shown as not judged', report.includes('- ➖ Is fast — not judged'))
+check('no criteria, no section', formatCriteriaReport([], []).length === 0)
+check('criteria are numbered for the Coder, with what is already met', criteriaLines([{ text: 'A', isDone: true }, { text: 'B', isDone: false }]).slice(-2).join('|') === '1. [x] A|2. [ ] B')
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { CalendarClock, GitBranch, MessageSquare, Link2 } from 'lucide-react'
+import { CalendarClock, GitBranch, ListChecks, MessageSquare, Link2 } from 'lucide-react'
 
 import { cn, isOverdue } from '@/lib/utils'
 import { LabelChip, PriorityBadge } from '@/components/shared/badges'
@@ -78,6 +78,18 @@ export function TicketCard({
           <span className="inline-flex items-center gap-1" title="Child tickets">
             <GitBranch className="size-3" />
             {ticket._count.children}
+          </span>
+        )}
+        {ticket.checklist.length > 0 && (
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 tabular-nums',
+              ticket.checklist.every((item) => item.isDone) && 'text-emerald-600 dark:text-emerald-400',
+            )}
+            title="Acceptance criteria met"
+          >
+            <ListChecks className="size-3" />
+            {ticket.checklist.filter((item) => item.isDone).length}/{ticket.checklist.length}
           </span>
         )}
         {ticket._count.comments > 0 && (

@@ -9,6 +9,7 @@ import { ticketDeployments } from '@/features/github/deployments'
 import { canInProject } from '@/core/domain/rbac'
 import { ApproveButton } from '@/features/portal/components/approve-button'
 import { PortalComment } from '@/features/portal/components/portal-comment'
+import { RichText } from '@/components/shared/rich-text'
 
 export async function generateMetadata({ params }: { params: Promise<{ ticketKey: string }> }): Promise<Metadata> {
   return { title: (await params).ticketKey.toUpperCase() }
@@ -53,7 +54,29 @@ export default async function PortalTicketPage({ params }: { params: Promise<{ t
         </ul>
       )}
 
-      {ticket.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{ticket.description}</p>}
+      {ticket.description && <RichText content={ticket.description} ticketBase="/portal/tickets/" />}
+
+      {ticket.checklist.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">
+            Done when{' '}
+            <span className="font-normal text-muted-foreground">
+              · {ticket.checklist.filter((item) => item.isDone).length} of {ticket.checklist.length} met
+            </span>
+          </h2>
+          <ul className="space-y-1 text-sm">
+            {ticket.checklist.map((item) => (
+              <li key={item.id} className="flex items-start gap-2">
+                <span aria-hidden className={item.isDone ? 'text-emerald-600' : 'text-muted-foreground'}>{item.isDone ? '✓' : '○'}</span>
+                <span className={item.isDone ? 'text-muted-foreground' : undefined}>
+                  <span className="sr-only">{item.isDone ? 'Met: ' : 'Not yet: '}</span>
+                  {item.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold">Conversation</h2>
@@ -63,7 +86,7 @@ export default async function PortalTicketPage({ params }: { params: Promise<{ t
               <p className="mb-1 text-xs text-muted-foreground">
                 {comment.author.name} · {comment.createdAt.toISOString().slice(0, 16).replace('T', ' ')}
               </p>
-              <p className="whitespace-pre-wrap">{comment.body}</p>
+              <RichText content={comment.body} compact ticketBase="/portal/tickets/" />
             </li>
           ))}
         </ul>

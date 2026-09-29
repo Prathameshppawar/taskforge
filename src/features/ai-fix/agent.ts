@@ -122,6 +122,21 @@ export interface FixTicket {
   title: string
   description: string | null
   kindLabel: string
+  /** Acceptance criteria, in order. The change is done when each holds. */
+  criteria?: Array<{ text: string; isDone: boolean }>
+}
+
+/**
+ * The criteria inside the ticket block, numbered so a summary can refer to
+ * them. Ones already met are shown as such: the work may be partly done.
+ */
+export function criteriaLines(criteria: FixTicket['criteria']): string[] {
+  if (!criteria?.length) return []
+  return [
+    '',
+    'Acceptance criteria — the work is done when every one holds. In your summary, say for each (by number) how it is met, or why it is not:',
+    ...criteria.map((item, index) => `${index + 1}. [${item.isDone ? 'x' : ' '}] ${item.text}`),
+  ]
 }
 
 export interface FixResult {
@@ -199,6 +214,7 @@ export async function runFixAgent(args: {
         `Title: ${ticket.title}`,
         '',
         ticket.description?.trim() || '(no description)',
+        ...criteriaLines(ticket.criteria),
         '</ticket>',
         ...(args.ticketContext
           ? [

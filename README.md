@@ -106,6 +106,9 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Watchers** | Follow a ticket without owning it — gated on *viewing*, because the people who most need to watch often should not be editing |
 | **Attachments** | Screenshots and logs, served only to people who can already see the ticket |
 | **Tickets** | Per-project keys (`AUTH-14`), inline editing, bulk actions, external resource links |
+| **Writing** | Descriptions, remarks and comments in Markdown — headings, task lists, code, tables — with a toolbar, a preview, and nothing ever rendered as raw HTML |
+| **Acceptance criteria** | A checklist of what must be true for a ticket to be done. People tick them; the Coder works against them; the Reviewer judges every pull request against each one |
+| **Templates** | Each ticket type starts from its own description and criteria — a bug asks for steps to reproduce, a deployment for a rollback plan |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
 | **Palette** | `⌘K` search and commands; `→` on a ticket for inline actions |
@@ -583,6 +586,64 @@ The bytes live in their own table rather than beside the filename. Prisma
 selects every scalar column unless told otherwise, so one forgotten `select`
 would quietly read megabytes to render a list of names — a separate table makes
 that mistake impossible rather than merely discouraged.
+
+## The ticket itself
+
+Everything else in TaskForge — the agents, the automation, the client portal —
+reads the ticket. A vague ticket produces a vague pull request, so the ticket is
+where the product is strengthened first.
+
+### Markdown, parsed rather than trusted
+
+Descriptions, remarks and comments are Markdown. The agents already wrote it;
+people paste it from everywhere. [`core/domain/markdown.ts`](src/core/domain/markdown.ts)
+parses the subset tickets need — headings, lists, task lists, fenced code, quotes,
+tables, and inline emphasis, code, links, ticket keys and @mentions — into a small
+tree, and [`RichText`](src/components/shared/rich-text.tsx) renders that tree as
+React nodes. There is no HTML step, so nothing a person, an email or a model wrote
+can reach `dangerouslySetInnerHTML`, and links are limited to `http(s)`, `mailto`
+and in-app paths when they are parsed, not when they are displayed. The parser is
+pure, so the domain suite pins its edge cases: `2 * 3 * 4` stays arithmetic,
+`snake_case` is not italic, and `[x](javascript:…)` keeps its text and loses its
+href.
+
+The editor is a textarea on purpose. It works with every paste, extension and
+screen reader, and what is stored is exactly what was typed; the toolbar only
+inserts syntax (⌘B, ⌘I, ⌘K, ⌘↵ to save).
+
+### Acceptance criteria
+
+A ticket carries a checklist of what must be true for it to be done. Ticks are
+optimistic in the browser and audited on the server under the person who made
+them — "who said this was done" is the point of a criterion. Pasting a list adds
+one criterion per line. Cards show `2/5`, and the client portal shows the same
+list, read-only, as "Done when".
+
+The agents use them:
+
+- **The Coder and the Planner** see the criteria numbered inside the ticket, with
+  the ones already met marked, and are asked to say in their summary how each is
+  met or why it is not.
+- **The Reviewer** returns a verdict per criterion — met, not met, or unclear from
+  the diff alone — alongside its line comments. A criterion the model skipped is
+  listed as *not judged* rather than dropped, because a missing verdict is
+  information too. The verdicts never tick a box: that stays a person's call.
+- **The Copilot and MCP clients** can create a ticket with criteria.
+
+### Templates per ticket type
+
+Each type starts from a description and a set of criteria, written per *kind*
+([`ticket-templates.ts`](src/core/domain/ticket-templates.ts)) so a renamed type
+keeps its template: a bug asks for steps to reproduce, expected and actual; a
+production issue for impact; a deployment for a rollback plan. The migration
+backfilled every existing type by kind, and each project edits its own in
+Settings → Ticket types.
+
+In the new-ticket dialog a template only fills what is empty — or what is still
+some other type's untouched template — so switching Bug → Task after typing
+keeps the typing. Tickets created without the dialog (the Copilot, the API, email)
+get the type's criteria but not its description skeleton: empty headings are for
+people filling in a form, not for a ticket written from a sentence.
 
 ## Links that mean something
 
@@ -1339,6 +1400,7 @@ a decision rather than plumbing.
 |---|---|
 | [`features/tickets/queries.ts`](src/features/tickets/queries.ts) | Weighted `tsvector` search with trigram key matching, and the `Decimal` → `number` conversion that stops Prisma types crossing the server/client boundary. |
 | [`features/dashboard/queries.ts`](src/features/dashboard/queries.ts) | Every aggregate computed in the database. `getTeamWorkload` is the cautionary tale: bucketing in JS cost 133ms against 26k tickets, grouping in SQL costs 16ms. |
+| [`core/domain/markdown.ts`](src/core/domain/markdown.ts) | A Markdown parser that produces data, not HTML — so no ticket, email or model output is ever injected as markup. |
 | [`e2e/helpers.ts`](e2e/helpers.ts) | The overflow detector that names the element responsible instead of just reporting a number. |
 | [`prisma/migrations/…_configurable_roles_and_teams`](prisma/migrations/20260919080811_configurable_roles_and_teams/migration.sql) | Hand-written. Converts an enum column in place and reproduces the old permission matrix as data, without dropping the search indexes Prisma wants to remove on every migration. |
 | [`mcp/server.ts`](mcp/server.ts) | ~120 lines, no business logic. It is thin *because* the token path already exists in `guards.ts`. |

@@ -38,6 +38,11 @@ export const createTicketTool = z.object({
   labels: z.array(z.string()).optional(),
   dueInDays: z.number().int().optional(),
   parentKey: z.string().optional().describe('Parent key, e.g. RC-4'),
+  acceptanceCriteria: z
+    .array(z.string().max(300))
+    .max(12)
+    .optional()
+    .describe('Done when each holds; one line each.'),
 })
 
 export const bulkCreateTool = z.object({

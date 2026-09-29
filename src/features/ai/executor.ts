@@ -263,6 +263,7 @@ async function createTicket(args: CreateArgs, ctx: ExecutionContext): Promise<To
     dueDate: args.dueInDays != null ? daysFromNow(clamp(args.dueInDays, 0, 3650, 7)) : null,
     startDate: null,
     resources: [],
+    ...(args.acceptanceCriteria?.length ? { acceptanceCriteria: args.acceptanceCriteria } : {}),
   })
 
   if (!result.success) return { ok: false, summary: result.error }

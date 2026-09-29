@@ -7,7 +7,8 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { MarkdownEditor } from '@/components/shared/markdown-editor'
+import { RichText } from '@/components/shared/rich-text'
 import { updateTicketAction } from '../actions'
 
 export function EditableTitle({
@@ -149,13 +150,15 @@ export function EditableDescription({
   if (editing) {
     return (
       <div className="space-y-2">
-        <Textarea
+        <MarkdownEditor
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          rows={6}
+          onChange={setDraft}
+          onSubmit={save}
+          rows={8}
           autoFocus
           disabled={isPending}
           placeholder={placeholder}
+          aria-label={field === 'remarks' ? 'Remarks' : 'Description'}
         />
         <div className="flex gap-2">
           <Button size="sm" onClick={save} disabled={isPending}>
@@ -181,18 +184,22 @@ export function EditableDescription({
   return (
     <div
       className={canEdit ? 'group cursor-text rounded-lg -m-2 p-2 hover:bg-accent/40' : undefined}
-      onClick={() => canEdit && setEditing(true)}
+      onClick={(event) => {
+        // A link or a checkbox inside the rendered text does its own thing.
+        if ((event.target as HTMLElement).closest('a, input, button')) return
+        if (canEdit) setEditing(true)
+      }}
       role={canEdit ? 'button' : undefined}
       tabIndex={canEdit ? 0 : undefined}
       onKeyDown={(event) => {
-        if (canEdit && (event.key === 'Enter' || event.key === ' ')) {
+        if (canEdit && event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault()
           setEditing(true)
         }
       }}
     >
       {value ? (
-        <p className="text-sm leading-relaxed whitespace-pre-wrap">{value}</p>
+        <RichText content={value} />
       ) : (
         <p className="text-sm text-muted-foreground italic">
           {canEdit ? placeholder : 'No description.'}

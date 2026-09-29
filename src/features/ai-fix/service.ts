@@ -43,6 +43,7 @@ export async function executeFixRun(runId: string): Promise<void> {
           description: true,
           projectId: true,
           type: { select: { kind: true } },
+          checklist: { select: { text: true, isDone: true }, orderBy: { position: 'asc' } },
           project: { select: { settings: { select: { aiWorkflows: true, aiDraftUntilGreen: true } } } },
         },
       },
@@ -76,6 +77,7 @@ export async function executeFixRun(runId: string): Promise<void> {
       title: ticket.title,
       description: ticket.description,
       kindLabel: TICKET_KIND_LABELS[ticket.type.kind].label,
+      criteria: ticket.checklist,
     }
     // Written every turn, so a run that fails midway still shows what it did
     // and what it cost.

@@ -21,6 +21,7 @@ import {
   type TicketTypeInput,
 } from './schemas'
 import { inferTicketKind } from '@/core/domain/git-refs'
+import { KIND_TEMPLATES, normaliseCriterion } from '@/core/domain/ticket-templates'
 
 /**
  * Project workflow configuration.
@@ -371,6 +372,8 @@ export async function upsertTicketTypeAction(
             icon: data.icon,
             isDefault: data.isDefault,
             ...(data.kind ? { kind: data.kind } : {}),
+            ...(data.descriptionTemplate !== undefined ? { descriptionTemplate: data.descriptionTemplate || null } : {}),
+            ...(data.checklistTemplate ? { checklistTemplate: data.checklistTemplate.map(normaliseCriterion).filter(Boolean) } : {}),
           },
         })
       } else {
@@ -380,6 +383,7 @@ export async function upsertTicketTypeAction(
           select: { position: true },
         })
 
+        const kind = data.kind ?? inferTicketKind(data.name)
         await tx.ticketType.create({
           data: {
             projectId: data.projectId,
@@ -387,8 +391,11 @@ export async function upsertTicketTypeAction(
             color: data.color,
             icon: data.icon,
             isDefault: data.isDefault,
-            kind: data.kind ?? inferTicketKind(data.name),
+            kind,
             position: (last?.position ?? -1) + 1,
+            descriptionTemplate:
+              data.descriptionTemplate === undefined ? KIND_TEMPLATES[kind].description : data.descriptionTemplate || null,
+            checklistTemplate: (data.checklistTemplate ?? KIND_TEMPLATES[kind].checklist).map(normaliseCriterion).filter(Boolean),
           },
         })
       }

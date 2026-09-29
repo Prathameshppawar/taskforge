@@ -16,6 +16,7 @@ import { notify, preview } from '@/features/notifications/service'
 import { alertManagersOfUrgentTicketLater } from '@/features/reports/digest'
 import { calculatePosition } from '@/lib/utils'
 import {
+  addChecklistItems,
   applyParentRollup,
   resolveMentions,
   syncTicketLabels,
@@ -160,6 +161,11 @@ export async function createTicketAction(
           labelIds: data.labelIds,
           actorId: actor.id,
         })
+      }
+
+      const criteria = data.acceptanceCriteria ?? config.types.find((type) => type.id === typeId)?.checklistTemplate ?? []
+      if (criteria.length > 0) {
+        await addChecklistItems(tx, { ticketId: created.id, texts: criteria, actorId: actor.id })
       }
 
       // Created already assigned (by hand or by the project default) is as much

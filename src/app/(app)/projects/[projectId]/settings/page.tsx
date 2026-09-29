@@ -128,6 +128,8 @@ export default async function ProjectSettingsPage({
             icon: type.icon,
             isDefault: type.isDefault,
             ticketKind: type.kind,
+            descriptionTemplate: type.descriptionTemplate,
+            checklistTemplate: type.checklistTemplate,
             ticketCount: type._count.tickets,
           }))}
         />

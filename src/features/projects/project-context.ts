@@ -29,7 +29,7 @@ export async function getProjectViewContext(projectId: string) {
     prisma.ticketType.findMany({
       where: { projectId },
       orderBy: { position: 'asc' },
-      select: { id: true, name: true, color: true },
+      select: { id: true, name: true, color: true, descriptionTemplate: true, checklistTemplate: true },
     }),
     prisma.label.findMany({
       where: { projectId },

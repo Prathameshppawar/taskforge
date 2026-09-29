@@ -451,31 +451,33 @@ model User {
   createdTeams    Team[]             @relation("TeamCreatedBy")
 
   // --- reverse relations -----------------------------------------------------
-  ownedProjects       Project[]            @relation("ProjectOwner")
-  createdProjects     Project[]            @relation("ProjectCreatedBy")
-  defaultForSettings  ProjectSettings[]    @relation("ProjectDefaultAssignee")
-  memberships         ProjectMember[]      @relation("ProjectMemberUser")
-  membershipsAdded    ProjectMember[]      @relation("ProjectMemberAddedBy")
-  assignedTickets     Ticket[]             @relation("TicketAssignee")
-  reportedTickets     Ticket[]             @relation("TicketReporter")
-  createdTickets      Ticket[]             @relation("TicketCreatedBy")
+  ownedProjects       Project[]             @relation("ProjectOwner")
+  createdProjects     Project[]             @relation("ProjectCreatedBy")
+  defaultForSettings  ProjectSettings[]     @relation("ProjectDefaultAssignee")
+  memberships         ProjectMember[]       @relation("ProjectMemberUser")
+  membershipsAdded    ProjectMember[]       @relation("ProjectMemberAddedBy")
+  assignedTickets     Ticket[]              @relation("TicketAssignee")
+  reportedTickets     Ticket[]              @relation("TicketReporter")
+  createdTickets      Ticket[]              @relation("TicketCreatedBy")
   comments            Comment[]
   mentions            CommentMention[]
-  activities          ActivityLog[]        @relation("ActivityActor")
+  activities          ActivityLog[]         @relation("ActivityActor")
   resources           TicketResource[]
   savedFilters        SavedFilter[]
   aiFixRuns           AiFixRun[]
   aiUsage             AiUsageEvent[]
   githubToken         GithubUserToken?
-  reportSubscriptions ReportSubscription[] @relation("ReportSubscriber")
-  reportSubsCreated   ReportSubscription[] @relation("ReportSubscriptionCreatedBy")
+  reportSubscriptions ReportSubscription[]  @relation("ReportSubscriber")
+  reportSubsCreated   ReportSubscription[]  @relation("ReportSubscriptionCreatedBy")
   sessions            UserSession[]
   accessTokens        AccessToken[]
-  notifications       Notification[]       @relation("NotificationRecipient")
-  notificationsCaused Notification[]       @relation("NotificationActor")
+  notifications       Notification[]        @relation("NotificationRecipient")
+  notificationsCaused Notification[]        @relation("NotificationActor")
   createdTemplates    ProjectTemplate[]
-  recurringTickets    RecurringTicket[]    @relation("RecurringCreatedBy")
-  recurringAssignee   RecurringTicket[]    @relation("RecurringAssignee")
+  recurringTickets    RecurringTicket[]     @relation("RecurringCreatedBy")
+  recurringAssignee   RecurringTicket[]     @relation("RecurringAssignee")
+  checklistDone       TicketChecklistItem[] @relation("ChecklistDoneBy")
+  checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -657,6 +659,9 @@ model TemplateTicketType {
   position  Int
   isDefault Boolean    @default(false)
   kind      TicketKind @default(TASK)
+
+  descriptionTemplate String?
+  checklistTemplate   String[] @default([])
 
   @@unique([templateId, name])
   @@index([templateId])
@@ -974,6 +979,11 @@ model TicketType {
   /// Semantic category, see TicketKind. Drives behaviour; the name is display.
   kind      TicketKind @default(TASK)
 
+  /// Markdown a new ticket of this type starts with ("Steps to reproduce…").
+  descriptionTemplate String?
+  /// Acceptance criteria a new ticket of this type starts with, one per entry.
+  checklistTemplate   String[] @default([])
+
   tickets          Ticket[]
   recurringTickets RecurringTicket[]
 
@@ -1084,8 +1094,8 @@ model Ticket {
   labels        TicketLabel[]
   resources     TicketResource[]
   comments      Comment[]
-  linksOut      TicketLink[]       @relation("LinkSource")
-  linksIn       TicketLink[]       @relation("LinkTarget")
+  linksOut      TicketLink[]          @relation("LinkSource")
+  linksIn       TicketLink[]          @relation("LinkTarget")
   watchers      TicketWatcher[]
   attachments   TicketAttachment[]
   activities    ActivityLog[]
@@ -1094,6 +1104,7 @@ model Ticket {
   deployments   TicketDeployment[]
   errorGroups   ErrorGroup[]
   aiFixRuns     AiFixRun[]
+  checklist     TicketChecklistItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1111,6 +1122,32 @@ model Ticket {
   @@index([projectId, statusId, position])
   @@index([recurringTicketId])
   @@map("tickets")
+}
+
+/// An acceptance criterion: one thing that must be true for the ticket to be
+/// done. People tick them; the Coder works against them and the Reviewer checks
+/// a diff against each one.
+model TicketChecklistItem {
+  id       String @id @default(cuid())
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  text     String
+  isDone   Boolean @default(false)
+  /// Sparse float ordering, like a Kanban card's.
+  position Float   @default(0)
+
+  doneAt      DateTime?
+  doneById    String?
+  doneBy      User?     @relation("ChecklistDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  createdById String?
+  createdBy   User?     @relation("ChecklistCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ticketId, position])
+  @@map("ticket_checklist_items")
 }
 
 /// Explicit join model (rather than an implicit m-n) so the pairing carries its

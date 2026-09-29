@@ -15,6 +15,8 @@ import {
 import type { AiFixStatus } from '@prisma/client'
 import { toast } from 'sonner'
 
+import { RichText } from '@/components/shared/rich-text'
+
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -468,7 +470,7 @@ function RunRow({ run, onBuild }: { run: AiFixPanelData['runs'][number]; onBuild
 
       {expanded && (
         <div className="mt-2 space-y-2">
-          {run.summary && <p className="whitespace-pre-wrap text-muted-foreground">{run.summary}</p>}
+          {run.summary && <RichText content={run.summary} compact className="text-muted-foreground" />}
           {run.changedFiles && (
             <p className="font-mono text-[11px] text-muted-foreground">
               Changed: {run.changedFiles.split('\n').join(', ')}

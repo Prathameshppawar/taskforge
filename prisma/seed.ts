@@ -9,6 +9,7 @@ import {
 } from '../src/core/domain/defaults'
 import { TEMPLATE_SEEDS, type TemplateTicketSeed } from './seed-templates'
 import { SYSTEM_ROLES } from '../src/core/domain/rbac'
+import { KIND_TEMPLATES } from '../src/core/domain/ticket-templates'
 import { DEFAULT_ROLE_COLORS } from '../src/features/profile/role-colors'
 
 const prisma = new PrismaClient()
@@ -140,6 +141,8 @@ async function seedTemplates(adminId: string) {
             position: t.position,
             isDefault: t.isDefault ?? false,
             kind: t.kind,
+            descriptionTemplate: KIND_TEMPLATES[t.kind].description,
+            checklistTemplate: KIND_TEMPLATES[t.kind].checklist,
           })),
         },
         labels: {

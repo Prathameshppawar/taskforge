@@ -130,6 +130,9 @@ export const ticketTypeSchema = z.object({
   kind: z
     .enum(['TASK', 'FEATURE', 'ENHANCEMENT', 'BUG', 'PRODUCTION', 'DEPLOYMENT', 'RESEARCH'])
     .optional(),
+  /** Omitted on create: the kind's default template. Null clears it. */
+  descriptionTemplate: z.string().trim().max(5000).nullable().optional(),
+  checklistTemplate: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
 })
 export type TicketTypeInput = z.infer<typeof ticketTypeSchema>
 

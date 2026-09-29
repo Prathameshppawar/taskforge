@@ -30,6 +30,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ColorPicker } from '@/components/shared/color-picker'
+import { MarkdownEditor } from '@/components/shared/markdown-editor'
+import { Textarea } from '@/components/ui/textarea'
 import { ColorDot, PriorityBadge, StatusBadge } from '@/components/shared/badges'
 import {
   deletePriorityAction,
@@ -52,6 +54,9 @@ export interface ConfigRow {
   icon?: string
   /** Ticket types only: what the type means, see TicketKind. */
   ticketKind?: TicketKind
+  /** Ticket types only: what a new ticket of this type starts with. */
+  descriptionTemplate?: string | null
+  checklistTemplate?: string[]
 }
 
 type ConfigKind = 'status' | 'priority' | 'type'
@@ -216,10 +221,14 @@ function ConfigDialog({
   const [level, setLevel] = React.useState(1)
   const [ticketKind, setTicketKind] = React.useState<TicketKind | null>(null)
   const [flag, setFlag] = React.useState(false)
+  const [template, setTemplate] = React.useState('')
+  const [criteria, setCriteria] = React.useState('')
   const [isPending, startTransition] = React.useTransition()
 
   React.useEffect(() => {
     if (!open) return
+    setTemplate(row?.descriptionTemplate ?? '')
+    setCriteria((row?.checklistTemplate ?? []).join('\n'))
     setName(row?.name ?? '')
     setColor(row?.color ?? 'blue')
     setCategory(row?.category ?? 'TODO')
@@ -258,6 +267,13 @@ function ConfigDialog({
                 icon: row?.icon ?? 'circle-dot',
                 isDefault: flag,
                 kind: ticketKind ?? inferTicketKind(name),
+                // A new type left blank takes its kind's default template.
+                ...(row || template.trim() || criteria.trim()
+                  ? {
+                      descriptionTemplate: template.trim() || null,
+                      checklistTemplate: criteria.split('\n').map((line) => line.trim()).filter(Boolean),
+                    }
+                  : {}),
               })
 
       if (!result.success) {
@@ -275,7 +291,7 @@ function ConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className={cn('max-h-[90vh] overflow-y-auto', kind === 'type' ? 'sm:max-w-lg' : 'sm:max-w-md')}>
         <DialogHeader>
           <DialogTitle>
             {row ? `Edit ${meta.singular}` : `New ${meta.singular}`}
@@ -360,6 +376,35 @@ function ConfigDialog({
                 a production issue <code>hotfix/</code>.
               </p>
             </div>
+          )}
+
+          {kind === 'type' && (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="config-template">Description template</Label>
+                <MarkdownEditor
+                  id="config-template"
+                  value={template}
+                  onChange={setTemplate}
+                  rows={5}
+                  placeholder="What a new ticket of this type starts with, e.g. ## Steps to reproduce"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="config-criteria">Acceptance criteria</Label>
+                <Textarea
+                  id="config-criteria"
+                  value={criteria}
+                  onChange={(event) => setCriteria(event.target.value)}
+                  rows={3}
+                  placeholder={'One per line, e.g.\nA test covers the case that failed'}
+                  className="text-[13px]"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {row ? 'Every new ticket of this type starts with these, and can change them.' : 'Leave both empty to start from this kind’s defaults.'}
+                </p>
+              </div>
+            </>
           )}
 
           <div className="space-y-2">

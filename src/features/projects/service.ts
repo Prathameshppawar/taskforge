@@ -77,6 +77,8 @@ export async function instantiateTemplate(
       position: t.position,
       isDefault: t.isDefault,
       kind: t.kind,
+      descriptionTemplate: t.descriptionTemplate,
+      checklistTemplate: t.checklistTemplate,
     })),
   })
 

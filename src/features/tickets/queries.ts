@@ -156,6 +156,8 @@ const TICKET_LIST_SELECT = {
     select: { label: { select: { id: true, name: true, color: true } } },
   },
   _count: { select: { children: true, comments: true, resources: true } },
+  /** Booleans only, so a card can say "2/5" without a second query. */
+  checklist: { select: { isDone: true } },
 } satisfies Prisma.TicketSelect
 
 type RawTicketListItem = Prisma.TicketGetPayload<{ select: typeof TICKET_LIST_SELECT }>
@@ -312,6 +314,17 @@ export const getTicketByKey = cache(async (actor: Actor, key: string) => {
       ...TICKET_LIST_SELECT,
       description: true,
       remarks: true,
+      checklist: {
+        select: {
+          id: true,
+          text: true,
+          isDone: true,
+          position: true,
+          doneAt: true,
+          doneBy: { select: { name: true } },
+        },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      },
       children: {
         select: {
           id: true,

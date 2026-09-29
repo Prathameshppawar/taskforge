@@ -6,9 +6,9 @@ import { formatDistanceToNow } from 'date-fns'
 import { Loader2, MessageSquare, Pencil, Reply, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { RichText } from '@/components/shared/rich-text'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -435,32 +435,13 @@ function CommentComposer({
             Cancel
           </Button>
         )}
-        <span className="text-[11px] text-muted-foreground">⌘↵ to send</span>
+        <span className="text-[11px] text-muted-foreground">Markdown · ⌘↵ to send</span>
       </div>
     </div>
   )
 }
 
-/** Renders @mentions as highlighted spans. */
+/** A comment body: Markdown, with @mentions and ticket keys highlighted. */
 function MentionText({ body }: { body: string }) {
-  const parts = body.split(/(@[a-z0-9._-]{3,32})/gi)
-
-  return (
-    <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">
-      {parts.map((part, index) =>
-        part.startsWith('@') ? (
-          <span
-            key={index}
-            className={cn(
-              'rounded bg-primary/10 px-1 font-medium text-primary',
-            )}
-          >
-            {part}
-          </span>
-        ) : (
-          <React.Fragment key={index}>{part}</React.Fragment>
-        ),
-      )}
-    </p>
-  )
+  return <RichText content={body} compact className="mt-1" />
 }

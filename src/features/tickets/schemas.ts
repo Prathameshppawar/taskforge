@@ -29,6 +29,11 @@ export const createTicketSchema = z.object({
   estimateHours: z.coerce.number().min(0).max(9999).nullable().optional(),
   storyPoints: z.coerce.number().int().min(0).max(999).nullable().optional(),
   resources: z.array(resourceInputSchema).default([]),
+  /**
+   * Acceptance criteria. Omitted: the ticket type's template criteria. An
+   * empty list means none — the create dialog sends what the person kept.
+   */
+  acceptanceCriteria: z.array(z.string().trim().max(300)).max(30).optional(),
 })
 export type CreateTicketInput = z.infer<typeof createTicketSchema>
 
