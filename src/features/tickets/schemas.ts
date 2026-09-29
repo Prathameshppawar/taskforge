@@ -34,6 +34,12 @@ export const createTicketSchema = z.object({
    * empty list means none — the create dialog sends what the person kept.
    */
   acceptanceCriteria: z.array(z.string().trim().max(300)).max(30).optional(),
+  /**
+   * Custom field values by field id. When present, required fields are
+   * enforced — the dialog always sends this; callers that cannot ask for
+   * every field leave it out.
+   */
+  fields: z.record(z.string(), z.unknown()).optional(),
 })
 export type CreateTicketInput = z.infer<typeof createTicketSchema>
 

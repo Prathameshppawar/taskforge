@@ -77,6 +77,7 @@ export async function upsertStatusAction(input: StatusInput): Promise<ActionResu
             color: data.color,
             isInitial: data.isInitial,
             ...(data.wipLimit !== undefined ? { wipLimit: data.wipLimit } : {}),
+            ...(data.requirements !== undefined ? { requirements: data.requirements } : {}),
           },
         })
       } else {
@@ -94,6 +95,7 @@ export async function upsertStatusAction(input: StatusInput): Promise<ActionResu
             color: data.color,
             isInitial: data.isInitial,
             wipLimit: data.wipLimit ?? null,
+            requirements: data.requirements ?? [],
             position: (last?.position ?? -1) + 1,
           },
         })

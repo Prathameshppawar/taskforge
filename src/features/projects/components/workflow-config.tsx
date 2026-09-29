@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
+import { REQUIREMENTS, REQUIREMENT_LABELS } from '@/core/domain/transitions'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
@@ -59,6 +61,8 @@ export interface ConfigRow {
   checklistTemplate?: string[]
   /** Statuses only: soft work-in-progress limit. */
   wipLimit?: number | null
+  /** Statuses only: what must be true to enter it. */
+  requirements?: string[]
   /** Priorities only: service targets, in hours. */
   respondWithinHours?: number | null
   resolveWithinHours?: number | null
@@ -89,11 +93,14 @@ export function WorkflowConfig({
   kind,
   rows,
   canEdit,
+  fields = [],
 }: {
   projectId: string
   kind: ConfigKind
   rows: ConfigRow[]
   canEdit: boolean
+  /** Custom fields, which a status can require. */
+  fields?: Array<{ id: string; name: string }>
 }) {
   const [editing, setEditing] = React.useState<ConfigRow | null>(null)
   const [creating, setCreating] = React.useState(false)
@@ -150,6 +157,11 @@ export function WorkflowConfig({
                 <Star className="size-2.5" /> Default
               </Badge>
             )}
+            {row.requirements && row.requirements.length > 0 ? (
+              <Badge variant="outline" className="text-[10px]" title="Rules a ticket must meet to enter this status">
+                {row.requirements.length} {row.requirements.length === 1 ? 'rule' : 'rules'}
+              </Badge>
+            ) : null}
             {row.wipLimit ? (
               <Badge variant="outline" className="text-[10px]" title="Work-in-progress limit">
                 WIP {row.wipLimit}
@@ -195,6 +207,7 @@ export function WorkflowConfig({
       <ConfigDialog
         projectId={projectId}
         kind={kind}
+        fields={fields}
         row={editing}
         open={creating || editing !== null}
         onOpenChange={(open) => {
@@ -219,12 +232,14 @@ export function WorkflowConfig({
 function ConfigDialog({
   projectId,
   kind,
+  fields,
   row,
   open,
   onOpenChange,
 }: {
   projectId: string
   kind: ConfigKind
+  fields: Array<{ id: string; name: string }>
   row: ConfigRow | null
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -239,6 +254,7 @@ function ConfigDialog({
   const [template, setTemplate] = React.useState('')
   const [criteria, setCriteria] = React.useState('')
   const [wipLimit, setWipLimit] = React.useState('')
+  const [requirements, setRequirements] = React.useState<Set<string>>(new Set())
   const [respondHours, setRespondHours] = React.useState('')
   const [resolveHours, setResolveHours] = React.useState('')
   const [isPending, startTransition] = React.useTransition()
@@ -247,6 +263,7 @@ function ConfigDialog({
     if (!open) return
     setTemplate(row?.descriptionTemplate ?? '')
     setWipLimit(row?.wipLimit ? String(row.wipLimit) : '')
+    setRequirements(new Set(row?.requirements ?? []))
     setRespondHours(row?.respondWithinHours ? String(row.respondWithinHours) : '')
     setResolveHours(row?.resolveWithinHours ? String(row.resolveWithinHours) : '')
     setCriteria((row?.checklistTemplate ?? []).join('\n'))
@@ -271,6 +288,7 @@ function ConfigDialog({
               color,
               isInitial: flag,
               wipLimit: wipLimit.trim() ? Number(wipLimit) : null,
+              requirements: [...requirements],
             })
           : kind === 'priority'
             ? await upsertPriorityAction({
@@ -378,6 +396,34 @@ function ConfigDialog({
                 The board shows the count against it and warns when a move goes over. It never refuses the move.
               </p>
             </div>
+          )}
+
+          {kind === 'status' && (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Before a ticket can enter it</legend>
+              <p className="text-[11px] text-muted-foreground">
+                Checked when a person moves a ticket here — on the board, the sidebar, bulk edit, the Copilot or a client’s approval. GitHub automation moves only on evidence and is not held to these.
+              </p>
+              {[
+                ...REQUIREMENTS.map((key) => ({ key, label: REQUIREMENT_LABELS[key].label })),
+                ...fields.map((field) => ({ key: `FIELD:${field.id}`, label: `${field.name} is filled in` })),
+              ].map((option) => (
+                <label key={option.key} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={requirements.has(option.key)}
+                    onCheckedChange={(checked) =>
+                      setRequirements((current) => {
+                        const next = new Set(current)
+                        if (checked === true) next.add(option.key)
+                        else next.delete(option.key)
+                        return next
+                      })
+                    }
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </fieldset>
           )}
 
           {kind === 'priority' && (

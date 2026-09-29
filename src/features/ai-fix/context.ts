@@ -4,6 +4,7 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { asInstallation } from '@/infrastructure/github/client'
 import { checkMonitorUrl, isPrivateAddress } from '@/core/domain/network'
 import { clip, htmlToText, isTextAttachment, parseGithubLink } from '@/core/domain/ticket-context'
+import { displayFieldValue } from '@/core/domain/custom-fields'
 
 /**
  * Everything on a ticket an agent should read before it starts.
@@ -29,6 +30,7 @@ export async function gatherTicketContext(ticketId: string, installationId: bigi
     where: { id: ticketId },
     select: {
       remarks: true,
+      fieldValues: { select: { value: true, field: { select: { id: true, name: true, type: true, options: true } } } },
       parent: { select: { key: true, title: true, description: true } },
       linksOut: { select: { type: true, target: { select: { key: true, title: true } } } },
       linksIn: { select: { type: true, source: { select: { key: true, title: true } } } },
@@ -56,6 +58,9 @@ export async function gatherTicketContext(ticketId: string, installationId: bigi
     sections.push(`### ${title}\n${text}`)
   }
 
+  if (ticket.fieldValues.length) {
+    add('Fields', ticket.fieldValues.map((entry) => `- ${entry.field.name}: ${displayFieldValue(entry.field, entry.value)}`).join('\n'))
+  }
   if (ticket.remarks) add('Remarks', ticket.remarks)
   if (ticket.parent) {
     add(`Parent ticket ${ticket.parent.key}`, `${ticket.parent.title}\n${ticket.parent.description ?? ''}`)

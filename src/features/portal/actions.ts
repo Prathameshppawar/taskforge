@@ -8,6 +8,7 @@ import { recordActivity } from '@/features/activity/service'
 import { ok, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
+import { assertCanEnter } from '@/features/tickets/transitions'
 
 /**
  * Sign work off: Review → Done, and only that. A client may approve what is
@@ -27,11 +28,13 @@ export async function approveTicketAction(ticketKey: string): Promise<ActionResu
     const done = await prisma.status.findFirst({
       where: { projectId: ticket.projectId, category: 'DONE' },
       orderBy: { position: 'asc' },
-      select: { id: true, name: true },
+      select: { id: true, name: true, requirements: true },
     })
     if (!done) throw new BusinessRuleError('This project has no Done status.')
 
     await prisma.$transaction(async (tx) => {
+      // Approval is a person's move like any other, so Done's rules apply.
+      await assertCanEnter(tx, ticket.id, done)
       await tx.ticket.update({ where: { id: ticket.id }, data: { statusId: done.id, completedAt: ticket.completedAt ?? new Date() } })
       await recordActivity(tx, {
         action: 'STATUS_CHANGED',

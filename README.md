@@ -112,6 +112,7 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Flow** | Every status change recorded by a database trigger: time in each status on the ticket, "where work waits" per project, stuck cards flagged on the board, soft WIP limits per column |
 | **Planning** | Sprints (one running at a time) and milestones (several at once, as client work runs), above a ranked backlog. Drag to plan and rank, fill to capacity, or ask the Planner; close with carry-over; a burn-up from recorded history per cycle |
 | **Time** | A timer on every ticket that follows you in the header, entries typed as `1h 30m` or `1:30`, a weekly timesheet, time by person and kind on Insights, and billable hours — with the amount, at the project's rate — in the monthly client report |
+| **Fields and rules** | Per-project fields — text, number, one or several choices, date, yes/no, link, person — that agents read too; and rules a ticket must meet before a person moves it into a status: an assignee, an estimate, every criterion met, a linked or merged pull request, a field filled in |
 | **Service targets** | Response and resolution hours per priority, for the kinds of ticket you choose. The resolution clock pauses while Blocked; alerts at 80% and on breach, once each |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
@@ -748,6 +749,33 @@ Where it shows up:
 - **The monthly client report** — billable hours, and with an hourly rate set in
   Settings → Billing, the amount. Staff also see non-billable time and who logged
   what; clients do not.
+
+### Fields a project adds, and rules for entering a status
+
+**Fields.** A project records what it needs beyond the basics — environment,
+customer, browser — as fields of eight types. Values are normalised by one pure
+function ([`core/domain/custom-fields.ts`](src/core/domain/custom-fields.ts)) so
+every write path agrees: a choice is matched whatever its case and stored in the
+option's own spelling, several choices are stored in option order so equal
+selections compare equal, dates are `YYYY-MM-DD`, links must be `http(s)`, and a
+person must be on the project. A field's type is fixed once it exists, so no
+stored value is ever reinterpreted. Required fields are asked for in the
+new-ticket dialog; email and the Copilot, which cannot ask, may still create the
+ticket. The Coder, Planner and Reviewer read every field with the rest of the
+ticket.
+
+**Rules.** A status can require, before a person moves a ticket into it: an
+assignee, an estimate (points or hours), every acceptance criterion met, a linked
+pull request, a merged pull request, or any field filled in. The check
+([`core/domain/transitions.ts`](src/core/domain/transitions.ts)) runs on every
+path a person moves a ticket through — the board, the sidebar, bulk edit (all or
+nothing, naming the ticket that stopped it), the Copilot, and a client's Approve
+in the portal — and refuses with a sentence that says what is missing:
+*Done can't be reached yet: 2 acceptance criteria are not met and Environment
+must be filled in.* GitHub automation and parent rollup are not held to the rules:
+they move a ticket only on evidence, and a merge that cannot close its ticket
+would be worse than one that does. Deleting a field removes it from any rule that
+required it.
 
 ### Service targets
 

@@ -23,6 +23,8 @@ import {
   validateParentAssignment,
 } from './service'
 import { describeLink, ticketAudience, validateLink } from './relations'
+import { assertCanEnter } from './transitions'
+import { writeInitialFieldValues } from './fields'
 import { suggestTriage, type TriageSuggestion } from './triage'
 import {
   addChildrenSchema,
@@ -166,6 +168,10 @@ export async function createTicketAction(
       const criteria = data.acceptanceCriteria ?? config.types.find((type) => type.id === typeId)?.checklistTemplate ?? []
       if (criteria.length > 0) {
         await addChecklistItems(tx, { ticketId: created.id, texts: criteria, actorId: actor.id })
+      }
+
+      if (data.fields) {
+        await writeInitialFieldValues(tx, { ticketId: created.id, projectId: data.projectId, values: data.fields, enforceRequired: true })
       }
 
       // Created already assigned (by hand or by the project default) is as much
@@ -508,9 +514,10 @@ export async function updateTicketAction(
       if (data.statusId && data.statusId !== before.statusId) {
         const status = await tx.status.findFirst({
           where: { id: data.statusId, projectId: before.projectId },
-          select: { name: true, category: true },
+          select: { name: true, category: true, requirements: true },
         })
         if (!status) throw new NotFoundError('Status', data.statusId)
+        await assertCanEnter(tx, data.id, status)
 
         newStatusName = status.name
         completedAt = isTerminal(status.category) ? (before.completedAt ?? new Date()) : null
@@ -710,7 +717,7 @@ export async function moveTicketAction(input: MoveTicketInput): Promise<ActionRe
 
     const status = await prisma.status.findFirst({
       where: { id: data.statusId, projectId: ticket.projectId },
-      select: { id: true, name: true, category: true },
+      select: { id: true, name: true, category: true, requirements: true },
     })
     if (!status) throw new NotFoundError('Status', data.statusId)
 
@@ -718,6 +725,8 @@ export async function moveTicketAction(input: MoveTicketInput): Promise<ActionRe
     const statusChanged = status.id !== ticket.statusId
 
     await prisma.$transaction(async (tx) => {
+      if (statusChanged) await assertCanEnter(tx, ticket.id, status)
+
       await tx.ticket.update({
         where: { id: data.ticketId },
         data: {
@@ -783,9 +792,18 @@ export async function bulkUpdateTicketsAction(
           const status = data.statusId
             ? await tx.status.findFirst({
                 where: { id: data.statusId, projectId: ticket.projectId },
-                select: { id: true, name: true, category: true },
+                select: { id: true, name: true, category: true, requirements: true },
               })
             : null
+          if (status) {
+            try {
+              await assertCanEnter(tx, ticket.id, status)
+            } catch (error) {
+              // All or nothing, and the message names the ticket that stopped it.
+              if (error instanceof BusinessRuleError) throw new BusinessRuleError(`${ticket.key}: ${error.message} Nothing was changed.`)
+              throw error
+            }
+          }
 
           const priority = data.priorityId
             ? await tx.priority.findFirst({

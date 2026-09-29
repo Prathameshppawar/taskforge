@@ -333,6 +333,7 @@ export const getTicketByKey = cache(async (actor: Actor, key: string) => {
       description: true,
       remarks: true,
       cycleId: true,
+      fieldValues: { select: { fieldId: true, value: true } },
       checklist: {
         select: {
           id: true,

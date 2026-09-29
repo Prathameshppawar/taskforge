@@ -22,6 +22,7 @@ import { TicketFlowPanel } from '@/features/tickets/components/ticket-flow'
 import { getTicketFlow } from '@/features/tickets/flow'
 import { getTicketTime } from '@/features/time/queries'
 import { TicketTimePanel } from '@/features/time/components/ticket-time'
+import { CustomFieldsPanel } from '@/features/tickets/components/custom-fields-panel'
 import { WatchButton } from '@/features/tickets/components/watch-button'
 import { listTicketLinks } from '@/features/tickets/relations'
 import { listAttachments } from '@/features/attachments/actions'
@@ -310,6 +311,19 @@ export default async function TicketDetailPage({
               storyPoints: ticket.storyPoints,
             }}
           />
+
+          {context.customFields.length > 0 && (
+            <>
+              <Separator />
+              <CustomFieldsPanel
+                ticketId={ticket.id}
+                fields={context.customFields}
+                values={Object.fromEntries(ticket.fieldValues.map((entry) => [entry.fieldId, entry.value]))}
+                members={context.members}
+                canEdit={canEdit}
+              />
+            </>
+          )}
 
           <Separator />
 

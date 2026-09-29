@@ -64,6 +64,8 @@ import { criteriaLines } from '@/features/ai-fix/agent'
 import { averageTimeInStatus, dueAlerts, formatDuration, slaApplies, slaClocks, stuckDays, timeInStatus, wipState, type StatusChange } from '@/core/domain/flow'
 import { burnup, burnupUnit, fillToCapacity, nextCycleName } from '@/core/domain/cycles'
 import { billedAmount, decimalHours, formatMinutes, parseDuration, timerMinutes, weekOf } from '@/core/domain/time'
+import { displayFieldValue, normaliseFieldValue, parseOptions, type FieldDefinition } from '@/core/domain/custom-fields'
+import { describeUnmet, unmetRequirements } from '@/core/domain/transitions'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1179,6 +1181,34 @@ console.log('\n── Time: what people type into a duration box ──')
   check('weeks start on Monday', week.start.toISOString().slice(0, 10) === '2026-09-28' && week.days.length === 7)
   check('a Sunday belongs to the week before it', weekOf(new Date(Date.UTC(2026, 9, 4, 23))).start.toISOString().slice(0, 10) === '2026-09-28')
   check('billing rounds to the cent', billedAmount(100, 75) === 125 && billedAmount(20, 50) === 16.67)
+}
+
+console.log('\n── Custom fields and the rules for entering a status ──')
+{
+  const f = (type: FieldDefinition['type'], options: string[] = []): FieldDefinition => ({ id: 'f', name: 'Env', type, options })
+  const value = (field: FieldDefinition, raw: unknown) => { const r = normaliseFieldValue(field, raw); return r.ok ? r.value : `error:${r.error}` }
+  check('a choice matches whatever the case, stored in its own spelling', value(f('SELECT', ['Production', 'Staging']), 'production') === 'Production')
+  check('a choice that is not an option is refused, naming the options', String(value(f('SELECT', ['Production', 'Staging']), 'prod')).includes('Production, Staging'))
+  check('several choices are stored in option order, once each', value(f('MULTI_SELECT', ['A', 'B', 'C']), ['c', 'a', 'C']) === '["A","C"]')
+  check('numbers are numbers, commas and all', value(f('NUMBER'), '1,250') === '1250' && String(value(f('NUMBER'), 'many')).startsWith('error:'))
+  check('dates are YYYY-MM-DD', value(f('DATE'), '2026-10-05T10:00:00Z') === '2026-10-05' && String(value(f('DATE'), 'next week')).startsWith('error:'))
+  check('a checkbox reads yes and no', value(f('CHECKBOX'), 'yes') === 'true' && value(f('CHECKBOX'), false) === null)
+  check('links must be http(s)', String(value(f('URL'), 'javascript:alert(1)')).startsWith('error:') && value(f('URL'), 'https://a.b') === 'https://a.b')
+  check('empty clears', value(f('TEXT'), '  ') === null && value(f('MULTI_SELECT', ['A']), []) === null)
+  check('stored values read back as a person would', displayFieldValue(f('MULTI_SELECT', ['A', 'B']), '["A","B"]') === 'A, B' && displayFieldValue(f('CHECKBOX'), 'true') === 'Yes')
+  check('options are de-duplicated, one per line or comma', parseOptions('Prod\nprod, Staging\n\n').join('|') === 'Prod|Staging')
+
+  const facts = {
+    assigneeId: null, storyPoints: null, estimateHours: 2,
+    criteria: { total: 3, met: 1 }, pullRequests: { open: 1, merged: 0 },
+    filledFields: new Set<string>(), fieldNames: new Map([['f1', 'Environment']]),
+  }
+  const unmet = unmetRequirements(['ASSIGNEE', 'ESTIMATE', 'CRITERIA', 'PULL_REQUEST', 'MERGED_PR', 'FIELD:f1', 'FIELD:gone'], facts)
+  check('each unmet rule is named', unmet.join('|') === 'it needs an assignee|2 acceptance criteria are not met|its pull request is not merged|Environment must be filled in')
+  check('hours count as an estimate', !unmet.includes('it needs an estimate'))
+  check('a rule on a deleted field is not held against anyone', !unmet.some((entry) => entry.includes('gone')))
+  check('no rules, nothing to meet', unmetRequirements([], facts).length === 0)
+  check('the refusal reads as a sentence', describeUnmet('Done', ['it needs an assignee', 'its pull request is not merged']) === 'Done can’t be reached yet: it needs an assignee and its pull request is not merged.')
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)

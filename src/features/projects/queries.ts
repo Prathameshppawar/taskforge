@@ -146,6 +146,7 @@ export const getProjectDetail = cache(async (projectId: string) => {
           position: true,
           isInitial: true,
           wipLimit: true,
+          requirements: true,
           _count: { select: { tickets: true } },
         },
         orderBy: { position: 'asc' },

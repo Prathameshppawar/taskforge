@@ -48,6 +48,7 @@ import {
 } from '../actions'
 import type { TriageSuggestion } from '../triage'
 import { createTicketSchema, type CreateTicketInput } from '../schemas'
+import { FieldControl, type FieldView } from './field-control'
 
 export interface TicketFormConfig {
   projectId: string
@@ -57,6 +58,8 @@ export interface TicketFormConfig {
   labels: ConfigOption[]
   members: PickableUser[]
   parents: Array<{ id: string; key: string; title: string }>
+  /** The project's own fields; required ones are asked for here. */
+  customFields?: FieldView[]
 }
 
 interface SimilarTicket {
@@ -135,6 +138,7 @@ export function CreateTicketDialog({
       setTriage(null)
       setTriageDismissed(false)
       setCriteria('')
+      setFieldValues({})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultStatusId, defaultParentId, config.projectId])
@@ -144,6 +148,7 @@ export function CreateTicketDialog({
 
   // Criteria are edited as lines; what the person keeps is what is created.
   const [criteria, setCriteria] = React.useState('')
+  const [fieldValues, setFieldValues] = React.useState<Record<string, unknown>>({})
   const previousType = React.useRef<string | undefined>(undefined)
 
   /*
@@ -199,6 +204,7 @@ export function CreateTicketDialog({
       const result = await createTicketAction({
         ...values,
         acceptanceCriteria: criteria.split('\n').map((line) => line.trim()).filter(Boolean),
+        fields: fieldValues,
       })
 
       if (!result.success) {
@@ -471,6 +477,27 @@ export function CreateTicketDialog({
                   />
                 </div>
 
+                {config.customFields && config.customFields.length > 0 && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {config.customFields.map((field) => (
+                      <div key={field.id} className="space-y-1.5">
+                        <label htmlFor={`new-field-${field.id}`} className="text-sm font-medium">
+                          {field.name}
+                          {field.required && <span className="text-destructive"> *</span>}
+                        </label>
+                        <FieldControl
+                          id={`new-field-${field.id}`}
+                          field={field}
+                          value={storedForm(field, fieldValues[field.id])}
+                          members={config.members}
+                          disabled={isPending}
+                          onCommit={(value) => setFieldValues((current) => ({ ...current, [field.id]: value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <FormField
                   control={form.control}
                   name="labelIds"
@@ -538,4 +565,12 @@ export function CreateTicketDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+/** A draft value as the stored text FieldControl reads, before it is saved. */
+function storedForm(field: FieldView, value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null
+  if (field.type === 'MULTI_SELECT') return Array.isArray(value) && value.length ? JSON.stringify(value) : null
+  if (field.type === 'CHECKBOX') return value === true ? 'true' : null
+  return String(value)
 }

@@ -108,6 +108,7 @@ export const statusSchema = z.object({
   isInitial: z.boolean().default(false),
   /** Soft work-in-progress limit; null for none. */
   wipLimit: z.coerce.number().int().min(1).max(999).nullable().optional(),
+  requirements: z.array(z.string().regex(/^(ASSIGNEE|ESTIMATE|CRITERIA|PULL_REQUEST|MERGED_PR|FIELD:[a-z0-9]+)$/)).max(20).optional(),
 })
 export type StatusInput = z.infer<typeof statusSchema>
 

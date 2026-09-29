@@ -130,6 +130,18 @@ enum TicketLinkType {
 
 /// A sprint is timeboxed and one runs at a time; a milestone is a goal with a
 /// date, and several can be open at once — the shape client work often takes.
+/// The kinds of value a project's own ticket fields can hold.
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  SELECT
+  MULTI_SELECT
+  DATE
+  CHECKBOX
+  URL
+  USER
+}
+
 enum CycleKind {
   SPRINT
   MILESTONE
@@ -772,6 +784,7 @@ model Project {
   ticketTypes      TicketType[]
   tickets          Ticket[]
   cycles           Cycle[]
+  customFields     CustomField[]
   activities       ActivityLog[]
   recurringTickets RecurringTicket[]
   savedFilters     SavedFilter[]
@@ -959,14 +972,19 @@ model Status {
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  name      String
-  category  StatusCategory
-  color     String         @default("slate")
-  position  Int
-  isInitial Boolean        @default(false)
+  name         String
+  category     StatusCategory
+  color        String         @default("slate")
+  position     Int
+  isInitial    Boolean        @default(false)
   /// Most tickets this column should hold at once; null means no limit. A
   /// soft limit: the board shows it and warns, and never refuses a move.
-  wipLimit  Int?
+  wipLimit     Int?
+  /// What must be true before a person moves a ticket into this status:
+  /// ASSIGNEE, ESTIMATE, CRITERIA, PULL_REQUEST, MERGED_PR, or FIELD:<id>.
+  /// See `core/domain/transitions.ts`. Automation moves only on evidence and
+  /// is not held to these.
+  requirements String[]       @default([])
 
   tickets          Ticket[]
   recurringTickets RecurringTicket[]
@@ -1162,6 +1180,7 @@ model Ticket {
   statusHistory TicketStatusChange[]
   cycleHistory  TicketCycleChange[]
   timeEntries   TimeEntry[]
+  fieldValues   TicketFieldValue[]
   slaAlerts     TicketSlaAlert[]
 
   createdAt DateTime @default(now())
@@ -1282,6 +1301,48 @@ model TicketCycleChange {
   @@index([toCycleId])
   @@index([fromCycleId])
   @@map("ticket_cycle_changes")
+}
+
+/// A field a project adds to its tickets: environment, customer, browser.
+model CustomField {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String
+  type        CustomFieldType
+  description String?
+  /// The choices, for SELECT and MULTI_SELECT.
+  options     String[]        @default([])
+  /// Asked for when a ticket is created in the dialog.
+  required    Boolean         @default(false)
+  position    Int             @default(0)
+
+  values TicketFieldValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId, position])
+  @@map("custom_fields")
+}
+
+/// One ticket's value for one custom field, normalised to text by
+/// `normaliseFieldValue`: numbers as numbers, dates as YYYY-MM-DD, a multi-
+/// select as a JSON array, a checkbox as "true".
+model TicketFieldValue {
+  ticketId String
+  ticket   Ticket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  fieldId  String
+  field    CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value    String
+
+  updatedAt DateTime @updatedAt
+
+  @@id([ticketId, fieldId])
+  @@index([fieldId, value])
+  @@map("ticket_field_values")
 }
 
 /// Time someone spent on a ticket: a running timer (no `endedAt`), a stopped

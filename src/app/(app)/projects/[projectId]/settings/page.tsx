@@ -7,6 +7,7 @@ import { ProjectSettingsForm } from '@/features/projects/components/project-sett
 import { WorkflowConfig } from '@/features/projects/components/workflow-config'
 import { FlowSettings } from '@/features/projects/components/flow-settings'
 import { BillingSettings } from '@/features/projects/components/billing-settings'
+import { CustomFieldsConfig } from '@/features/projects/components/custom-fields-config'
 import { getProjectRepos } from '@/features/github/queries'
 import { ProjectRepositories } from '@/features/github/components/project-repos'
 import { can } from '@/features/auth/guards'
@@ -33,9 +34,14 @@ export default async function ProjectSettingsPage({
   ])
 
   if (!project) notFound()
-  const [intake, monitors] = await Promise.all([
+  const [intake, monitors, fields] = await Promise.all([
     prisma.projectSettings.findUnique({ where: { projectId }, select: { errorIngestHash: true } }),
     getProjectMonitors(projectId),
+    prisma.customField.findMany({
+      where: { projectId },
+      orderBy: { position: 'asc' },
+      select: { id: true, name: true, type: true, description: true, options: true, required: true, _count: { select: { values: true } } },
+    }),
   ])
   const headerList = await headers()
   const origin = `${headerList.get('x-forwarded-proto') ?? 'http'}://${headerList.get('host')}`
@@ -91,6 +97,14 @@ export default async function ProjectSettingsPage({
 
         <Separator />
 
+        <CustomFieldsConfig
+          projectId={projectId}
+          canEdit={context.can.manageConfig}
+          fields={fields.map(({ _count, ...field }) => ({ ...field, valueCount: _count.values }))}
+        />
+
+        <Separator />
+
         <FlowSettings
           projectId={projectId}
           stuckAfterDays={project.settings?.stuckAfterDays ?? null}
@@ -120,8 +134,10 @@ export default async function ProjectSettingsPage({
             category: status.category,
             isInitial: status.isInitial,
             wipLimit: status.wipLimit,
+            requirements: status.requirements,
             ticketCount: status._count.tickets,
           }))}
+          fields={fields.map((field) => ({ id: field.id, name: field.name }))}
         />
 
         <WorkflowConfig
