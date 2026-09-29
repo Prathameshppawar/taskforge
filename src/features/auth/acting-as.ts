@@ -20,10 +20,17 @@ import type { Actor } from './guards'
  * choose who is acted as.
  */
 
-const store = new AsyncLocalStorage<Actor>()
+export type Channel = 'email' | 'teams'
+
+const store = new AsyncLocalStorage<{ actor: Actor; via: Channel }>()
 
 export function actingActor(): Actor | null {
-  return store.getStore() ?? null
+  return store.getStore()?.actor ?? null
+}
+
+/** Which channel, if any, the current work arrived through. */
+export function actingVia(): Channel | null {
+  return store.getStore()?.via ?? null
 }
 
 /** Loads an active, human account as an Actor, or null. */
@@ -56,6 +63,6 @@ export async function loadActor(userId: string): Promise<Actor | null> {
   }
 }
 
-export async function actAs<T>(actor: Actor, fn: () => Promise<T>): Promise<T> {
-  return store.run(actor, fn)
+export async function actAs<T>(actor: Actor, fn: () => Promise<T>, via: Channel = 'email'): Promise<T> {
+  return store.run({ actor, via }, fn)
 }

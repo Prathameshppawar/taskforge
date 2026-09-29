@@ -114,6 +114,7 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Time** | A timer on every ticket that follows you in the header, entries typed as `1h 30m` or `1:30`, a weekly timesheet, time by person and kind on Insights, and billable hours — with the amount, at the project's rate — in the monthly client report |
 | **Fields and rules** | Per-project fields — text, number, one or several choices, date, yes/no, link, person — that agents read too; and rules a ticket must meet before a person moves it into a status: an assignee, an estimate, every criterion met, a linked or merged pull request, a field filled in |
 | **Email in** | Email a request to `mailbox+demo@` and it becomes a ticket in DEMO — structured by the Copilot into a title, description, type, priority and acceptance criteria, attachments included. Reply to any TaskForge email about a ticket and the reply becomes a comment. Senders must be authenticated and act with their own permissions |
+| **Microsoft Teams** | A bot people brainstorm with, in a chat or a project's channel: it asks what is missing, keeps a draft card everyone in the thread shapes, and files the ticket when someone presses Create — as them. Linked channels hear about the project's new tickets |
 | **Service targets** | Response and resolution hours per priority, for the kinds of ticket you choose. The resolution clock pauses while Blocked; alerts at 80% and on breach, once each |
 | **Copilot** | Create · break down · search · read · comment · update · project insights · duplicate detection · screen-aware (`"assign this to me"`) · **voice input** · **slash commands that skip the model entirely** |
 | **Filters** | Project, assignee, status, priority, type, labels, dates — URL-backed and savable |
@@ -860,6 +861,57 @@ Every message read is recorded once, by Message-ID, with what became of it —
 created, commented, rejected (and why), ignored — on Workspace → Integrations,
 next to *Check now*. The five-minute cron that runs uptime checks reads the
 mailbox too.
+
+## Microsoft Teams
+
+People rarely open a tracker to think out loud; they write in Teams. The bot
+meets them there: write to it in a chat, or @mention it in a project's channel,
+and describe what you need. It asks at most two short questions at a time — what
+should happen, where, how we will know it is done — and keeps a **draft ticket**,
+shown as a card with the title, type, priority, description, criteria, similar
+existing tickets, and who has shaped it. Several people can add to the same
+thread; when it is right, anyone presses **Create ticket** and it is filed as
+them. `use CODE` picks a project in a chat; in a channel a project manager writes
+`link CODE`, after which tickets shaped there go to that project and the project's
+new tickets — from the board, email, the Copilot — are posted to the channel
+(`mute` stops that). A ticket that came from Teams is not echoed back into it.
+
+**No SDK, and nothing believed unverified.** The bot speaks Bot Framework over
+plain HTTPS ([`infrastructure/msteams/client.ts`](src/infrastructure/msteams/client.ts)),
+like the GitHub App client. Every request's JWT is verified against Bot
+Framework's published keys — RS256 only, a known key id (refetched once on an
+unknown one, which is how a rotation shows up), a valid signature, the key
+endorsed for the `msteams` channel — and then the claim rules Microsoft requires
+([`core/domain/msteams.ts`](src/core/domain/msteams.ts)): our app id as audience,
+Bot Framework as issuer, five minutes of skew, and a `serviceUrl` claim matching
+the activity's, so a token for one conversation cannot be replayed into another.
+Replies go only to Microsoft's own hosts, so a forged activity can never collect
+the bot's token. The domain suite signs its own tokens to prove each check fails
+closed — another bot's audience, another issuer, an expired token, a stranger's
+key, `alg: none`, an unendorsed channel, a look-alike host.
+
+**Who is who.** A Teams account is matched to a TaskForge account by email the
+first time that person writes, and remembered; then every command runs through
+`actAs`, like email — the draft is filed by `createTicketAction` with that
+person's permissions, `link` needs `project:manage-config`, and nobody can do in
+Teams what they could not do in the app. Teams wants an answer within seconds, so
+the request is acknowledged at once and the reply posted through the Bot
+Connector afterwards.
+
+**The brainstorm.** Each turn is one call to the Copilot's engine with the
+recent thread and the current draft, and an `update_draft` tool. Models often
+answer the question and forget to write anything down; when that happens a second,
+narrow call does nothing but record the draft, so what people said never lives
+only in the chat. The conversation is kept only as long as the next reply needs.
+
+**Setting it up is free** and needs no Azure subscription: create a bot in the
+Teams Developer Portal (*Tools → Bot management*), point it at
+`/api/msteams/messages`, add a client secret, and paste the bot id, secret and
+tenant id into Workspace → Integrations. Microsoft is asked to issue a token
+before anything is saved, so wrong credentials are caught at once. **App
+package** then downloads a ready Teams app — manifest and icons, zipped in code
+([`app-package.ts`](src/features/msteams/app-package.ts), no zip or image
+library) — to upload under *Apps → Manage your apps*.
 
 ## Links that mean something
 
@@ -1621,6 +1673,7 @@ a decision rather than plumbing.
 | [`core/domain/flow.ts`](src/core/domain/flow.ts) | SLA clocks that pause while blocked, time in status, stuck and WIP — pure, and pinned by the domain suite. |
 | [`features/auth/acting-as.ts`](src/features/auth/acting-as.ts) | How an email or a Teams message acts as its sender: the same Server Actions, permissions and audit as a click — with no authority of its own. |
 | [`core/domain/inbound-email.ts`](src/core/domain/inbound-email.ts) | Plus-address routing, DMARC/DKIM/SPF trust, loop protection and quote stripping — every rule that decides what an email may do, pure and tested. |
+| [`infrastructure/msteams/client.ts`](src/infrastructure/msteams/client.ts) | Bot Framework without the SDK: JWT verification against published keys, endorsements, and a token that is only ever sent to Microsoft. |
 | [`core/domain/markdown.ts`](src/core/domain/markdown.ts) | A Markdown parser that produces data, not HTML — so no ticket, email or model output is ever injected as markup. |
 | [`e2e/helpers.ts`](e2e/helpers.ts) | The overflow detector that names the element responsible instead of just reporting a number. |
 | [`prisma/migrations/…_configurable_roles_and_teams`](prisma/migrations/20260919080811_configurable_roles_and_teams/migration.sql) | Hand-written. Converts an enum column in place and reproduces the old permission matrix as data, without dropping the search indexes Prisma wants to remove on every migration. |

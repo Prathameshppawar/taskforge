@@ -51,7 +51,7 @@ import { rollupChecks, toCheckState } from '@/features/github/service'
 import { buildManifest, isPublicUrl, resolveWebhookUrl } from '@/features/github/manifest'
 import { createAppJwt, verifyWebhookSignature } from '@/infrastructure/github/client'
 import { seal, unseal } from '@/infrastructure/github/secrets'
-import { createHmac, createVerify, generateKeyPairSync } from 'node:crypto'
+import { createHmac, createSign, createVerify, generateKeyPairSync } from 'node:crypto'
 
 import { applyEdit, checkRepoPath, uniqueBranch } from '@/core/domain/ai-fix'
 import { codingToolDefinitions, resolveToolName } from '@/features/ai-fix/agent'
@@ -67,6 +67,9 @@ import { billedAmount, decimalHours, formatMinutes, parseDuration, timerMinutes,
 import { displayFieldValue, normaliseFieldValue, parseOptions, type FieldDefinition } from '@/core/domain/custom-fields'
 import { describeUnmet, unmetRequirements } from '@/core/domain/transitions'
 import { isAutomated, projectAddress, routeMessage, senderAuthenticated, stripQuoted, subjectToTitle } from '@/core/domain/inbound-email'
+import { BOT_ISSUER, cardMarkdown, checkBotClaims, draftCard, draftReady, isTrustedServiceUrl, parseCommand, stripMentions } from '@/core/domain/msteams'
+import { verifyBotJwt } from '@/infrastructure/msteams/client'
+import { appPackage, teamsManifest } from '@/features/msteams/app-package'
 import { callCosts, costMicros, lastWeekRange, monthKey, monthStart, projectMonth, thresholdToAlert } from '@/core/domain/ai-budget'
 
 import { checkWorkflow, isWorkflowPath } from '@/core/domain/ci-workflow'
@@ -1242,6 +1245,53 @@ console.log('\n── Email in: routing, senders, and the new part of a reply �
   check('a message with nothing quoted is kept whole', stripQuoted('Line one\n> a quote in the middle\nLine two') === 'Line one\n> a quote in the middle\nLine two')
   check('subjects lose their reply and forward prefixes', subjectToTitle('Re: Fwd: [DEMO-3] Printer on fire', 'x') === 'Printer on fire')
   check('an empty subject falls back', subjectToTitle('  ', 'Email from a@b.c') === 'Email from a@b.c')
+}
+
+console.log('\n── Microsoft Teams: which tokens to believe, and what a message asks ──')
+{
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const jwk = { ...(publicKey.export({ format: 'jwk' }) as Record<string, unknown>), kid: 'k1', endorsements: ['msteams'] }
+  const now = Math.floor(Date.now() / 1000)
+  const appId = '11111111-2222-3333-4444-555555555555'
+  const serviceUrl = 'https://smba.trafficmanager.net/emea/'
+  const b64 = (value: object | Buffer) => (Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value))).toString('base64url')
+  const sign = (claims: object, header: object = { alg: 'RS256', kid: 'k1' }, key = privateKey) => {
+    const body = `${b64(header)}.${b64(claims)}`
+    const signer = createSign('RSA-SHA256')
+    signer.update(body)
+    return `${body}.${b64(signer.sign(key))}`
+  }
+  const good = { iss: BOT_ISSUER, aud: appId, exp: now + 600, nbf: now - 10, serviceUrl }
+  const expect = { appId, serviceUrl, channelId: 'msteams', nowSeconds: now }
+  const keys = [jwk as never]
+  check('a token Bot Framework signed for us is believed', verifyBotJwt(sign(good), keys, expect).ok)
+  check('a token for another bot is refused', !verifyBotJwt(sign({ ...good, aud: 'someone-else' }), keys, expect).ok)
+  check('a token from another issuer is refused', !verifyBotJwt(sign({ ...good, iss: 'https://evil.example' }), keys, expect).ok)
+  check('an expired token is refused', !verifyBotJwt(sign({ ...good, exp: now - 400 }), keys, expect).ok)
+  check('…but five minutes of clock skew is allowed', verifyBotJwt(sign({ ...good, exp: now - 100 }), keys, expect).ok)
+  check('a token for another conversation’s service is refused', !verifyBotJwt(sign({ ...good, serviceUrl: 'https://smba.trafficmanager.net/amer/' }), keys, expect).ok)
+  const { privateKey: stranger } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  check('a token signed by anyone else is refused', verifyBotJwt(sign(good, undefined, stranger), keys, expect).ok === false)
+  check('an unsigned "none" token is refused', !verifyBotJwt(`${b64({ alg: 'none', kid: 'k1' })}.${b64(good)}.`, keys, expect).ok)
+  check('a key not endorsed for the channel may not sign for it', !verifyBotJwt(sign(good), keys, { ...expect, channelId: 'slack' }).ok)
+  check('an unknown key id is refused', !verifyBotJwt(sign(good, { alg: 'RS256', kid: 'nope' }), keys, expect).ok)
+  check('claims alone decide nothing without a matching service URL', !checkBotClaims({ ...good, serviceUrl: undefined }, expect).ok)
+
+  check('replies go only to Microsoft’s hosts', isTrustedServiceUrl('https://smba.trafficmanager.net/emea/') && !isTrustedServiceUrl('https://evil.example/') && !isTrustedServiceUrl('http://smba.trafficmanager.net/'))
+  check('a host that merely contains Microsoft’s name is not Microsoft', !isTrustedServiceUrl('https://botframework.com.evil.example/'))
+  check('the @mention is not part of the message', stripMentions('<at>TaskForge</at> link DEMO') === 'link DEMO')
+  check('commands are read', parseCommand('<at>TaskForge</at> link demo').kind === 'link' && parseCommand('use DEMO').kind === 'use' && parseCommand('DEMO-12').kind === 'show')
+  check('a card button is a command', parseCommand('', { taskforge: 'create' }).kind === 'create')
+  check('anything else is conversation', parseCommand('the export button is broken on mobile').kind === 'chat')
+  check('a draft needs a title and substance', !draftReady({ title: 'Fix' }) && draftReady({ title: 'Fix export on mobile', criteria: ['Works on iOS'] }))
+  const card = draftCard({ title: 'Fix export on mobile', description: 'x' }, { projectName: 'Demo', similar: [], participants: ['A'] }) as { content: { actions: Array<{ title: string }> } }
+  check('a ready draft offers Create', card.content.actions.some((action) => action.title === 'Create ticket'))
+  check('an unready draft does not', !(draftCard({ title: 'x' }, { projectName: null, similar: [], participants: [] }) as { content: { actions: Array<{ title: string }> } }).content.actions.some((action) => action.title === 'Create ticket'))
+
+  check('card text turns headings into bold lines', cardMarkdown('## Context\nSafari only') === '**Context**\nSafari only')
+  const pkg = appPackage({ appId, host: 'taskforge.example', appName: 'TaskForge' })
+  check('the app package is a zip with its manifest', pkg.subarray(0, 2).toString() === 'PK' && pkg.includes(Buffer.from('manifest.json')) && pkg.includes(Buffer.from(appId)))
+  check('the manifest names the bot and the domain', teamsManifest({ appId, host: 'taskforge.example', appName: 'TaskForge' }).bots[0].botId === appId)
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)

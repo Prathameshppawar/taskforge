@@ -7,6 +7,10 @@ import { vercelStatus } from '@/features/vercel/service'
 import { VercelCard } from '@/features/vercel/components/vercel-card'
 import { getInboundOverview } from '@/features/inbound-email/queries'
 import { EmailInCard } from '@/features/inbound-email/components/email-in-card'
+import { teamsStatus } from '@/infrastructure/msteams/client'
+import { TeamsCard } from '@/features/msteams/components/teams-card'
+import { prisma } from '@/infrastructure/db/prisma'
+import { headers } from 'next/headers'
 import { PageHeader } from '@/components/shared/page-header'
 
 export const metadata: Metadata = { title: 'Integrations' }
@@ -29,12 +33,20 @@ export default async function IntegrationsPage({
   searchParams: Promise<{ error?: string; installed?: string }>
 }) {
   await requirePermissionPage('integration:manage')
-  const [{ error, installed }, overview, vercel, inbound] = await Promise.all([
+  const [{ error, installed }, overview, vercel, inbound, teams, channels, headerList] = await Promise.all([
     searchParams,
     getIntegrationOverview(),
     vercelStatus(),
     getInboundOverview(),
+    teamsStatus(),
+    prisma.msTeamsConversation.findMany({
+      where: { kind: 'channel', projectId: { not: null } },
+      select: { name: true, project: { select: { name: true } } },
+      take: 20,
+    }),
+    headers(),
   ])
+  const origin = `${headerList.get('x-forwarded-proto') ?? 'https'}://${headerList.get('host')}`
 
   return (
     <div>
@@ -57,6 +69,11 @@ export default async function IntegrationsPage({
         <GithubIntegration overview={overview} />
         <VercelCard status={vercel} />
         <EmailInCard overview={inbound} />
+        <TeamsCard
+          status={teams}
+          endpoint={`${origin}/api/msteams/messages`}
+          channels={channels.map((channel) => ({ name: channel.name, project: channel.project?.name ?? null }))}
+        />
       </div>
     </div>
   )

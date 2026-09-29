@@ -512,6 +512,7 @@ model User {
   timeEntries         TimeEntry[]           @relation("TimeEntryUser")
   bulkOperations      BulkOperation[]       @relation("BulkOperationActor")
   inboundEmails       InboundEmail[]        @relation("InboundEmailSender")
+  teamsAccounts       MsTeamsUser[]         @relation("MsTeamsAccount")
   checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
@@ -787,6 +788,7 @@ model Project {
   tickets          Ticket[]
   cycles           Cycle[]
   customFields     CustomField[]
+  teamsChannels    MsTeamsConversation[]
   activities       ActivityLog[]
   recurringTickets RecurringTicket[]
   savedFilters     SavedFilter[]
@@ -1371,6 +1373,69 @@ model InboundEmail {
 
   @@index([createdAt])
   @@map("inbound_emails")
+}
+
+/// A Microsoft Teams conversation the bot is part of: a personal chat, a group
+/// chat, or a channel thread. Keyed by the Bot Framework conversation id.
+model MsTeamsConversation {
+  id         String  @id
+  tenantId   String?
+  /// Where replies are posted; each conversation has its own.
+  serviceUrl String
+  /// personal, groupChat or channel.
+  kind       String
+  name       String?
+
+  /// The project tickets from here are filed in. A channel linked to a project
+  /// also hears about the project's new tickets.
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  notify    Boolean  @default(true)
+
+  /// The ticket being shaped: { title, description, type, priority, criteria }.
+  draft             Json?
+  /// Who has written while this draft was being shaped.
+  draftParticipants String[] @default([])
+
+  messages MsTeamsMessage[]
+
+  lastActivityAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("msteams_conversations")
+}
+
+/// What was said, kept short-term so the bot can follow a brainstorm.
+model MsTeamsMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   MsTeamsConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// user or bot.
+  role           String
+  authorName     String?
+  userId         String?
+  text           String
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("msteams_messages")
+}
+
+/// A Teams account (Entra object id) and the TaskForge account it is, matched
+/// by email the first time that person writes.
+model MsTeamsUser {
+  aadObjectId String   @id
+  tenantId    String?
+  email       String?
+  userId      String?
+  user        User?    @relation("MsTeamsAccount", fields: [userId], references: [id], onDelete: SetNull)
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@map("msteams_users")
 }
 
 /// Email in, for the whole workspace. One row.

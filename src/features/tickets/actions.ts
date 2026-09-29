@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import type { Prisma } from '@prisma/client'
 
 import { prisma } from '@/infrastructure/db/prisma'
@@ -25,6 +26,7 @@ import {
 } from './service'
 import { describeLink, ticketAudience, validateLink } from './relations'
 import { assertCanEnter } from './transitions'
+import { actingVia } from '@/features/auth/acting-as'
 import { writeInitialFieldValues } from './fields'
 import { suggestTriage, type TriageSuggestion } from './triage'
 import {
@@ -57,6 +59,24 @@ import {
   type UpdateCommentInput,
   type UpdateTicketInput,
 } from './schemas'
+
+/**
+ * Posts a new ticket to the Teams channels linked to its project, once the
+ * response is sent. The channel it arrived through is read now, while the
+ * request's context still holds it, so a Teams-made ticket is not echoed back.
+ */
+function announceTicketLater(ticketId: string) {
+  const via = actingVia()
+  try {
+    after(() =>
+      import('@/features/msteams/service')
+        .then((teams) => teams.announceTicket(ticketId, via))
+        .catch((error) => console.error('[msteams] announce failed:', error)),
+    )
+  } catch {
+    // Outside a request (the seed, a script): nothing to announce to.
+  }
+}
 
 /** Revalidates every route a ticket change can appear on. */
 function revalidateTicket(projectId: string, ticketKey?: string) {
@@ -207,6 +227,7 @@ export async function createTicketAction(
     })
 
     alertManagersOfUrgentTicketLater(ticket.id, actor.id)
+    announceTicketLater(ticket.id)
     revalidateTicket(data.projectId, ticket.key)
     return ok({ id: ticket.id, key: ticket.key })
   })

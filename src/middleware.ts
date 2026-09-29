@@ -31,6 +31,8 @@ export default auth((request) => {
     pathname.startsWith('/api/mcp') ||
     // Signed by GitHub with the app's webhook secret; verified in the route.
     pathname === '/api/github/webhook' ||
+    // Signed by the Bot Connector; the route verifies the token itself.
+    pathname === '/api/msteams/messages' ||
     // Production error intake, authenticated by the secret in its path.
     pathname.startsWith('/api/ingest/')
   ) {
