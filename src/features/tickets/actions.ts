@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import type { Prisma } from '@prisma/client'
 
 import { prisma } from '@/infrastructure/db/prisma'
 import { recordActivity } from '@/features/activity/service'
@@ -766,14 +767,24 @@ export async function moveTicketAction(input: MoveTicketInput): Promise<ActionRe
 
 export async function bulkUpdateTicketsAction(
   input: BulkUpdateInput,
-): Promise<ActionResult<{ updated: number }>> {
+): Promise<ActionResult<{ updated: number; operationId: string }>> {
   return runAction(async () => {
     const data = bulkUpdateSchema.parse(input)
     const actor = await requireActor()
 
     const tickets = await prisma.ticket.findMany({
       where: { id: { in: data.ticketIds } },
-      select: { id: true, key: true, projectId: true, parentId: true },
+      select: {
+        id: true,
+        key: true,
+        projectId: true,
+        parentId: true,
+        statusId: true,
+        priorityId: true,
+        assigneeId: true,
+        completedAt: true,
+        labels: { select: { labelId: true } },
+      },
     })
     if (tickets.length === 0) throw new NotFoundError('Tickets')
 
@@ -784,8 +795,9 @@ export async function bulkUpdateTicketsAction(
     }
 
     let updated = 0
+    const changes: Array<{ ticketId: string; key: string; afterUpdatedAt?: string; before: Record<string, unknown> }> = []
 
-    await prisma.$transaction(
+    const operationId = await prisma.$transaction(
       async (tx) => {
         for (const ticket of tickets) {
           // Status and priority are project-scoped, so validate per ticket.
@@ -811,6 +823,18 @@ export async function bulkUpdateTicketsAction(
                 select: { id: true, name: true },
               })
             : null
+
+          changes.push({
+            ticketId: ticket.id,
+            key: ticket.key,
+            before: {
+              statusId: ticket.statusId,
+              priorityId: ticket.priorityId,
+              assigneeId: ticket.assigneeId,
+              completedAt: ticket.completedAt?.toISOString() ?? null,
+              labelIds: ticket.labels.map((label) => label.labelId),
+            },
+          })
 
           await tx.ticket.update({
             where: { id: ticket.id },
@@ -864,12 +888,26 @@ export async function bulkUpdateTicketsAction(
 
           updated++
         }
+
+        // What each ticket looks like now, so an undo can tell which ones
+        // somebody has changed since.
+        const after = await tx.ticket.findMany({ where: { id: { in: changes.map((change) => change.ticketId) } }, select: { id: true, updatedAt: true } })
+        const stamps = new Map(after.map((row) => [row.id, row.updatedAt.toISOString()]))
+        const operation = await tx.bulkOperation.create({
+          data: {
+            actorId: actor.id,
+            summary: `bulk edit of ${changes.length} tickets`,
+            changes: changes.map((change) => ({ ...change, afterUpdatedAt: stamps.get(change.ticketId) ?? null })) as Prisma.InputJsonValue,
+          },
+          select: { id: true },
+        })
+        return operation.id
       },
       { timeout: 30_000 },
     )
 
     for (const projectId of projectIds) revalidateTicket(projectId)
-    return ok({ updated })
+    return ok({ updated, operationId })
   })
 }
 
@@ -1491,5 +1529,89 @@ export async function suggestTriageAction(
 
     const suggestion = await suggestTriage(projectId, title, description).catch(() => null)
     return ok(suggestion)
+  })
+}
+
+/** How long a bulk edit can be undone for. */
+const UNDO_WINDOW_MS = 60 * 60_000
+
+/**
+ * Puts back what a bulk edit changed — for every ticket nobody has touched
+ * since. A ticket edited after the bulk edit keeps the newer edit, and the
+ * reply says which ones were left alone, because an undo that silently threw
+ * away someone's later work would be worse than no undo.
+ */
+export async function undoBulkUpdateAction(
+  operationId: string,
+): Promise<ActionResult<{ restored: number; skipped: string[] }>> {
+  return runAction(async () => {
+    const actor = await requireActor()
+    const operation = await prisma.bulkOperation.findUnique({ where: { id: operationId } })
+    if (!operation || operation.actorId !== actor.id) throw new NotFoundError('Bulk edit', operationId)
+    if (operation.undoneAt) return fail('That bulk edit has already been undone.')
+    if (Date.now() - operation.createdAt.getTime() > UNDO_WINDOW_MS) return fail('Bulk edits can be undone for an hour. Change the tickets back by hand.')
+
+    const changes = operation.changes as Array<{
+      ticketId: string
+      key: string
+      afterUpdatedAt?: string | null
+      before: { statusId: string; priorityId: string; assigneeId: string | null; completedAt: string | null; labelIds: string[] }
+    }>
+    const current = await prisma.ticket.findMany({
+      where: { id: { in: changes.map((change) => change.ticketId) } },
+      select: { id: true, key: true, projectId: true, parentId: true, updatedAt: true },
+    })
+    const byId = new Map(current.map((ticket) => [ticket.id, ticket]))
+    for (const projectId of new Set(current.map((ticket) => ticket.projectId))) {
+      await requireProjectPermission(projectId, 'ticket:update-any')
+    }
+
+    const skipped: string[] = []
+    let restored = 0
+    await prisma.$transaction(
+      async (tx) => {
+        for (const change of changes) {
+          const ticket = byId.get(change.ticketId)
+          if (!ticket) continue
+          if (change.afterUpdatedAt && ticket.updatedAt.toISOString() !== change.afterUpdatedAt) {
+            skipped.push(change.key)
+            continue
+          }
+          await tx.ticket.update({
+            where: { id: ticket.id },
+            data: {
+              statusId: change.before.statusId,
+              priorityId: change.before.priorityId,
+              assigneeId: change.before.assigneeId,
+              completedAt: change.before.completedAt ? new Date(change.before.completedAt) : null,
+            },
+          })
+          await tx.ticketLabel.deleteMany({ where: { ticketId: ticket.id } })
+          if (change.before.labelIds.length) {
+            await tx.ticketLabel.createMany({
+              data: change.before.labelIds.map((labelId) => ({ ticketId: ticket.id, labelId })),
+              skipDuplicates: true,
+            })
+          }
+          await recordActivity(tx, {
+            action: 'UPDATED',
+            entityType: 'TICKET',
+            entityId: ticket.id,
+            entityLabel: ticket.key,
+            projectId: ticket.projectId,
+            ticketId: ticket.id,
+            actorId: actor.id,
+            summary: `undid the bulk edit on ${ticket.key}`,
+          })
+          if (ticket.parentId) await applyParentRollup(tx, ticket.parentId, actor.id)
+          restored++
+        }
+        await tx.bulkOperation.update({ where: { id: operation.id }, data: { undoneAt: new Date() } })
+      },
+      { timeout: 30_000 },
+    )
+
+    for (const projectId of new Set(current.map((ticket) => ticket.projectId))) revalidateTicket(projectId)
+    return ok({ restored, skipped })
   })
 }

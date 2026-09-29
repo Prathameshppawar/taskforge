@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ColorDot, PriorityBadge } from '@/components/shared/badges'
 import { UserAvatar } from '@/components/shared/user-avatar'
-import { bulkUpdateTicketsAction } from '../actions'
+import { bulkUpdateTicketsAction, undoBulkUpdateAction } from '../actions'
 import type { TicketTableContext } from './ticket-table'
 
 /** Floating toolbar shown while rows are selected in the table. */
@@ -39,7 +39,26 @@ export function BulkActionBar({
         toast.error(result.error)
         return
       }
-      toast.success(`Updated ${result.data.updated} tickets.`)
+      const { operationId } = result.data
+      toast.success(`Updated ${result.data.updated} tickets.`, {
+        duration: 10_000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            const undone = await undoBulkUpdateAction(operationId)
+            if (!undone.success) {
+              toast.error(undone.error)
+              return
+            }
+            toast.success(
+              undone.data.skipped.length
+                ? `Restored ${undone.data.restored}. Left ${undone.data.skipped.join(', ')} alone — changed since.`
+                : `Restored ${undone.data.restored} tickets.`,
+            )
+            router.refresh()
+          },
+        },
+      })
       onDone()
       router.refresh()
     })

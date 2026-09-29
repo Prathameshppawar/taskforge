@@ -510,6 +510,7 @@ model User {
   checklistDone       TicketChecklistItem[] @relation("ChecklistDoneBy")
   cyclesCreated       Cycle[]               @relation("CycleCreatedBy")
   timeEntries         TimeEntry[]           @relation("TimeEntryUser")
+  bulkOperations      BulkOperation[]       @relation("BulkOperationActor")
   checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
@@ -1343,6 +1344,25 @@ model TicketFieldValue {
   @@id([ticketId, fieldId])
   @@index([fieldId, value])
   @@map("ticket_field_values")
+}
+
+/// A bulk edit, remembered so it can be undone: what each ticket looked like
+/// before, and its `updatedAt` straight after, so an undo can tell which
+/// tickets someone has touched since and leave those alone.
+model BulkOperation {
+  id      String  @id @default(cuid())
+  actorId String?
+  actor   User?   @relation("BulkOperationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  summary  String
+  /// [{ ticketId, key, afterUpdatedAt, before: { statusId, priorityId, assigneeId, completedAt, labelIds } }]
+  changes  Json
+  undoneAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@map("bulk_operations")
 }
 
 /// Time someone spent on a ticket: a running timer (no `endedAt`), a stopped

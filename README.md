@@ -105,7 +105,7 @@ model-facing contract and the server-side trust boundary cannot drift apart.
 | **Links** | `blocks` · `relates to` · `duplicates`, stored once and read from both ends; an unresolved blocker is surfaced on the ticket |
 | **Watchers** | Follow a ticket without owning it — gated on *viewing*, because the people who most need to watch often should not be editing |
 | **Attachments** | Screenshots and logs, served only to people who can already see the ticket |
-| **Tickets** | Per-project keys (`AUTH-14`), inline editing, bulk actions, external resource links |
+| **Tickets** | Per-project keys (`AUTH-14`), inline editing, bulk actions with **Undo**, external resource links |
 | **Writing** | Descriptions, remarks and comments in Markdown — headings, task lists, code, tables — with a toolbar, a preview, and nothing ever rendered as raw HTML |
 | **Acceptance criteria** | A checklist of what must be true for a ticket to be done. People tick them; the Coder works against them; the Reviewer judges every pull request against each one |
 | **Templates** | Each ticket type starts from its own description and criteria — a bug asks for steps to reproduce, a deployment for a rollback plan |
@@ -776,6 +776,17 @@ must be filled in.* GitHub automation and parent rollup are not held to the rule
 they move a ticket only on evidence, and a merge that cannot close its ticket
 would be worse than one that does. Deleting a field removes it from any rule that
 required it.
+
+### Undo for bulk edits
+
+A bulk edit remembers what each ticket looked like before it, and its
+`updatedAt` straight after. The toast that confirms it has an **Undo** button for
+ten seconds, and the edit can be undone for an hour. Undo puts back the status,
+priority, assignee and labels of every ticket nobody has touched since; a ticket
+someone edited in between keeps the newer edit, and the reply names it — an undo
+that silently threw away a colleague's later work would be worse than no undo.
+Restoring is a move like any other, so the status history, parent rollup and
+audit log all record it.
 
 ### Service targets
 
