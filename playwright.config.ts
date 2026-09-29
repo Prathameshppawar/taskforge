@@ -42,5 +42,8 @@ export default defineConfig({
         url: 'http://localhost:3000/login',
         reuseExistingServer: !process.env.CI,
         timeout: 300_000,
+        // Tests assign, mention and create users; with a real SMTP server in
+        // .env each of those would email a seed address. Blank beats .env.
+        env: { EMAIL_HOST: '' },
       },
 })

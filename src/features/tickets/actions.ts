@@ -13,6 +13,7 @@ import { BusinessRuleError, ForbiddenError, NotFoundError } from '@/core/domain/
 import { buildTicketKey, isTerminal } from '@/core/domain/ticket-rules'
 import { runAction } from '@/lib/safe-action'
 import { notify, preview } from '@/features/notifications/service'
+import { alertManagersOfUrgentTicketLater } from '@/features/reports/digest'
 import { calculatePosition } from '@/lib/utils'
 import {
   applyParentRollup,
@@ -148,7 +149,7 @@ export async function createTicketAction(
               }
             : undefined,
         },
-        select: { id: true, key: true, title: true },
+        select: { id: true, key: true, title: true, assigneeId: true },
       })
 
       if (data.labelIds.length > 0) {
@@ -158,6 +159,19 @@ export async function createTicketAction(
           projectId: data.projectId,
           labelIds: data.labelIds,
           actorId: actor.id,
+        })
+      }
+
+      // Created already assigned (by hand or by the project default) is as much
+      // an assignment as a later reassignment. `notify` skips self-assignment.
+      if (created.assigneeId) {
+        await notify(tx, {
+          userIds: [created.assigneeId],
+          type: 'ASSIGNED',
+          actorId: actor.id,
+          ticketId: created.id,
+          title: `${actor.name} assigned ${created.key} to you`,
+          body: created.title,
         })
       }
 
@@ -179,6 +193,7 @@ export async function createTicketAction(
       return created
     })
 
+    alertManagersOfUrgentTicketLater(ticket.id, actor.id)
     revalidateTicket(data.projectId, ticket.key)
     return ok({ id: ticket.id, key: ticket.key })
   })

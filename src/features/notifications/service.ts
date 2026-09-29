@@ -1,5 +1,7 @@
 import type { NotificationType, Prisma } from '@prisma/client'
 
+import { emailNotificationsLater } from './email'
+
 type Tx = Prisma.TransactionClient
 
 export interface NotifyInput {
@@ -19,12 +21,15 @@ export interface NotifyInput {
  *
  * Never notifies the actor about their own action: being told you mentioned
  * yourself is noise, and self-assignment is something you already know about.
+ *
+ * Also emails each recipient who has not turned that off — once the
+ * transaction is over, never from inside it (see `emailNotificationsLater`).
  */
 export async function notify(tx: Tx, input: NotifyInput): Promise<number> {
   const recipients = [...new Set(input.userIds)].filter((id) => id && id !== input.actorId)
   if (recipients.length === 0) return 0
 
-  await tx.notification.createMany({
+  const created = await tx.notification.createManyAndReturn({
     data: recipients.map((userId) => ({
       userId,
       type: input.type,
@@ -34,8 +39,10 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<number> {
       title: input.title,
       body: input.body ?? null,
     })),
+    select: { id: true },
   })
 
+  emailNotificationsLater(created.map((row) => row.id))
   return recipients.length
 }
 

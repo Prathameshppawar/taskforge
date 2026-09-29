@@ -32,6 +32,8 @@ export const createUserSchema = z.object({
   // time. Existence and the seniority ceiling are checked in the action.
   roleKey: z.string().trim().min(1, 'Choose a role'),
   mustChangePassword: z.boolean().default(true),
+  // Email them their username, password and a sign-in link.
+  sendEmail: z.boolean().default(true),
 })
 export type CreateUserInput = z.infer<typeof createUserSchema>
 
@@ -50,6 +52,7 @@ export const adminResetPasswordSchema = z.object({
   userId: z.string().min(1),
   password,
   mustChangePassword: z.boolean().default(true),
+  sendEmail: z.boolean().default(true),
 })
 export type AdminResetPasswordInput = z.infer<typeof adminResetPasswordSchema>
 

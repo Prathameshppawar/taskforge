@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 
 import { prisma } from '@/infrastructure/db/prisma'
+import { isEmailConfigured } from '@/infrastructure/email/mailer'
 import { requirePermissionPage } from '@/features/auth/guards'
 import { UserManager } from '@/features/admin/components/user-manager'
 import { PageHeader } from '@/components/shared/page-header'
@@ -47,6 +48,7 @@ export default async function AdminUsersPage() {
         <UserManager
           currentUserId={actor.id}
           assignableRoles={assignableRoles}
+          emailConfigured={isEmailConfigured()}
           users={users.map((user) => ({
             id: user.id,
             username: user.username,

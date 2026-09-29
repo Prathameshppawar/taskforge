@@ -85,9 +85,12 @@ export function UserManager({
   users,
   currentUserId,
   assignableRoles,
+  emailConfigured,
 }: {
   users: ManagedUser[]
   currentUserId: string
+  /** Whether SMTP is set up, so sign-in details can be emailed. */
+  emailConfigured: boolean
   /**
    * Only roles ranked below the signed-in user. Filtered on the server as well
    * — this list shapes the form, it does not enforce anything.
@@ -192,6 +195,7 @@ export function UserManager({
       <UserDialog
         user={editing}
         assignableRoles={assignableRoles}
+        emailConfigured={emailConfigured}
         open={creating || editing !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -203,6 +207,7 @@ export function UserManager({
 
       <ResetPasswordDialog
         user={resetting}
+        emailConfigured={emailConfigured}
         onOpenChange={(open) => !open && setResetting(null)}
       />
     </div>
@@ -278,11 +283,13 @@ function UserActions({
 function UserDialog({
   user,
   assignableRoles,
+  emailConfigured,
   open,
   onOpenChange,
 }: {
   user: ManagedUser | null
   assignableRoles: AssignableRole[]
+  emailConfigured: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -298,6 +305,7 @@ function UserDialog({
     password: '',
     roleKey: 'USER',
     mustChangePassword: true,
+    sendEmail: emailConfigured,
   })
 
   React.useEffect(() => {
@@ -311,8 +319,9 @@ function UserDialog({
       password: '',
       roleKey: user?.role.key ?? 'USER',
       mustChangePassword: true,
+      sendEmail: emailConfigured,
     })
-  }, [open, user])
+  }, [open, user, emailConfigured])
 
   function submit() {
     setErrors({})
@@ -334,6 +343,7 @@ function UserDialog({
             password: form.password,
             roleKey: form.roleKey,
             mustChangePassword: form.mustChangePassword,
+            sendEmail: form.sendEmail,
           })
 
       if (!result.success) {
@@ -348,7 +358,8 @@ function UserDialog({
         return
       }
 
-      toast.success(user ? 'User updated.' : 'User created.')
+      if (user) toast.success('User updated.')
+      else announceEmail('User created.', form.email, 'data' in result ? result.data?.email : null)
       onOpenChange(false)
       router.refresh()
     })
@@ -450,6 +461,13 @@ function UserDialog({
                   onCheckedChange={(value) => setForm({ ...form, mustChangePassword: value })}
                 />
               </div>
+
+              <EmailDetailsSwitch
+                id="send-email"
+                configured={emailConfigured}
+                checked={form.sendEmail}
+                onCheckedChange={(value) => setForm({ ...form, sendEmail: value })}
+              />
             </>
           )}
         </div>
@@ -470,14 +488,17 @@ function UserDialog({
 
 function ResetPasswordDialog({
   user,
+  emailConfigured,
   onOpenChange,
 }: {
   user: ManagedUser | null
+  emailConfigured: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const router = useRouter()
   const [password, setPassword] = React.useState('')
   const [mustChange, setMustChange] = React.useState(true)
+  const [sendEmail, setSendEmail] = React.useState(emailConfigured)
   const [error, setError] = React.useState<string | null>(null)
   const [isPending, startTransition] = React.useTransition()
 
@@ -486,8 +507,9 @@ function ResetPasswordDialog({
       setPassword('')
       setError(null)
       setMustChange(true)
+      setSendEmail(emailConfigured)
     }
-  }, [user])
+  }, [user, emailConfigured])
 
   function submit() {
     if (!user) return
@@ -498,6 +520,7 @@ function ResetPasswordDialog({
         userId: user.id,
         password,
         mustChangePassword: mustChange,
+        sendEmail,
       })
 
       if (!result.success) {
@@ -505,7 +528,11 @@ function ResetPasswordDialog({
         return
       }
 
-      toast.success(`Password reset. ${user.name}'s existing sessions have been ended.`)
+      announceEmail(
+        `Password reset. ${user.name}'s existing sessions have been ended.`,
+        user.email,
+        result.data?.email ?? null,
+      )
       onOpenChange(false)
       router.refresh()
     })
@@ -517,8 +544,8 @@ function ResetPasswordDialog({
         <DialogHeader>
           <DialogTitle>Reset password for {user?.name}</DialogTitle>
           <DialogDescription>
-            Set a temporary password and pass it to them securely. Every session they
-            currently have will be signed out.
+            Set a temporary password. Email it to them, or pass it on securely yourself.
+            Every session they currently have will be signed out.
           </DialogDescription>
         </DialogHeader>
 
@@ -546,6 +573,13 @@ function ResetPasswordDialog({
               onCheckedChange={setMustChange}
             />
           </div>
+
+          <EmailDetailsSwitch
+            id="reset-send-email"
+            configured={emailConfigured}
+            checked={sendEmail}
+            onCheckedChange={setSendEmail}
+          />
         </div>
 
         <DialogFooter>
@@ -581,4 +615,46 @@ function Field({
       {error && <p className="text-[11px] text-destructive">{error}</p>}
     </div>
   )
+}
+
+function EmailDetailsSwitch({
+  id,
+  configured,
+  checked,
+  onCheckedChange,
+}: {
+  id: string
+  configured: boolean
+  checked: boolean
+  onCheckedChange: (value: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+      <div className="space-y-0.5">
+        <Label htmlFor={id}>Email sign-in details</Label>
+        <p className="text-xs text-muted-foreground">
+          {configured
+            ? 'Sends their username, this password and a sign-in link.'
+            : 'Email is not set up (EMAIL_HOST), so pass the password on yourself.'}
+        </p>
+      </div>
+      <Switch
+        id={id}
+        checked={configured && checked}
+        onCheckedChange={onCheckedChange}
+        disabled={!configured}
+      />
+    </div>
+  )
+}
+
+/** Says whether the sign-in details reached them, so the admin knows to follow up. */
+function announceEmail(
+  done: string,
+  address: string,
+  email: { sent: boolean; reason?: string } | null | undefined,
+) {
+  if (!email) toast.success(done)
+  else if (email.sent) toast.success(`${done} Sign-in details emailed to ${address}.`)
+  else toast.warning(`${done} The email did not go out: ${email.reason ?? 'unknown error'} Pass the password on yourself.`)
 }

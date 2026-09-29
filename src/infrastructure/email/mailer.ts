@@ -5,7 +5,8 @@ import nodemailer, { type Transporter } from 'nodemailer'
  *
  * Optional, like every other integration: without EMAIL_HOST, `sendMail`
  * reports that it did nothing and callers carry on — a report that could not be
- * emailed is still on the AI page.
+ * emailed is still on the AI page, and an account whose welcome email did not
+ * go out still exists.
  */
 
 let transporter: Transporter | null = null
@@ -37,8 +38,15 @@ export async function sendMail(message: {
   if (message.to.length === 0) return { sent: false, reason: 'Nobody is subscribed.' }
 
   const from = process.env.EMAIL_FROM || `${process.env.NEXT_PUBLIC_APP_NAME || 'TaskForge'} <${process.env.EMAIL_USER}>`
+  const content = { from, subject: message.subject, html: message.html, text: message.text }
+  if (message.to.length === 1) {
+    // Addressed to one person (their welcome email, say): put them in To, where
+    // a mail client expects to see its owner.
+    await transport().sendMail({ ...content, to: message.to[0] })
+    return { sent: true }
+  }
   // One message, recipients hidden from each other: a report goes to managers
   // who need not see each other's addresses.
-  await transport().sendMail({ from, to: from, bcc: message.to, subject: message.subject, html: message.html, text: message.text })
+  await transport().sendMail({ ...content, to: from, bcc: message.to })
   return { sent: true }
 }

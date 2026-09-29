@@ -80,7 +80,14 @@ export async function gatherFacts(
   periodDays = 7,
 ): Promise<ReportFacts> {
   await requireProjectView(projectId)
+  return collectFacts(projectId, periodDays)
+}
 
+/**
+ * The same facts with no permission check, for jobs that run without a
+ * signed-in user (the Monday manager digest). Callers decide who may read them.
+ */
+export async function collectFacts(projectId: string, periodDays = 7): Promise<ReportFacts> {
   const since = new Date(Date.now() - periodDays * 86_400_000)
   const now = new Date()
 

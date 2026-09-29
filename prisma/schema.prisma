@@ -400,7 +400,13 @@ model User {
   /// Stored on the account rather than in the browser so that muting on a
   /// laptop also mutes on a phone. Defaults on: someone who has never opened
   /// the setting should still hear that work arrived.
-  notificationSound Boolean @default(true)
+  notificationSound  Boolean @default(true)
+  /// Whether notifications (assigned, mentioned, replied to, blocked) are also
+  /// emailed. Defaults on, like the chime; off in Settings → Notifications.
+  emailNotifications Boolean @default(true)
+  /// Whether a project manager receives the Monday digest and urgent-ticket
+  /// alerts for the projects they manage.
+  emailDigest        Boolean @default(true)
 
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)

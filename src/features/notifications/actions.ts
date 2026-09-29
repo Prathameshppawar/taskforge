@@ -64,3 +64,24 @@ export async function setNotificationSoundAction(
     return ok({ enabled })
   })
 }
+
+/**
+ * Turn one kind of email on or off for the signed-in person: notification
+ * emails, or the manager digest and urgent-ticket alerts. Scoped to the actor,
+ * like the chime. Account emails (welcome, password reset) have no switch,
+ * because they are how a person gets in.
+ */
+export async function setEmailPreferenceAction(
+  preference: 'emailNotifications' | 'emailDigest',
+  enabled: boolean,
+): Promise<ActionResult<{ enabled: boolean }>> {
+  return runAction(async () => {
+    const actor = await requireActor()
+    await prisma.user.update({
+      where: { id: actor.id },
+      data: preference === 'emailNotifications' ? { emailNotifications: enabled } : { emailDigest: enabled },
+    })
+    revalidatePath('/settings/notifications')
+    return ok({ enabled })
+  })
+}

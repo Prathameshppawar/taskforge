@@ -8,6 +8,7 @@ import { prisma } from '@/infrastructure/db/prisma'
 import { hashPassword, verifyPassword } from '@/infrastructure/auth/password'
 import { recordActivity } from '@/features/activity/service'
 import { requireActor, requirePermission } from '@/features/auth/guards'
+import { sendAccountEmail, type EmailOutcome } from '@/features/auth/emails'
 import { assertCanActOnUser, assertCanGrantRole } from '@/features/roles/service'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
@@ -90,7 +91,9 @@ export async function logoutAction(): Promise<void> {
 // Admin: user management
 // -----------------------------------------------------------------------------
 
-export async function createUserAction(input: CreateUserInput): Promise<ActionResult<{ id: string }>> {
+export async function createUserAction(
+  input: CreateUserInput,
+): Promise<ActionResult<{ id: string; email: EmailOutcome | null }>> {
   return runAction(async () => {
     const actor = await requirePermission('user:create')
     const data = createUserSchema.parse(input)
@@ -143,8 +146,20 @@ export async function createUserAction(input: CreateUserInput): Promise<ActionRe
       return created
     })
 
+    // After the commit: the account exists whether or not the email goes out,
+    // and the dialog tells the admin which it was.
+    const email = data.sendEmail
+      ? await sendAccountEmail('welcome', {
+          name: data.name,
+          username: data.username,
+          email: data.email,
+          password: data.password,
+          mustChangePassword: data.mustChangePassword,
+        })
+      : null
+
     revalidatePath('/workspace/people')
-    return ok({ id: user.id })
+    return ok({ id: user.id, email })
   })
 }
 
@@ -285,7 +300,7 @@ export async function setUserActiveAction(input: SetUserActiveInput): Promise<Ac
 
 export async function adminResetPasswordAction(
   input: AdminResetPasswordInput,
-): Promise<ActionResult<void>> {
+): Promise<ActionResult<{ email: EmailOutcome | null }>> {
   return runAction(async () => {
     const actor = await requirePermission('user:reset-password')
     const data = adminResetPasswordSchema.parse(input)
@@ -296,7 +311,7 @@ export async function adminResetPasswordAction(
 
     const target = await prisma.user.findUnique({
       where: { id: data.userId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, username: true, email: true },
     })
     if (!target) throw new NotFoundError('User', data.userId)
 
@@ -331,8 +346,18 @@ export async function adminResetPasswordAction(
       })
     })
 
+    const email = data.sendEmail
+      ? await sendAccountEmail('reset', {
+          name: target.name,
+          username: target.username,
+          email: target.email,
+          password: data.password,
+          mustChangePassword: data.mustChangePassword,
+        })
+      : null
+
     revalidatePath('/workspace/people')
-    return ok()
+    return ok({ email })
   })
 }
 

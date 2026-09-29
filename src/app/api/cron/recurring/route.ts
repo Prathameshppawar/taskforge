@@ -6,6 +6,7 @@ import { sweepEmbeddings } from '@/features/tickets/embeddings'
 import { reconcileAllLinked } from '@/features/github/service'
 import { loadCredentials } from '@/infrastructure/github/client'
 import { sendWeeklyUsageReport } from '@/features/ai-admin/reports'
+import { sendManagerDigests } from '@/features/reports/digest'
 
 /**
  * Recurring ticket scheduler.
@@ -74,19 +75,28 @@ export async function GET(request: NextRequest) {
         })
       : null
 
-    // The cron runs daily; the usage report is weekly, so it goes on Mondays.
+    // The cron runs daily; the usage report and the manager digest are weekly,
+    // so they go on Mondays.
+    const monday = new Date().getUTCDay() === 1
     const usageReport =
-      new Date().getUTCDay() === 1
+      monday
         ? await sendWeeklyUsageReport().catch((error) => {
             console.error('[cron/recurring] weekly usage report failed:', error)
             return { sent: false, recipients: 0 }
           })
         : null
+    const managerDigest = monday
+      ? await sendManagerDigests().catch((error) => {
+          console.error('[cron/recurring] manager digest failed:', error)
+          return { projects: 0, sent: -1 }
+        })
+      : null
 
     return NextResponse.json({
       ok: true,
       github,
       usageReport,
+      managerDigest,
       generated: result.generated.length,
       tickets: result.generated.map((entry) => entry.ticketKey),
       deactivated: result.deactivated.length,
