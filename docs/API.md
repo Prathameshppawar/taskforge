@@ -32,6 +32,7 @@ this document follows the code and says so.
 |---|---|---|---|---|
 | Server Actions | page POSTs | The app's own UI | Session cookie (Auth.js JWT) | `src/features/*/actions.ts` |
 | REST API v1 | `/api/v1/*` | Scripts, CI, other systems | Personal access token | `src/app/api/v1`, `src/features/public-api/handler.ts` |
+| Remote MCP | `/api/mcp/http` | MCP clients, connecting directly | Personal access token | `src/app/api/mcp/http/route.ts`, [MCP.md](MCP.md) |
 | MCP bridge | `/api/mcp` | MCP clients (via `npm run mcp`) | Personal access token | `src/app/api/mcp/route.ts`, [MCP.md](MCP.md) |
 | Outbound webhooks | your URL | TaskForge calls you | HMAC-SHA256 signature | `src/features/webhooks-out/service.ts` |
 | Inbound integrations | `/api/github/webhook`, `/api/msteams/messages`, `/api/ingest/errors/*` | GitHub, Microsoft, Sentry | Signature, Bot Framework JWT, path secret | see [section 4](#4-other-route-handlers) |
@@ -527,6 +528,7 @@ token.
 |---|---|---|---|---|
 | `/api/auth/[...nextauth]` | GET, POST | Browser | Auth.js | public |
 | `/api/mcp` | GET, POST | MCP clients | Bearer token (or session) | the owner's |
+| `/api/mcp/http` | POST | MCP clients (Streamable HTTP) | Bearer token (or session) | the owner's |
 | `/api/cron/recurring` | GET | Vercel Cron, daily 06:00 UTC | `CRON_SECRET` as bearer or `?key=` | none |
 | `/api/cron/monitors` | GET | GitHub Actions, every 5 min | `CRON_SECRET` as bearer only | none |
 | `/api/github/webhook` | POST | GitHub | `X-Hub-Signature-256` | none |
@@ -562,6 +564,15 @@ MCP bridge exposes every tool, including `bulk_create_tickets`,
 `find_duplicates`, `project_insights` and `search_memory`, which the REST API
 does not. An unknown `projectCode` is ignored here, where the REST API answers
 404. See [MCP.md](MCP.md) for the stdio server that wraps it.
+
+### /api/mcp/http
+
+The same tools as a remote MCP server (Streamable HTTP), so a client connects by
+URL with no bridge. Stateless: each `POST` gets a fresh server and transport and
+is answered with JSON; `GET` and `DELETE` answer 405. `?project=CODE` sets the
+default project and is ignored when the actor cannot see it. A refused or failed
+tool is a tool result with `isError: true`, not an HTTP error. See
+[MCP.md](MCP.md#connect-directly-recommended).
 
 ### Crons
 

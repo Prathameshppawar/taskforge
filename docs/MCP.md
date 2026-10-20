@@ -2,11 +2,13 @@
 
 TaskForge ships a [Model Context Protocol](https://modelcontextprotocol.io)
 server, so Claude Desktop, Claude Code or any other MCP client can read and
-manage tickets with the same tools the in-app Copilot uses. For scripts and
-integrations that do not speak MCP, the same tools are available as a plain
-HTTP endpoint and as the REST API v1.
+manage tickets with the same tools the in-app Copilot uses. A client connects
+to the deployment's URL directly, with nothing to install, or runs the stdio
+bridge in this repository. For scripts and integrations that do not speak MCP,
+the same tools are available as a plain HTTP endpoint and as the REST API v1.
 
-Checked against the code on 29 September 2026.
+Checked against the code on 29 September 2026; the remote endpoint added on
+21 October 2026.
 
 ## Contents
 
@@ -26,22 +28,25 @@ Checked against the code on 29 September 2026.
 ## 1. How it fits together
 
 ```
-MCP client  ──stdio──►  mcp/server.ts  ──HTTPS + Bearer token──►  /api/mcp
-(Claude…)               (no logic,                                   │
-                         no database)                   token → the same Actor as a browser
-                                                        → validate (Zod) → permission check
-                                                        → Server Action → activity log
+MCP client  ──Streamable HTTP + Bearer token──────────────────►  /api/mcp/http ─┐
+(Claude…)                                                                        │
+                                                                                 ├─ token → the same Actor as a browser
+MCP client  ──stdio──►  mcp/server.ts  ──HTTPS + Bearer token──►  /api/mcp ─────┘  → validate (Zod) → permission check
+(Claude…)               (no logic,                                                  → Server Action → activity log
+                         no database)
 ```
 
 | Piece | File | Role |
 |---|---|---|
+| Remote MCP endpoint | [`src/app/api/mcp/http/route.ts`](../src/app/api/mcp/http/route.ts) | Speaks MCP (Streamable HTTP, stateless, JSON responses) straight to the client. Nothing runs on the client's machine. |
 | stdio bridge | [`mcp/server.ts`](../mcp/server.ts) | Speaks MCP to the client and forwards each call to the deployment. Holds no business logic and never touches the database. |
-| Endpoint | [`src/app/api/mcp/route.ts`](../src/app/api/mcp/route.ts) | `GET` returns the tool catalogue; `POST` runs one tool. |
+| Endpoint | [`src/app/api/mcp/route.ts`](../src/app/api/mcp/route.ts) | `GET` returns the tool catalogue; `POST` runs one tool. The bridge's back end, and callable directly. |
 | Tools | [`src/features/ai/tools.ts`](../src/features/ai/tools.ts), [`executor.ts`](../src/features/ai/executor.ts) | The Copilot's tool contracts and dispatch — the same code for the Copilot, MCP and the REST API. |
 
-At start-up the bridge fetches the catalogue from the deployment, so the tool list
-always matches what is deployed and adding a tool server-side needs no change to
-the bridge (restart the client to pick it up).
+Both paths run the same `executeTool`. The remote endpoint builds its tool list
+from the deployed code on every request; the bridge fetches the catalogue at
+start-up. Either way the tool list always matches what is deployed, and adding a
+tool server-side needs no client change (restart the client to pick it up).
 
 ## 2. The security property
 
@@ -87,6 +92,39 @@ every call.
 
 ## 4. Running the server
 
+### Connect directly (recommended)
+
+The deployment is itself an MCP server at `/api/mcp/http`. Nothing to clone,
+install or run: give the client the URL and a token.
+
+**Claude Code:**
+
+```bash
+claude mcp add --transport http taskforge \
+  'https://your-app.vercel.app/api/mcp/http?project=DEMO' \
+  --header "Authorization: Bearer tf_..."
+```
+
+`--scope user` makes it available in every folder; the default (`local`) keeps it
+to the current one. Both are written to `~/.claude.json`, so the token never
+lands in a repository. `claude mcp list` should report it as connected.
+
+**Any other client** that supports remote (Streamable HTTP) servers: the URL
+above, with an `Authorization: Bearer tf_…` header.
+
+| | |
+|---|---|
+| URL | `https://<deployment>/api/mcp/http` |
+| `?project=` | Optional default project code — what `TASKFORGE_PROJECT` is to the bridge. A code the token's user cannot see is ignored. |
+| Auth | `Authorization: Bearer tf_…` on every request; `401` without a valid one |
+| Mode | Stateless: no session id, every `POST` answered with JSON. `GET` and `DELETE` answer `405`, which tells the client there is no standing stream and no session to end. |
+| Errors | A refused or failed tool comes back as a tool result with `isError: true` and the reason, as from the bridge. |
+
+### The stdio bridge
+
+Use it for a client that runs only local (stdio) servers, or one that cannot send
+a custom header to a remote server (Claude Desktop's config file, for instance).
+
 ### Environment
 
 | Variable | Required | Purpose |
@@ -100,7 +138,7 @@ stderr — stdout is the protocol channel, and a stray byte there corrupts it. O
 start it reports, on stderr, how many tools it has, as whom, and how many projects
 are visible.
 
-### Run it directly
+### Run the bridge by hand
 
 ```bash
 TASKFORGE_URL=https://your-app.vercel.app \
@@ -109,7 +147,7 @@ TASKFORGE_PROJECT=DEMO \
 npx tsx mcp/server.ts
 ```
 
-### Claude Code
+### Claude Code, through the bridge
 
 The repository has a template. Copy it and export the variables:
 
@@ -137,7 +175,7 @@ claude mcp add taskforge --scope local \
 Use one scope or the other — defining it in both makes Claude Code warn about a
 duplicate server. `claude mcp list` should report it as connected.
 
-### Claude Desktop
+### Claude Desktop, through the bridge
 
 `claude_desktop_config.json`:
 
@@ -396,12 +434,13 @@ duplicates, insights and bulk creation are MCP and `/api/mcp` only.
 
 ## 10. Notes
 
-**Nothing extra to run.** The bridge is a script in this repository, run with
-`tsx`; the endpoint is part of the deployment. There is no separate server to host
-and nothing to pay for.
+**Nothing extra to run.** The remote endpoint and `/api/mcp` are part of the
+deployment, and the bridge is a script in this repository, run with `tsx`. There
+is no separate server to host and nothing to pay for.
 
 **Visibility of the default project.** An unknown or invisible
-`TASKFORGE_PROJECT` (or `projectCode` on `/api/mcp`) is ignored rather than
+`TASKFORGE_PROJECT` (or `?project=` on `/api/mcp/http`, or `projectCode` on
+`/api/mcp`) is ignored rather than
 reported, so a tool that needs a project will ask for one. The REST API answers
 `404` in the same situation.
 
