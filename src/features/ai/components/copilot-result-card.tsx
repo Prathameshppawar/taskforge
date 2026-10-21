@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CircleCheck,
   CircleX,
+  FileDiff,
   GitBranch,
   ListChecks,
   TrendingUp,
@@ -60,9 +61,32 @@ export function CopilotResultCard({
       return <InsightsCard data={data as never} />
     case 'duplicates':
       return <DuplicatesCard data={data as never} />
+    case 'proposal':
+      return <ProposalCard data={data as never} />
     default:
       return null
   }
+}
+
+/**
+ * A proposal is not a change: it says so, and links to where a manager
+ * approves it, rather than looking like the "created" cards beside it.
+ */
+function ProposalCard({ data }: { data: { target: string; projectName: string; path: string } }) {
+  return (
+    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+        <FileDiff className="size-3.5" />
+        Proposed — waiting for approval
+      </div>
+      <p className="mt-1.5 text-sm">
+        A change to {data.target} in {data.projectName}. Nothing changes until a project manager approves it.
+      </p>
+      <Link href={data.path} className="mt-1 inline-block text-xs font-medium text-primary hover:underline">
+        Review the proposal
+      </Link>
+    </div>
+  )
 }
 
 function CreatedCard({

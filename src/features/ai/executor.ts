@@ -14,6 +14,11 @@ import {
   getTeamWorkload,
 } from '@/features/dashboard/queries'
 import { EMPTY_FILTERS } from '@/features/filters/types'
+import { proposeDocumentAction, proposeProjectDetailsAction, type ProposalCreated } from '@/features/proposals/actions'
+import { assessProposal, proposalPath, proposalUrl } from '@/features/proposals/service'
+import { listProposals, pendingProposalCount } from '@/features/proposals/queries'
+import { getDocument, listProjectDocuments } from '@/features/documents/queries'
+import { detailValues, documentKey } from '@/core/domain/project-documents'
 import { MUTATING_TOOLS, TOOL_SCHEMAS, type ToolName, dropNulls} from './tools'
 import { requireProjectPermission, requireProjectView } from '@/features/auth/guards'
 import {
@@ -144,6 +149,16 @@ export async function executeTool(
       return projectInsights(parsed.data as never, context)
     case 'search_memory':
       return searchProjectMemory(parsed.data as never, context)
+    case 'get_project':
+      return getProject(parsed.data as never, context)
+    case 'get_document':
+      return getProjectDocument(parsed.data as never, context)
+    case 'propose_project_update':
+      return proposeProjectUpdate(parsed.data as never, context)
+    case 'propose_document':
+      return proposeDocument(parsed.data as never, context)
+    case 'list_proposals':
+      return listProjectProposals(parsed.data as never, context)
   }
 }
 
@@ -155,7 +170,7 @@ async function searchProjectMemory(args: MemoryArgs, ctx: ExecutionContext): Pro
   const { searchMemory } = await import('@/features/memory/index-service')
   const hits = await searchMemory(project.id, args.query, 5)
   if (hits.length === 0) {
-    return { ok: true, summary: `Nothing in ${project.name}'s memory matches. It indexes finished tickets, linked repositories' docs and the handbook.` }
+    return { ok: true, summary: `Nothing in ${project.name}'s memory matches. It indexes finished tickets, linked repositories' docs, the handbook and the project's documents.` }
   }
   return {
     ok: true,
@@ -873,5 +888,178 @@ async function commentOnTicket(
     ok: true,
     summary: `Commented on ${ticket.key}.`,
     data: { kind: 'comment', ticketKey: ticket.key },
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Project details and documents
+//
+// Reads are direct. Changes are proposals only: they go through the proposal
+// Server Actions, which check `proposal:create`, write a pending proposal and
+// tell the project's managers — and nothing about the project itself changes
+// until one of them approves it in the UI.
+// -----------------------------------------------------------------------------
+
+const SOURCE_LABELS: Record<string, string> = {
+  AI: 'written by the Release Manager',
+  FACTS: 'assembled from recorded facts',
+  EDIT: 'edited by hand',
+  PROPOSAL: 'from an approved proposal',
+}
+
+const day = (date: Date) => date.toISOString().slice(0, 10)
+
+type GetProjectArgs = ReturnType<(typeof TOOL_SCHEMAS)['get_project']['parse']>
+
+/** A project's details and the documents it keeps — what to read before proposing a change. */
+async function getProject(args: GetProjectArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  const project = await resolveProject(ctx.actor, args.projectCode, ctx.currentProjectId)
+  await requireProjectView(project.id)
+
+  const [detail, documents, pending] = await Promise.all([
+    prisma.project.findUniqueOrThrow({
+      where: { id: project.id },
+      select: { description: true, status: true, startDate: true, endDate: true, owner: { select: { name: true } } },
+    }),
+    listProjectDocuments(project.id),
+    pendingProposalCount(project.id),
+  ])
+  const values = detailValues(detail)
+
+  const lines = [
+    `${project.name} (${project.code}) — status ${values.status}${project.isArchived ? ', archived' : ''}. Owner: ${detail.owner.name}.`,
+    `Start date: ${values.startDate ?? 'not set'}. End date: ${values.endDate ?? 'not set'}.`,
+    values.description ? `Description:\n${values.description}` : 'Description: none set.',
+    documents.length
+      ? `Documents (read one with get_document, by name):\n${documents
+          .map((doc) => `- ${doc.title} — name "${doc.key}", version ${doc.latestVersion} (${doc.versionCount} kept), ${day(doc.updatedAt)}, ${SOURCE_LABELS[doc.source] ?? doc.source}`)
+          .join('\n')}`
+      : 'Documents: none yet.',
+    `Proposals waiting for approval: ${pending}${pending ? ' (list_proposals shows them)' : ''}.`,
+    'Changes to the details or documents are proposed with propose_project_update or propose_document, and apply only when a project manager approves them.',
+  ]
+
+  return {
+    ok: true,
+    summary: lines.join('\n'),
+    data: { kind: 'project', projectCode: project.code, documents: documents.map((doc) => doc.key), pendingProposals: pending },
+  }
+}
+
+type GetDocumentArgs = ReturnType<(typeof TOOL_SCHEMAS)['get_document']['parse']>
+
+async function getProjectDocument(args: GetDocumentArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  const project = await resolveProject(ctx.actor, args.projectCode, ctx.currentProjectId)
+  await requireProjectView(project.id)
+
+  const key = documentKey(args.name)
+  const version = args.version != null ? clamp(args.version, 1, 1_000_000, 1) : undefined
+  const doc = key ? await getDocument(project.id, key, version) : null
+
+  if (!doc || !key) {
+    const latest = key ? await getDocument(project.id, key) : null
+    if (latest) {
+      return { ok: false, summary: `${latest.title} has no version ${version}; the latest is ${latest.version}.` }
+    }
+    const documents = await listProjectDocuments(project.id)
+    return {
+      ok: false,
+      summary: `${project.name} has no document "${args.name}". ${
+        documents.length ? `It has: ${documents.map((entry) => `${entry.title} ("${entry.key}")`).join(', ')}.` : 'It has no documents yet.'
+      } A new one can be proposed with propose_document.`,
+    }
+  }
+
+  const latestVersion = version ? ((await getDocument(project.id, key))?.version ?? doc.version) : doc.version
+  return {
+    ok: true,
+    summary: [
+      `${doc.title} — version ${doc.version}${doc.version === latestVersion ? ' (latest)' : ` (the latest is ${latestVersion})`}, ${SOURCE_LABELS[doc.source] ?? doc.source}${doc.author ? ` by ${doc.author}` : ''}, ${day(doc.createdAt)}.`,
+      `To propose a change, call propose_document with name "${key}", the whole revised text, and baseVersion ${doc.version}.`,
+      '',
+      doc.body,
+    ].join('\n'),
+    data: { kind: 'document', projectCode: project.code, key, version: doc.version, title: doc.title },
+  }
+}
+
+/** The tool's reply for a new proposal: plainly pending, with where to review it. */
+function proposalResult(created: ProposalCreated, projectName: string): ToolResult {
+  const url = proposalUrl(created.projectId, created.id)
+  return {
+    ok: true,
+    summary:
+      `Proposal ${created.id} — a change to ${created.target} in ${projectName} — is PENDING APPROVAL. Nothing has changed yet: ` +
+      `it applies only when a project manager approves it at ${url}` +
+      (created.superseded.length ? `. It replaces your earlier pending proposal ${created.superseded.join(', ')}` : '') +
+      '. Tell the user it is waiting for approval; do not say the change has been made.',
+    reply: '',
+    data: { kind: 'proposal', id: created.id, target: created.target, projectName, path: proposalPath(created.projectId, created.id) },
+  }
+}
+
+type ProposeUpdateArgs = ReturnType<(typeof TOOL_SCHEMAS)['propose_project_update']['parse']>
+
+async function proposeProjectUpdate(args: ProposeUpdateArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  const project = await resolveProject(ctx.actor, args.projectCode, ctx.currentProjectId)
+  const result = await proposeProjectDetailsAction({
+    projectId: project.id,
+    description: args.description,
+    status: args.status,
+    startDate: args.startDate,
+    endDate: args.endDate,
+    summary: args.summary,
+    rationale: args.rationale,
+  })
+  if (!result.success) return { ok: false, summary: result.error }
+  return proposalResult(result.data, project.name)
+}
+
+type ProposeDocumentArgs = ReturnType<(typeof TOOL_SCHEMAS)['propose_document']['parse']>
+
+async function proposeDocument(args: ProposeDocumentArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  const project = await resolveProject(ctx.actor, args.projectCode, ctx.currentProjectId)
+  const result = await proposeDocumentAction({
+    projectId: project.id,
+    name: args.name,
+    title: args.title,
+    body: args.body,
+    baseVersion: args.baseVersion != null ? clamp(args.baseVersion, 0, 1_000_000, 0) : undefined,
+    summary: args.summary,
+    rationale: args.rationale,
+  })
+  if (!result.success) return { ok: false, summary: result.error }
+  return proposalResult(result.data, project.name)
+}
+
+type ListProposalsArgs = ReturnType<(typeof TOOL_SCHEMAS)['list_proposals']['parse']>
+
+async function listProjectProposals(args: ListProposalsArgs, ctx: ExecutionContext): Promise<ToolResult> {
+  const project = await resolveProject(ctx.actor, args.projectCode, ctx.currentProjectId)
+  await requireProjectView(project.id)
+
+  const rows = await listProposals(project.id, { status: args.status, take: 25 })
+  if (rows.length === 0) {
+    return { ok: true, summary: `No ${args.status ? `${args.status.toLowerCase()} ` : ''}proposals in ${project.name}.` }
+  }
+
+  const lines = await Promise.all(
+    rows.map(async (row) => {
+      // Only a pending proposal can be overtaken; say so, since it changes
+      // what the reviewer will see.
+      const stale = row.status === 'PENDING' ? (await assessProposal({ ...row, projectId: project.id })).stale : false
+      const review = row.reviewedBy ? `; ${row.status.toLowerCase()} by ${row.reviewedBy}${row.reviewedAt ? ` on ${day(row.reviewedAt)}` : ''}` : ''
+      return (
+        `${row.id} — ${row.status}${stale ? ' (STALE: the target changed after it was written)' : ''} — ${row.target}` +
+        `${row.kind === 'DOCUMENT' && row.baseVersion != null ? ` (written against version ${row.baseVersion})` : ''}` +
+        `${row.appliedVersion ? `, became version ${row.appliedVersion}` : ''}, by ${row.proposedBy ?? 'a former member'} on ${day(row.createdAt)}${review}` +
+        `${row.summary ? ` — ${row.summary}` : ''}\n  ${proposalUrl(project.id, row.id)}`
+      )
+    }),
+  )
+
+  return {
+    ok: true,
+    summary: `${rows.length} ${args.status ? `${args.status.toLowerCase()} ` : ''}${rows.length === 1 ? 'proposal' : 'proposals'} in ${project.name}, newest first:\n${lines.join('\n')}`,
   }
 }

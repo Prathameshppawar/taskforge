@@ -111,6 +111,50 @@ export const searchMemoryTool = z.object({
   projectCode: z.string().optional(),
 })
 
+export const getProjectTool = z.object({
+  projectCode: z.string().optional(),
+})
+
+export const getDocumentTool = z.object({
+  name: z.string().describe('e.g. Architecture, handbook'),
+  version: z.number().int().optional(),
+  projectCode: z.string().optional(),
+})
+
+/*
+ * The two propose_ tools are the only way an agent changes a project's details
+ * or documents: they write a proposal, which applies only when a project
+ * manager approves it in the UI. There is deliberately no direct-write tool.
+ *
+ * Lengths and date formats are left to the Server Action's schema
+ * (`proposals/schemas.ts`), which refuses with a reason the model can act
+ * on; repeating them here would only cost tokens on every Copilot request.
+ */
+export const proposeProjectUpdateTool = z.object({
+  projectCode: z.string().optional(),
+  description: z.string().optional(),
+  status: z.enum(['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED']).optional(),
+  startDate: z.string().optional().describe('YYYY-MM-DD or "none"'),
+  endDate: z.string().optional(),
+  summary: z.string().optional(),
+  rationale: z.string().optional(),
+})
+
+export const proposeDocumentTool = z.object({
+  name: z.string().describe('e.g. Architecture, handbook'),
+  body: z.string().describe('Whole document, Markdown'),
+  title: z.string().optional(),
+  baseVersion: z.number().int().optional().describe('Version you read; 0 if new'),
+  projectCode: z.string().optional(),
+  summary: z.string().optional(),
+  rationale: z.string().optional(),
+})
+
+export const listProposalsTool = z.object({
+  projectCode: z.string().optional(),
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED']).optional(),
+})
+
 export const TOOL_SCHEMAS = {
   create_ticket: createTicketTool,
   bulk_create_tickets: bulkCreateTool,
@@ -121,6 +165,11 @@ export const TOOL_SCHEMAS = {
   get_ticket: getTicketTool,
   comment_on_ticket: commentTool,
   search_memory: searchMemoryTool,
+  get_project: getProjectTool,
+  get_document: getDocumentTool,
+  propose_project_update: proposeProjectUpdateTool,
+  propose_document: proposeDocumentTool,
+  list_proposals: listProposalsTool,
 } as const
 
 export type ToolName = keyof typeof TOOL_SCHEMAS
@@ -143,6 +192,11 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     'Read one ticket in full: description, remarks, labels, dates, its parent and children, and recent comments.',
   comment_on_ticket: 'Post a comment. @username notifies that person.',
   search_memory: 'Search past work, docs and the handbook. Use for "how did we…", "where is…".',
+  get_project: "A project's details and its documents.",
+  get_document: 'Read a project document; latest unless a version is given.',
+  propose_project_update: 'Propose a new description, status or dates. A manager must approve it.',
+  propose_document: 'Propose a new document or version, handbook included. A manager must approve it.',
+  list_proposals: 'Proposed project changes and their review status.',
 }
 
 /**
@@ -242,7 +296,13 @@ export function getToolDefinitions(): AiToolDefinition[] {
   })
 }
 
-/** Tools that change data. These are proposed to the user, never auto-applied. */
+/**
+ * Tools that change data. These are proposed to the user, never auto-applied.
+ *
+ * propose_project_update and propose_document are not here: they change
+ * nothing but a pending proposal, which already waits for a person's approval
+ * on the Proposals page — asking in the Copilot first would mean approving twice.
+ */
 export const MUTATING_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
   'comment_on_ticket',
   'create_ticket',

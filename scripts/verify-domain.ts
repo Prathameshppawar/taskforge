@@ -9,7 +9,7 @@
  *
  *     npm run verify
  */
-import { getToolDefinitions, TOOL_SCHEMAS, isToolName, allowNulls, dropNulls } from '@/features/ai/tools'
+import { getToolDefinitions, TOOL_SCHEMAS, isToolName, allowNulls, dropNulls, MUTATING_TOOLS } from '@/features/ai/tools'
 import { clamp } from '@/features/ai/executor'
 import { parseSlash, matchingCommands, SLASH_COMMANDS } from '@/features/ai/slash'
 import { describeLink, validateLink } from '@/features/tickets/relations'
@@ -39,6 +39,21 @@ import {
   SYSTEM_ROLES,
   type Permission,
 } from '@/core/domain/rbac'
+import {
+  DOCUMENT_LIMITS,
+  HANDBOOK_KEY,
+  PROPOSABLE_PROJECT_STATUSES,
+  SUGGESTED_DOCUMENTS,
+  detailChanges,
+  detailValues,
+  diffStats,
+  documentKey,
+  isDocumentStale,
+  lineDiff,
+  staleDetailFields,
+  titleFromKey,
+  type ProjectDetailValues,
+} from '@/core/domain/project-documents'
 
 import {
   branchNameFor,
@@ -117,7 +132,7 @@ function check(name: string, condition: boolean, detail?: string) {
 
 console.log('\n── AI tool contracts ──')
 const defs = getToolDefinitions()
-check('9 tools defined', defs.length === 9, `got ${defs.length}`)
+check('14 tools defined', defs.length === 14, `got ${defs.length}`)
 check('no $schema leaks to the provider', defs.every((d) => !('$schema' in d.parameters)))
 check('every tool has a description', defs.every((d) => d.description.trim().length > 0))
 
@@ -127,10 +142,15 @@ check('every tool has a description', defs.every((d) => d.description.trim().len
 // so a future edit cannot quietly cost the user conversations per minute.
 // Raised from 1,100 to 1,200 for search_memory, which replaces several
 // searches with one and so costs less per conversation than it adds per call.
+// Raised to 1,700 for the five project tools (get_project, get_document, the
+// two propose_ tools and list_proposals): about 500 tokens a request, so the
+// Copilot can read a project's documents and propose changes like an MCP
+// client. Their length limits live in the action schemas, not here, to keep it
+// at that.
 const payloadTokens = Math.ceil(JSON.stringify(defs).length / 4)
 check(
-  `tool payload within budget (${payloadTokens} tokens, limit 1200)`,
-  payloadTokens <= 1200,
+  `tool payload within budget (${payloadTokens} tokens, limit 1700)`,
+  payloadTokens <= 1700,
   `${payloadTokens} tokens — trim tool descriptions`,
 )
 check('every tool exposes properties', defs.every((d) => 'properties' in d.parameters))
@@ -176,6 +196,112 @@ check('clamp falls back when undefined', clamp(undefined, 1, 50, 15) === 15)
 check('clamp rejects NaN via fallback', clamp(Number.NaN, 1, 50, 15) === 15)
 check('clamp truncates a float', clamp(12.9, 1, 50, 15) === 12)
 check('clamp passes a valid value through', clamp(20, 1, 50, 15) === 20)
+
+console.log('\n── Project documents and proposals ──')
+const keyed = (name: string) => documentKey(name)
+check('documentKey slugs a plain name', keyed('Functional Flows') === 'functional-flows')
+check('documentKey trims and drops punctuation', keyed('  Support runbook! ') === 'support-runbook')
+check('documentKey maps Handbook to the handbook key', keyed('Handbook') === HANDBOOK_KEY)
+check('documentKey maps HANDBOOK to the handbook key', keyed('HANDBOOK') === HANDBOOK_KEY)
+check('documentKey rejects a name with nothing usable', keyed('!!!') === null)
+check('documentKey folds accents', keyed('Café notes') === 'cafe-notes')
+const longKey = documentKey('ab '.repeat(70))
+check('documentKey caps a long name at 60 characters', longKey !== null && longKey.length <= 60)
+check('documentKey never ends a key with a hyphen', longKey !== null && !longKey.endsWith('-'))
+
+check('titleFromKey capitalises a slug', titleFromKey('functional-flows') === 'Functional flows')
+check('titleFromKey names the handbook', titleFromKey(HANDBOOK_KEY) === 'Handbook')
+
+check(
+  'every suggested document key matches its title',
+  SUGGESTED_DOCUMENTS.every((entry) => documentKey(entry.title) === entry.key),
+)
+check('archiving is never proposed', !(PROPOSABLE_PROJECT_STATUSES as readonly string[]).includes('ARCHIVED'))
+check('document bounds keep the body minimum below the maximum', DOCUMENT_LIMITS.bodyMin < DOCUMENT_LIMITS.bodyMax)
+
+const currentDetails: ProjectDetailValues = {
+  description: null,
+  status: 'ACTIVE',
+  startDate: null,
+  endDate: '2026-12-31',
+}
+check(
+  'detailValues reads a project into proposal shape',
+  detailValues({ description: '  ', status: 'PLANNING', startDate: null, endDate: new Date('2026-12-31T00:00:00Z') }).endDate === '2026-12-31' &&
+    detailValues({ description: '  ', status: 'PLANNING', startDate: null, endDate: null }).description === null,
+)
+check('an unchanged status is no change', detailChanges(currentDetails, { status: 'ACTIVE' }).length === 0)
+const statusChange = detailChanges({ ...currentDetails, status: 'PLANNING' }, { status: 'ACTIVE' })
+check(
+  'a changed status is one change',
+  statusChange.length === 1 && statusChange[0].field === 'status' && statusChange[0].from === 'PLANNING' && statusChange[0].to === 'ACTIVE',
+)
+const clearedEnd = detailChanges(currentDetails, { endDate: null })
+check('clearing a date is a change to null', clearedEnd.length === 1 && clearedEnd[0].to === null)
+check('fields not in the proposal are ignored', detailChanges(currentDetails, {}).length === 0)
+
+check(
+  'a proposal over an unchanged field is not stale',
+  staleDetailFields({ description: 'old' }, { ...currentDetails, description: 'old' }).length === 0,
+)
+check(
+  'a proposal over a changed field is stale',
+  JSON.stringify(staleDetailFields({ description: 'old' }, { ...currentDetails, description: 'new' })) === '["description"]',
+)
+check(
+  'a change to a field the proposal does not touch is not stale',
+  staleDetailFields({ description: 'old' }, { ...currentDetails, description: 'old', endDate: '2027-01-01' }).length === 0,
+)
+
+check('a document at the version read is current', isDocumentStale(3, 3) === false)
+check('a document that moved on is stale', isDocumentStale(3, 4) === true)
+check('version 0 against version 0 is current', isDocumentStale(0, 0) === false)
+check('version 0 against version 1 is stale', isDocumentStale(0, 1) === true)
+check('a proposal with no base version is never stale', isDocumentStale(null, 5) === false)
+
+check('an identical text diffs to same lines only', lineDiff('a\nb\nc', 'a\nb\nc').every((line) => line.op === 'same'))
+check(
+  'a changed middle line shows remove then add',
+  JSON.stringify(lineDiff('a\nb\nc', 'a\nB\nc').map((line) => line.op)) === '["same","remove","add","same"]',
+)
+check('an empty before adds every line', JSON.stringify(lineDiff('', 'x\ny').map((line) => line.op)) === '["add","add"]')
+check('an empty after removes every line', JSON.stringify(lineDiff('x\ny', '').map((line) => line.op)) === '["remove","remove"]')
+check('diffStats counts added and removed', JSON.stringify(diffStats(lineDiff('a\nb', 'a\nc\nd'))) === '{"added":2,"removed":1}')
+check('CRLF and LF text diff as the same', lineDiff('a\r\nb\r\nc', 'a\nb\nc').every((line) => line.op === 'same'))
+const bigA = Array.from({ length: 3000 }, (_, i) => `old line ${i}`).join('\n')
+const bigB = Array.from({ length: 3000 }, (_, i) => `new line ${i}`).join('\n')
+check('a large diff falls back and completes', lineDiff(bigA, bigB).length === 6000)
+
+check(
+  'propose_document accepts a name and a body',
+  TOOL_SCHEMAS.propose_document.safeParse({ name: 'Architecture', body: '# Architecture\n\nThe system has three parts.' }).success,
+)
+check('propose_document needs a body', !TOOL_SCHEMAS.propose_document.safeParse({ name: 'Architecture' }).success)
+check('propose_project_update refuses ARCHIVED', !TOOL_SCHEMAS.propose_project_update.safeParse({ status: 'ARCHIVED' }).success)
+check('list_proposals takes a status', TOOL_SCHEMAS.list_proposals.safeParse({ status: 'PENDING' }).success)
+
+const toolNames = Object.keys(TOOL_SCHEMAS)
+check(
+  'no tool writes project details, documents or the handbook directly',
+  toolNames.every((name) => !/^(update|set|write|delete|archive|create)_(project|document|handbook|user|member)/.test(name)),
+)
+check(
+  'no tool administers users, members, repos or integrations',
+  toolNames.every((name) => !/delete|archive|member|repo|integration|user/.test(name)),
+)
+check('propose_document is not an approval-gated mutation', !MUTATING_TOOLS.has('propose_document'))
+check('propose_project_update is not an approval-gated mutation', !MUTATING_TOOLS.has('propose_project_update'))
+
+check('proposal:create is a permission', isPermission('proposal:create'))
+check('the USER role may propose changes', SYSTEM_ROLES.find((r) => r.key === 'USER')!.permissions.includes('proposal:create'))
+check(
+  'a viewer may not propose changes',
+  !canInProject({ permissions: ['proposal:create'] as Permission[], memberRole: 'VIEWER', isOwner: false }, 'proposal:create'),
+)
+check(
+  'a project member may propose changes',
+  canInProject({ permissions: ['proposal:create'] as Permission[], memberRole: 'MEMBER', isOwner: false }, 'proposal:create'),
+)
 
 console.log('\n── Progress rollup ──')
 const allDone = rollupProgress([{ statusCategory: 'DONE' }, { statusCategory: 'DONE' }])
