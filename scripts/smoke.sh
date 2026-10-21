@@ -72,7 +72,7 @@ ROUTES=(/dashboard /my-tickets /activity /projects /projects/new /settings /sett
 [ "$ROLE" = "ADMIN" ] && ROUTES+=(/workspace/people /workspace/roles /workspace/teams /workspace/templates)
 
 if [ -n "$PROJECT_ID" ]; then
-  for view in board table tree calendar timeline insights recurring labels members settings activity; do
+  for view in board table tree calendar timeline insights handbook docs proposals recurring labels members settings activity; do
     ROUTES+=("/projects/$PROJECT_ID/$view")
   done
 else

@@ -33,7 +33,7 @@ export function allPages(projectId: string): Array<{ name: string; path: string 
     { name: 'my-tickets', path: '/my-tickets' },
     { name: 'projects', path: '/projects' },
     { name: 'inbox', path: '/inbox' },
-    ...['board', 'table', 'tree', 'calendar', 'timeline', 'insights', 'labels', 'members'].map(
+    ...['board', 'table', 'tree', 'calendar', 'timeline', 'insights', 'labels', 'members', 'docs', 'proposals'].map(
       (view) => ({ name: view, path: `/projects/${projectId}/${view}` }),
     ),
     // The settings area has its own nested layout with a second scroll
