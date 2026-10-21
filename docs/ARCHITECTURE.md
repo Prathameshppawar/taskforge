@@ -261,13 +261,16 @@ the database entirely.
 | Numbers are clamped rather than bounded in the schema (Groq rejects a whole request whose arguments fail its own schema check) | `clamp` in `executor.ts` |
 | Names become ids only inside what the actor can see: projects through `projectVisibilityFilter`, people through project membership, tickets through visibility | `src/features/ai/resolver.ts` |
 | Every write goes through the Server Action the UI uses, so it inherits the guard, transaction and audit | `createTicketAction`, `bulkCreateTicketsAction`, `updateTicketAction`, `createCommentAction` |
+| A project's details and documents cannot be written by a tool at all, on any surface: `propose_document` and `propose_project_update` record a pending proposal (`proposal:create`), and only a project manager's Approve click in the UI applies it — through the same writer as their own edit, in the same transaction as the approval | `features/proposals`, `writeProjectDetails`, `writeDocumentVersion` |
 | In the Copilot, writes are **proposed**: the permission check runs, nothing changes, and the panel shows an approval card; the person's approval re-runs the call for real | `propose` in `ExecutionContext` |
-| There is no delete tool | `TOOL_SCHEMAS` |
+| There is no delete tool, and none for archiving, people, members or repositories; the domain suite asserts the tool names | `TOOL_SCHEMAS`, `scripts/verify-domain.ts` |
 | At most four tool rounds per turn | `MAX_TOOL_ROUNDS` in `service.ts` |
 | Tool descriptions are kept short because they are re-sent every request; the domain suite fails if the payload exceeds its token budget | `tools.ts`, `scripts/verify-domain.ts` |
 
 The MCP bridge and the REST API call the same `executeTool` with a token's actor,
-but without `propose`: for a machine client the call is the approval. The AI
+but without `propose`: for a machine client the call is the approval — except for
+project details and documents, where the approval is always a person's, in the
+UI, even when the token belongs to a manager. The AI
 agents (triage, planner, coder, reviewer, release notes, post-mortem) run on
 agent accounts that cannot sign in, spend against per-project budgets
 (`assertWithinBudget`), and propose rather than merge: AI fixes open pull

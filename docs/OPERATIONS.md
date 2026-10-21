@@ -298,7 +298,7 @@ GitHub also emails the person who last changed a workflow's schedule when a sche
 
 | Incident | Likely cause | Fix |
 |---|---|---|
-| After a deploy, pages fail with `column … does not exist` or `Unknown argument` | The migration was not applied to production before the push | Apply it ([DEPLOYMENT.md](DEPLOYMENT.md#applying-to-production-before-pushing)); no redeploy needed |
+| After a deploy, pages fail with `column … does not exist` or `Unknown argument` | The build did not migrate production (see DEPLOYMENT.md) | Apply it by hand ([DEPLOYMENT.md](DEPLOYMENT.md#applying-to-production-by-hand)); no redeploy needed |
 | Everyone was signed out, and Integrations says credentials cannot be read | `AUTH_SECRET` changed | Restore the old value if you have it; otherwise reconnect as in [Rotating secrets](#rotating-secrets) |
 | Uptime runs are red with 401 | `CRON_SECRET` differs between Vercel and GitHub | Make them match |
 | Uptime runs are red with 503 | `CRON_SECRET` missing on Vercel | Set it, redeploy |

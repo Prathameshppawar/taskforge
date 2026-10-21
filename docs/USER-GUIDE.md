@@ -256,6 +256,8 @@ Opens on** (Insights unless changed). The tabs are:
 | Timeline | A roadmap of tickets with a start or due date, with a marker for today. |
 | Insights | Project health: stat tiles, the [weekly update](#weekly-update), delivery metrics, [Where work waits](#where-work-waits), time this month, completion, trend, priority, status, label and workload charts, and a workload table. |
 | Handbook | The project's knowledge-transfer document. See [The handbook](#the-handbook). |
+| Docs | Named documents beside the handbook. See [Docs](#docs). |
+| Proposals | Changes waiting for a project manager, with a count of pending ones. See [Proposals](#proposals). |
 | Recurring | Tickets generated on a schedule. See [Recurring tickets](#recurring-tickets). |
 | Labels | Create, edit and delete labels, or **Import labels** from another project. |
 | Members | People and teams with access. |
@@ -936,8 +938,8 @@ shown underneath so you can check it. **Copy** puts it on the clipboard;
 
 With **Project → Settings → Automation → Project memory** on (the default),
 TaskForge indexes finished tickets, the linked repositories' README and `docs/`,
-and the handbook, so the Copilot and the agents can find how something was done
-before. It is refreshed nightly, and **Reindex now** rebuilds it on demand. Turning
+the handbook and the named documents, so the Copilot and the agents can find how
+something was done before. It is refreshed nightly, and **Reindex now** rebuilds it on demand. Turning
 it off deletes the index. It is capped at 3,000 pieces per project.
 
 ### The handbook
@@ -955,6 +957,94 @@ week*. It is written from what the project already records.
   keeps it current.
 
 New members see a banner pointing to it for their first month.
+
+### Docs
+
+**Project → Docs** lists the project's named documents, beside the
+[handbook](#the-handbook). A named document is any text the team keeps about the
+project, such as its architecture, functional flows or support runbook. Each row
+shows the latest version, its date, its author and how that version came about.
+
+- Every save makes a new version. Nothing is overwritten, so an earlier version
+  can always be read again.
+- Open a document to read it. Pick any earlier version from the version menu,
+  and download the version as `.md`.
+- **New document** (project managers) starts one. It offers the suggested names
+  Overview, Architecture, Functional flows, Technical decisions and Support
+  runbook, or any name you type. A name already in use is refused.
+- **Edit** (project managers) changes a document and saves it as a new version.
+  Project managers are the project owner and the managers who can configure the
+  project, as for the handbook.
+- A version can also come from an approved [proposal](#proposals). It is shown
+  as *From an approved proposal*.
+- When the handbook is written, it reads the named documents and points readers
+  to them by title.
+- The Copilot and the agents can search a named document once it is saved and
+  indexed. A document that is only proposed is not searched until it is approved.
+- **Opens on** in **Project → Settings → General** can make Docs the view a
+  project opens on.
+
+### Proposals
+
+A proposal is a change to a project that waits for a project manager's decision.
+Nothing changes until it is approved. There are two kinds:
+
+- **Project details**: the description, the status, or the start or end date.
+- **A document**: a new version of a named document (the handbook included), or
+  a new document.
+
+Proposals come from agents: an MCP client such as Claude Code (see
+[MCP.md](MCP.md#project-details-and-documents)), a script on the REST API, or
+the in-app Copilot. They act with their user's permissions, so a proposal is
+recorded under that user's name.
+
+**Who can propose.** Anyone with the *Propose project changes* permission
+(`proposal:create`) who is an owner, manager or member of the project. Viewers
+cannot propose. The permission is granted by default to Admin, Project Manager
+and User, and not to Client. Archived projects refuse proposals.
+
+**Who approves.** Project managers. A details proposal needs the permission to
+edit project details, which is what editing by hand needs. A document proposal
+needs the permission to edit the handbook. Both are limited to the project owner
+and managers.
+
+**The Proposals tab** lists proposals by status: Pending (the default), Approved,
+Rejected, Superseded or All. The tab shows a count of pending proposals. Anyone
+who can see the project can read its proposals.
+
+**Reading a proposal.** The page shows the summary and the rationale the
+proposer wrote, then what would change:
+
+- For a document, a line diff against the current version, with the lines added
+  and removed. Unchanged runs are collapsed. A change of title is shown too, and
+  the proposed document is shown as it would read.
+- For project details, each field with its current value and its proposed value.
+
+Once decided, the page shows who decided, when, and the note.
+
+**Approving and rejecting.** Add an optional note for the proposer. They see it
+on the page and in the notification.
+
+- **Approve and apply** makes the change, as a person's own edit would. The
+  activity log names both you and the proposer, and the proposer is notified.
+- **Reject** keeps the proposal, marked Rejected, with your note. Nothing changes,
+  and the proposer is notified.
+
+You must click **Approve and apply** yourself, even for a proposal you made.
+
+**Stale proposals.** A proposal is stale when what it was based on has changed:
+a document has a newer version, or a proposed field now holds a different value.
+The page says so, and the button reads **Approve anyway**. Check the diff before
+you use it.
+
+**Superseding.** If you propose a change to the same document, or to the same
+project details, while an earlier proposal of yours is still pending, the earlier
+one becomes Superseded. Other people's pending proposals are left alone.
+
+**Notifications.** When a proposal is made, the project's approvers and the
+proposer are notified. The notification opens the proposal. The proposer is told
+when it is approved or rejected, unless they made the decision themselves. These
+appear in the bell and the inbox.
 
 ### TaskForge Triage
 
@@ -984,6 +1074,9 @@ The agents appear in history, comments and usage under their own names:
 **TaskForge Coder**, **Planner**, **Reviewer**, **Release Manager**, **Triage**
 and **Ops**. They are workspace members with the *AI agent* role and can never
 sign in.
+
+Agents can propose changes to a project but cannot apply them. A project manager
+approves each one under [Proposals](#proposals).
 
 ---
 
@@ -1120,8 +1213,8 @@ password-change options, and every session is ended) and **Deactivate** /
 - **Permissions are a fixed catalogue**; a role is a choice of them. Examples:
   `project:create`, `project:manage-config`, `project:manage-members`,
   `ticket:create`, `ticket:update`, `ticket:transition`, `ticket:approve`,
-  `comment:create`, `recurring:manage`, `ai:use`, `ai:code`, `ai:manage`,
-  `integration:manage`.
+  `comment:create`, `proposal:create`, `recurring:manage`, `ai:use`, `ai:code`,
+  `ai:manage`, `integration:manage`.
 - **Ranks.** Every role has a rank; lower ranks higher, and Admin is 0. You can
   only create, edit, assign or delete roles ranked strictly below your own, and
   only give a role permissions you hold yourself. The editor greys out the rest.

@@ -1,8 +1,8 @@
 # TaskForge — Entity Relationship Model
 
 The database is PostgreSQL (Neon in production), described by
-[`prisma/schema.prisma`](../prisma/schema.prisma): **79 models and 26 enums**,
-built up by 39 migrations in [`prisma/migrations`](../prisma/migrations). This
+[`prisma/schema.prisma`](../prisma/schema.prisma): **80 models and 28 enums**,
+built up by 40 migrations in [`prisma/migrations`](../prisma/migrations). This
 document groups the models by domain, draws the relations that matter, and
 records what the schema file cannot show: the objects created in raw SQL
 (generated columns, trigram and partial indexes, triggers), the referential
@@ -65,7 +65,7 @@ flowchart LR
   PD --> TK
   PR --> AI[AI<br/>Usage, Budget, FixRun]
   AI --> TK
-  PR --> KN[Knowledge<br/>MemoryChunk, Document]
+  PR --> KN[Knowledge<br/>MemoryChunk, Document, Proposal]
   PR --> CH[Channels<br/>InboundEmail, MsTeams]
   CH --> TK
   PR --> PF[Platform<br/>Job, Webhook, Secret]
@@ -246,7 +246,7 @@ erDiagram
 | `TicketChecklistItem` | `ticket_checklist_items` | An acceptance criterion, with who ticked it and when. |
 | `Comment` | `comments` | Threaded via `parentId`; soft-deleted via `deletedAt` so threads keep their shape. |
 | `CommentMention` | `comment_mentions` | Who a comment @mentions. |
-| `Notification` | `notifications` | The in-app inbox; `title`/`body` rendered at write time. |
+| `Notification` | `notifications` | The in-app inbox; `title`/`body` rendered at write time. `link` is an in-app path for a notification that is not about a ticket, such as a proposal waiting for review. |
 | `ActivityLog` | `activity_logs` | The append-only audit timeline. Field-level diffs as columns (`field`, `oldValue`, `newValue`), `entityLabel` snapshotted. |
 | `BulkOperation` | `bulk_operations` | A bulk edit remembered for undo: each ticket's prior values and its `updatedAt` straight after. |
 | `TriageRun` | `triage_runs` | What TaskForge Triage changed on a ticket, for undo. |
@@ -570,8 +570,9 @@ foreign keys; they are keyed configuration.
 
 | Model | Table | Purpose |
 |---|---|---|
-| `MemoryChunk` | `memory_chunks` | A piece of project knowledge (`sourceType` `TICKET`, `REPO_DOC` or `HANDBOOK`), split at headings and embedded (384-dimension `real[]`). `hash` skips unchanged text. **Capped at 3,000 per project** (`MAX_CHUNKS_PER_PROJECT` in [`features/memory/index-service.ts`](../src/features/memory/index-service.ts)); turning memory off deletes the project's rows. |
-| `ProjectDocument` | `project_documents` | A versioned document; `kind` is `HANDBOOK` today. Every version is kept; `source` is `AI`, `FACTS` or `EDIT`. |
+| `MemoryChunk` | `memory_chunks` | A piece of project knowledge (`sourceType` `TICKET`, `REPO_DOC`, `HANDBOOK` or `DOCUMENT` for a named document), split at headings and embedded (384-dimension `real[]`). `hash` skips unchanged text. **Capped at 3,000 per project** (`MAX_CHUNKS_PER_PROJECT` in [`features/memory/index-service.ts`](../src/features/memory/index-service.ts)); turning memory off deletes the project's rows. |
+| `ProjectDocument` | `project_documents` | A versioned document; `kind` is `HANDBOOK` or the slug of a named document (`architecture`, `support-runbook`). Every version is kept; `source` is `AI`, `FACTS`, `EDIT` or `PROPOSAL`. |
+| `ProjectChangeProposal` | `project_change_proposals` | A change that waits for a project manager. `kind` (`ProposalKind`) is `PROJECT_DETAILS` or `DOCUMENT`; `documentKey` names the document; `payload` holds the proposed values as JSON. `baseVersion` or `baseValues` record what it was written against, so an overtaken proposal is flagged. `status` (`ProposalStatus`) is `PENDING`, `APPROVED`, `REJECTED` or `SUPERSEDED`. Kept for the record. `proposedBy` and `reviewedBy` are `SetNull`. |
 | `ProjectDocumentRead` | `project_document_reads` | The latest version each person has opened, which drives the "read the handbook" banner. Plain ids, no foreign keys. |
 
 ```mermaid
@@ -579,6 +580,9 @@ erDiagram
   Project ||--o{ MemoryChunk : knows
   Project ||--o{ ProjectDocument : documents
   User |o--o{ ProjectDocument : "edited by (SetNull)"
+  Project ||--o{ ProjectChangeProposal : proposals
+  User |o--o{ ProjectChangeProposal : "proposed by (SetNull)"
+  User |o--o{ ProjectChangeProposal : "reviewed by (SetNull)"
 
   MemoryChunk {
     string id PK
@@ -593,6 +597,17 @@ erDiagram
     string kind
     int version
     string source
+  }
+  ProjectChangeProposal {
+    string id PK
+    string projectId FK
+    string kind
+    string documentKey
+    json payload
+    string status
+    int baseVersion
+    string proposedById FK
+    string reviewedById FK
   }
   ProjectDocumentRead {
     string userId PK
@@ -709,7 +724,7 @@ JSON payload. Deleting a webhook deletes its pending and failed jobs explicitly
 | `RecurrenceFrequency` | DAILY, WEEKLY, BIWEEKLY, MONTHLY, QUARTERLY, YEARLY | `RecurringTicket.frequency` |
 | `ActivityEntity` | PROJECT, TICKET, COMMENT, USER, LABEL, MEMBER, RESOURCE, STATUS, PRIORITY, TICKET_TYPE, TEMPLATE, RECURRING_TICKET, ROLE, TEAM, INTEGRATION | `ActivityLog.entityType` |
 | `ActivityAction` | 25 verbs, CREATED to AI_GENERATED | `ActivityLog.action` |
-| `NotificationType` | MENTIONED, ASSIGNED, COMMENT_REPLY, TICKET_BLOCKED, SLA_AT_RISK, SLA_BREACHED | `Notification.type` |
+| `NotificationType` | MENTIONED, ASSIGNED, COMMENT_REPLY, TICKET_BLOCKED, SLA_AT_RISK, SLA_BREACHED, PROPOSAL_PENDING, PROPOSAL_REVIEWED | `Notification.type` |
 | `FilterField` / `FilterOperator` / `ViewType` | 14 fields / 10 operators / TABLE, KANBAN, CALENDAR, TIMELINE | `SavedFilter`, `SavedFilterCriterion` |
 | `GitRefKind` / `GitRefState` / `GitCheckState` | BRANCH, PULL_REQUEST, COMMIT / OPEN, DRAFT, MERGED, CLOSED / PENDING, SUCCESS, FAILURE | `TicketGitRef` |
 | `DeploymentState` | PENDING, QUEUED, IN_PROGRESS, SUCCESS, FAILURE, ERROR, INACTIVE | `Deployment.state` |
@@ -718,6 +733,8 @@ JSON payload. Deleting a webhook deletes its pending and failed jobs explicitly
 | `AiFeature` | COPILOT, AI_FIX, CAPTURE, FILTER, WEEKLY_UPDATE, PR_REVIEW, RELEASE_NOTES, TRIAGE, POSTMORTEM, PLANNING | `AiUsageEvent.feature` |
 | `AiBudgetScope` | WORKSPACE, PROJECT, PROVIDER | `AiBudget.scope` |
 | `ReportKind` | AI_USAGE_WEEKLY, AI_BUDGET_ALERT | `ReportSubscription.kind` |
+| `ProposalKind` | PROJECT_DETAILS, DOCUMENT | `ProjectChangeProposal.kind` |
+| `ProposalStatus` | PENDING, APPROVED, REJECTED, SUPERSEDED | `ProjectChangeProposal.status` |
 
 Several state columns are **text, not enums**, on purpose, so a new value needs no
 migration: `Job.status`, `Job.kind`, `InboundEmail.outcome`, `TimeEntry.source`,
@@ -839,11 +856,11 @@ Every relation declares its action. The pattern:
 
 | Rule | Relations | Why |
 |---|---|---|
-| **Cascade from Project** | settings, members, teams, statuses, priorities, types, labels, tickets, cycles, custom fields, recurring tickets, saved filters, repos links, budgets, monitors, error groups, memory chunks, documents, outbound webhooks, activity logs | Deleting a project removes everything that only makes sense inside it. Projects are normally archived (`isArchived`), not deleted. |
+| **Cascade from Project** | settings, members, teams, statuses, priorities, types, labels, tickets, cycles, custom fields, recurring tickets, saved filters, repos links, budgets, monitors, error groups, memory chunks, documents, change proposals, outbound webhooks, activity logs | Deleting a project removes everything that only makes sense inside it. Projects are normally archived (`isArchived`), not deleted. |
 | **Cascade from Ticket** | labels, links (both ends), watchers, attachments (and their bytes), resources, checklist, comments, status and cycle history, SLA alerts, time entries, field values, git refs, deployments links, fix runs, triage runs, notifications, activity logs | A ticket's satellites go with it. |
 | **Cascade from User** | role permissions no; team memberships, project memberships, watchers, mentions, access tokens, sessions, avatar, GitHub token, saved filters, notifications received, **comments authored** | Users are deactivated, not deleted, in normal operation. Deleting one would delete their comments; that is why the UI offers deactivation only. |
 | **Restrict** | `Ticket → Status / Priority / TicketType`, `RecurringTicket → Status / Priority / TicketType`, `User → Role`, `Project → owner User` | A status in use cannot be deleted until its tickets move; a role in use cannot be deleted; a user who owns a project cannot be deleted. The UI moves tickets before deleting a status. |
-| **SetNull** | ticket assignee, reporter, creator, parent, cycle, recurring source; `createdBy` / `addedBy` everywhere; `Project.template`; `ProjectSettings.defaultAssignee`; `TimeEntry.user`; `AiUsageEvent.user` and `.project`; `AiFixRun.requestedBy`; `ErrorGroup.ticket`; `InboundEmail.ticket` and `.user`; `MsTeamsConversation.project`; `MsTeamsUser.user`; `ActivityLog.actor`; `Notification.actor`; `ProjectDocument.author` | The row is a record that must outlive what it points at: history, spend, billed time, the email log. |
+| **SetNull** | ticket assignee, reporter, creator, parent, cycle, recurring source; `createdBy` / `addedBy` everywhere; `Project.template`; `ProjectSettings.defaultAssignee`; `TimeEntry.user`; `AiUsageEvent.user` and `.project`; `AiFixRun.requestedBy`; `ErrorGroup.ticket`; `InboundEmail.ticket` and `.user`; `MsTeamsConversation.project`; `MsTeamsUser.user`; `ActivityLog.actor`; `Notification.actor`; `ProjectDocument.author`; `ProjectChangeProposal.proposedBy` and `.reviewedBy` | The row is a record that must outlive what it points at: history, spend, billed time, the email log. |
 | **Cascade within integrations** | `GithubInstallation → GithubRepo → ProjectRepo / TicketGitRef / Deployment / AiFixRun`; `Deployment → TicketDeployment`; `Monitor → MonitorCheck`; `MsTeamsConversation → MsTeamsMessage`; `Comment → replies / mentions / notifications`; `TicketAttachment → TicketAttachmentData` | Installations and repositories are marked removed or inaccessible rather than deleted, so this cascade is rarely exercised. |
 
 `TicketStatusChange` and `TicketCycleChange` hold status and cycle ids as plain
@@ -884,6 +901,7 @@ text, so deleting a status or cycle does not touch history.
 | Spend by month, project, person, provider | Workspace → AI, budgets | `ai_usage_events(createdAt)`, `(projectId, createdAt)`, `(userId, createdAt)`, `(provider, createdAt)` |
 | Fix runs on a ticket, running runs, batch | Ticket page | `ai_fix_runs(ticketId, createdAt)`, `(status)`, `(batchId)` |
 | Memory search | Copilot `search_memory`, agents | `memory_chunks(projectId)`; similarity is computed over the project's rows (at most 3,000) |
+| Proposals tab, pending count | Proposals page, project tab badge | `project_change_proposals(projectId, status, createdAt)` |
 | Field value filter | Filters, rules | `ticket_field_values(fieldId, value)` |
 | Teams thread history | Bot reply | `msteams_messages(conversationId, createdAt)` |
 | Email log | Integrations | `inbound_emails(createdAt)` |

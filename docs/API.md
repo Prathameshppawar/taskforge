@@ -12,6 +12,10 @@ this document follows the code and says so.
    - [Authentication](#authentication)
    - [Response envelope and status codes](#response-envelope-and-status-codes)
    - [GET /api/v1/projects](#get-apiv1projects)
+   - [GET /api/v1/projects/{code}](#get-apiv1projectscode)
+   - [GET /api/v1/projects/{code}/documents/{name}](#get-apiv1projectscodedocumentsname)
+   - [GET /api/v1/projects/{code}/proposals](#get-apiv1projectscodeproposals)
+   - [POST /api/v1/projects/{code}/proposals](#post-apiv1projectscodeproposals)
    - [GET /api/v1/tickets](#get-apiv1tickets)
    - [POST /api/v1/tickets](#post-apiv1tickets)
    - [GET /api/v1/tickets/{key}](#get-apiv1ticketskey)
@@ -43,6 +47,10 @@ request to `executeTool` in `src/features/ai/executor.ts` — the Copilot's tool
 dispatcher — which validates the arguments with the tool's Zod schema and then
 calls the same Server Action a click would (`createTicketAction`,
 `updateTicketAction`, `createCommentAction`). There is no API-only write path.
+A project's details and documents have no write path from outside the UI at
+all: the API and MCP can only propose a change (`proposeDocumentAction`,
+`proposeProjectDetailsAction`), which applies when a project manager approves
+it on the project's Proposals page.
 
 ---
 
@@ -97,7 +105,7 @@ owner lacks `ticket:create` in the project — arrives as **422 with a
 `message`**, not 403, because the action returns an `ActionResult` rather than
 throwing. Check `ok`, not only the status.
 
-Successful creates (`POST /tickets`, `POST /comments`) answer **201**; everything
+Successful creates (`POST /tickets`, `POST /comments`, `POST /proposals`) answer **201**; everything
 else answers **200**.
 
 ### GET /api/v1/projects
@@ -132,6 +140,73 @@ reach through a team — or every project with `project:view-all`.
 |---|---|
 | 200 | Always, for a valid token |
 | 401 | No or invalid token |
+
+### GET /api/v1/projects/{code}
+
+One project's details, its documents and how many proposals wait for
+approval. Backed by `get_project`, which also runs `requireProjectView`.
+
+```bash
+curl -s https://taskforge.example.com/api/v1/projects/DEMO \
+  -H "Authorization: Bearer $TASKFORGE_TOKEN"
+```
+
+```json
+{
+  "ok": true,
+  "message": "Demo project (DEMO) — status ACTIVE. Owner: Asha Rao.\nStart date: 2026-09-01. End date: not set.\nDescription:\nThe seeded example.\nDocuments (read one with get_document, by name):\n- Demo project handbook — name \"HANDBOOK\", version 3 (3 kept), 2026-10-12, edited by hand\n- Architecture — name \"architecture\", version 1 (1 kept), 2026-10-20, from an approved proposal\nProposals waiting for approval: 1 (list_proposals shows them).\n…",
+  "data": { "kind": "project", "projectCode": "DEMO", "documents": ["HANDBOOK", "architecture"], "pendingProposals": 1 }
+}
+```
+
+### GET /api/v1/projects/{code}/documents/{name}
+
+One document's Markdown. `{name}` is the document's name or key
+(`architecture`, `Support runbook`, `handbook`); `?version=2` reads an older
+version, otherwise the latest. Backed by `get_document`. The text in `message`
+starts with the title, version and how it was written, then the whole document.
+An unknown name answers 422 with the names that do exist.
+
+### GET /api/v1/projects/{code}/proposals
+
+Up to 25 change proposals, newest first, each with its review link; a pending one
+is marked STALE when its target changed after it was written.
+`?status=pending|approved|rejected|superseded` filters. Backed by
+`list_proposals`.
+
+### POST /api/v1/projects/{code}/proposals
+
+Proposes a change. **Nothing about the project changes**: the proposal waits on
+the project's Proposals page until a project manager approves it (see
+[Proposals](#proposals--proposalsactionsts)). Needs `proposal:create`.
+
+| `kind` | Body | Tool |
+|---|---|---|
+| `DOCUMENT` | `{ name, body, title?, baseVersion?, summary?, rationale? }` | `propose_document` |
+| `PROJECT_DETAILS` | `{ description?, status?, startDate?, endDate?, summary?, rationale? }` | `propose_project_update` |
+
+```bash
+curl -s -X POST https://taskforge.example.com/api/v1/projects/DEMO/proposals \
+  -H "Authorization: Bearer $TASKFORGE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"DOCUMENT","name":"Architecture","body":"# Architecture\n\nThree services…","baseVersion":1,"summary":"Adds the queue"}'
+```
+
+```json
+{
+  "ok": true,
+  "message": "Proposal cmv… — a change to the Architecture document in Demo project — is PENDING APPROVAL. Nothing has changed yet: it applies only when a project manager approves it at https://taskforge.example.com/projects/cmv…/proposals/cmv…. …",
+  "data": { "kind": "proposal", "id": "cmv…", "target": "the Architecture document", "projectName": "Demo project", "path": "/projects/cmv…/proposals/cmv…" }
+}
+```
+
+| Status | When |
+|---|---|
+| 201 | The proposal was recorded, pending approval |
+| 400 | The body is not a JSON object, or `kind` is neither value |
+| 401 | No or invalid token |
+| 404 | No project with that code that you can see |
+| 422 | Refused: invalid fields (one sentence naming them), nothing to change, an archived project, or no `proposal:create` |
 
 ### GET /api/v1/tickets
 
@@ -373,10 +448,10 @@ curl -s -X POST https://taskforge.example.com/api/v1/tickets/DEMO-12/comments \
 |---|---|
 | No rate limit | The API has no request limit of its own. |
 | No pagination | Search returns at most 50 rows with the full `total`. |
-| Writes are immediate | Unlike the Copilot, the API and MCP bridge do not propose-then-confirm; the call is the approval. |
+| Writes are immediate | Unlike the Copilot, the API and MCP bridge do not propose-then-confirm; the call is the approval. The exception is a project's details and documents, which the API can only propose. |
 | Assignees are project people | `resolveUser` matches direct members and anyone a team attached to the project brings in; agent accounts are never matched. |
 | Name matching is forgiving | Status, priority, type and label names match exactly, then by prefix, then by substring, case-insensitively. "Rev" finds "Review". |
-| No delete | There is no delete endpoint, by design, as there is no delete tool. |
+| No delete | There is no delete endpoint, by design, as there is no delete tool. Nor are there endpoints for archiving, people, members or repositories: those stay in the UI. |
 
 ---
 
@@ -562,7 +637,8 @@ The response is the executor's `ToolResult` (`ok`, `summary`, optional `reply`,
 a domain error returns its own status with `{ ok: false, summary, code }`. The
 MCP bridge exposes every tool, including `bulk_create_tickets`,
 `find_duplicates`, `project_insights` and `search_memory`, which the REST API
-does not. An unknown `projectCode` is ignored here, where the REST API answers
+does not; the five project tools (`get_project`, `get_document`,
+`propose_project_update`, `propose_document`, `list_proposals`) are on both. An unknown `projectCode` is ignored here, where the REST API answers
 404. See [MCP.md](MCP.md) for the stdio server that wraps it.
 
 ### /api/mcp/http
@@ -718,7 +794,7 @@ Conventions:
 | Action | Does | Permission |
 |---|---|---|
 | `createProjectAction` | Create a project from a template (its workflow, and optionally its starter tickets), with owner and members | `project:create` |
-| `updateProjectAction` | Name, description, status, dates, owner | Project: `project:update` |
+| `updateProjectAction` | Name, description, status, dates, owner. Writes through `writeProjectDetails` (`projects/service.ts`), as an approved details proposal does | Project: `project:update` |
 | `archiveProjectAction` | Archive or restore | Project: `project:archive` |
 | `updateProjectSettingsAction` | Colour, icon, logo, rollup, subtasks, required due date, privacy, default assignee, default landing view | Project: `project:manage-config` |
 | `addMembersAction` / `updateMemberRoleAction` / `removeMemberAction` | Direct membership and its role (Manager, Member, Viewer) | Project: `project:manage-members` |
@@ -860,10 +936,30 @@ Conventions:
 | Action | Does | Permission |
 |---|---|---|
 | `generateHandbookAction` | Generate a new handbook version | Project: `project:manage-config` |
-| `saveHandbookAction` | Save a person's revision as a new version | Project: `project:manage-config` |
+| `saveHandbookAction` | Save a person's revision as a new version, through `writeDocumentVersion` like every document edit | Project: `project:manage-config` |
 | `markHandbookReadAction` | Record that you read a version | Project view |
 | `setProjectToggleAction` | `memoryEnabled`, `handbookAutoRefresh`, `triageAgent`, `dailyDigest`, `liveUpdates` | Project: `project:manage-config` |
 | `reindexMemoryAction` | Rebuild the project's memory index now | Project: `project:manage-config` |
+
+### Documents — `documents/actions.ts`
+
+| Action | Does | Permission |
+|---|---|---|
+| `saveProjectDocumentAction` | With `key`, a new version of that document; without it, a new document named by `title` (refused with `CONFLICT` if the name is taken). Body 20–100,000 characters. Queues memory indexing. | Project: `project:manage-config` |
+
+### Proposals — `proposals/actions.ts`
+
+Changes to a project's details and documents that agents (or people) propose
+and a project manager approves. Every proposal needs the approval click, even one
+made through the approver's own token. See
+[MCP.md](MCP.md#project-details-and-documents).
+
+| Action | Does | Permission |
+|---|---|---|
+| `proposeProjectDetailsAction` | Propose description, status (never `ARCHIVED`) and dates (`YYYY-MM-DD`, or `none` to clear). Refused when it changes nothing, when the result would fail the details form's own rules, or on an archived project. Supersedes the proposer's own pending details proposal. Notifies the approvers. | Project: `proposal:create` |
+| `proposeDocumentAction` | Propose a new document or a new version of one, the handbook included, written against `baseVersion` (the latest when omitted). Refused when identical to the latest version. Supersedes the proposer's own pending proposal for that document. Notifies the approvers. | Project: `proposal:create` |
+| `approveProposalAction` | In one transaction: claim the pending proposal, apply it through `writeProjectDetails` or `writeDocumentVersion`, audit it under the approver naming the proposer, notify the proposer. Refused with `STALE` when the target changed after the proposal was written, unless `acknowledgeStale` is set. | Project: `project:update` (details) or `project:manage-config` (documents) |
+| `rejectProposalAction` | Reject with an optional note; the proposal is kept. Notifies the proposer. | As for approving |
 
 ### Import — `import/actions.ts`
 
@@ -945,7 +1041,9 @@ Codes an action returns directly with `fail()`:
 
 | `code` | Where |
 |---|---|
-| `CONFLICT` | `updateTicketAction` when `expectedUpdatedAt` no longer matches ("Someone else changed this ticket…"); duplicate username or email in `createUserAction` |
+| `CONFLICT` | `updateTicketAction` when `expectedUpdatedAt` no longer matches ("Someone else changed this ticket…"); duplicate username or email in `createUserAction`; a proposal already approved, rejected or superseded; a document name already taken in `saveProjectDocumentAction` |
+| `STALE` | `approveProposalAction` when the document or details changed after the proposal was written and `acknowledgeStale` was not set |
+| `VALIDATION_ERROR` | Also returned directly by `proposeProjectDetailsAction` and `proposeDocumentAction`, with one sentence naming each bad field, since their caller is usually a model with no form |
 | `INVALID_CREDENTIALS` | `loginAction` — deliberately one message for a wrong password, an unknown user and a deactivated account |
 | `AI_DISABLED` | `copilotAction`, `captureAction`, `interpretFilterAction`, `generateStatusReportAction` when no AI provider is configured |
 | `AI_PROVIDER` | `copilotAction` when the provider call fails |
@@ -986,6 +1084,7 @@ Client role (created by migration, not a system role) `80`.
 | `project:delete` | Delete projects | ✓ | | | | |
 | `project:view-all` | See every project | ✓ | ✓ | | | Visibility only |
 | `project:access-all` | Act in every project | ✓ | | | | Waives membership |
+| `proposal:create` | Propose project changes | ✓ | ✓ | ✓ | | Needs owner, `MANAGER` or `MEMBER`; nothing applies until a manager approves |
 | `ticket:create` | Create tickets | ✓ | ✓ | ✓ | ✓ | |
 | `ticket:update` | Edit tickets | ✓ | ✓ | ✓ | | Own or reported, unless `ticket:update-any` |
 | `ticket:update-any` | Edit anyone's ticket | ✓ | ✓ | | | Also bulk edit and archive |

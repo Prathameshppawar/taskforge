@@ -35,8 +35,10 @@ backups, incidents) is in [OPERATIONS.md](OPERATIONS.md).
 | Embeddings | In-process (`@xenova/transformers`), weights cached in `/tmp` | — | No key, no per-call cost |
 
 Pushing to `main` deploys to production straight away through Vercel's Git
-integration. It does not wait for CI and it does not run migrations. That is why
-[section 4](#4-migrations) has production migrated **before** the push.
+integration. It does not wait for CI. A production build applies pending
+migrations before it builds (`npm run vercel-build`, [section 4](#4-migrations)),
+so a deployment's code and the schema it needs arrive together; if migrating
+fails, the build fails and the previous deployment keeps serving.
 
 ---
 
@@ -273,11 +275,27 @@ functions must also be removed; the CI guard does not look for those.
    code that no longer uses the column, then migrate it away. Production runs the
    old code for the minute between migrating and the new deployment going live.
 
-### Applying to production, before pushing
+### Applying to production: the deploy does it
 
-Production must be migrated before the push that needs the migration, because
-the push deploys immediately and new code against an old schema fails. Additive
-migrations are safe to apply while the old code is still serving.
+[`vercel.json`](../vercel.json) sets the build command to `npm run vercel-build`,
+which runs [`scripts/migrate-on-deploy.mjs`](../scripts/migrate-on-deploy.mjs)
+and then `prisma generate && next build`. The script:
+
+| Step | Detail |
+|---|---|
+| Production only | Runs only when `VERCEL_ENV` is `production`. A preview build may share the production database and must not change it ahead of a merge; CI and `npm run build` never call the script. |
+| Migrates | `prisma migrate deploy`, through the direct host (`DIRECT_URL`, or Neon's `DATABASE_URL_UNPOOLED`, via `prisma.config.ts`) |
+| Fails closed | A failed migration, a missing `DATABASE_URL`, or one that runs past three minutes (the pooled-host hang) fails the build, so the previous deployment keeps serving instead of new code meeting an old schema |
+
+Additive migrations are safe to apply while the old code is still serving, which
+is what happens for the minute the build takes. The production database URLs must
+be available to builds on Vercel, which they are when the Neon integration set
+them (including when marked Sensitive).
+
+### Applying to production by hand
+
+Still useful to apply a migration ahead of a push, or to check what is pending.
+The deploy then finds nothing to do.
 
 The production connection string is not in `.env` or `.env.local`. Pull it into a
 temporary file outside the repository, use it, and delete it:
@@ -377,8 +395,10 @@ Because Vercel deploys on push regardless of CI, run `npm run typecheck` and
 ## 7. Shipping a change
 
 1. `npm run typecheck && npm run verify` (and `npm run e2e` for layout work).
-2. If the schema changed: write the migration ([4](#writing-a-migration)), apply
-   it locally, then **apply it to production** ([4](#applying-to-production-before-pushing)).
+2. If the schema changed: write the migration ([4](#writing-a-migration)) and
+   apply it locally. The production build applies it
+   ([4](#applying-to-production-the-deploy-does-it)); check the build log for
+   `[migrate-on-deploy]` if in doubt.
 3. Update the README entry for the feature and any affected docs.
 4. Commit and `git push origin main`, from the GitHub identity Vercel expects
    ([section 10](#10-git-identity-and-blocked-deployments)).
@@ -397,7 +417,7 @@ keep them additive.
 | Check | How | Expect |
 |---|---|---|
 | Deployment is live | Vercel → Deployments | **Ready**, on the commit you pushed |
-| Schema matches | `migrate status` against production ([4](#applying-to-production-before-pushing)) | "Database schema is up to date!" |
+| Schema matches | `migrate status` against production ([4](#applying-to-production-by-hand)) | "Database schema is up to date!" |
 | App serves | Sign in; open a project; open a ticket | The project lands on its default view (Insights unless changed); no error page |
 | Cron routes are guarded | `curl -s -o /dev/null -w '%{http_code}\n' https://<app>/api/cron/monitors` | `401` (or `503` if `CRON_SECRET` is missing, which is a problem) |
 | Five-minute cron works | GitHub → Actions → **Uptime checks** → Run workflow | Green; the log ends with a JSON body containing `"ok":true` |
@@ -416,7 +436,8 @@ Vercel's cron page to run it if you need to.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Deploy succeeded, but pages or actions fail with `The column … does not exist in the current database` or `Invalid prisma.….findMany() invocation … Unknown argument` | The code and generated client are newer than the production schema: the migration was not applied before the push | Apply it now ([4](#applying-to-production-before-pushing)). No redeploy is needed once the schema matches |
+| Deploy succeeded, but pages or actions fail with `The column … does not exist in the current database` or `Invalid prisma.….findMany() invocation … Unknown argument` | The code and generated client are newer than the production schema: the build did not migrate (a Build Command override in Vercel that bypasses `vercel.json`, or a deployment made another way) | Apply it by hand ([4](#applying-to-production-by-hand)). No redeploy is needed once the schema matches |
+| Production build fails at `[migrate-on-deploy]` | A migration failed, `DATABASE_URL` is not available to builds, or migrating through the pooled host hung | Read the Prisma error in the build log; fix the migration or the variables and redeploy. Production is still serving the previous deployment |
 | `Unknown argument` locally after pulling | The local client is stale | `npx prisma generate`, restart `next dev` |
 | `prisma migrate deploy` hangs | Migrating through the pooled host | Use the direct string (`DATABASE_URL_UNPOOLED` / no `-pooler`) as `DIRECT_URL` |
 | `vercel env pull` gives empty or `[SENSITIVE]` database URLs | The variables are marked Sensitive | Copy the direct string from the Neon console and pass it inline |

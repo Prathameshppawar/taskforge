@@ -2,13 +2,14 @@
 
 TaskForge ships a [Model Context Protocol](https://modelcontextprotocol.io)
 server, so Claude Desktop, Claude Code or any other MCP client can read and
-manage tickets with the same tools the in-app Copilot uses. A client connects
+manage tickets — and read a project's documents and propose changes to them —
+with the same tools the in-app Copilot uses. A client connects
 to the deployment's URL directly, with nothing to install, or runs the stdio
 bridge in this repository. For scripts and integrations that do not speak MCP,
 the same tools are available as a plain HTTP endpoint and as the REST API v1.
 
-Checked against the code on 29 September 2026; the remote endpoint added on
-21 October 2026.
+Checked against the code on 29 September 2026; the remote endpoint, and the
+project details and documents tools, added on 21 October 2026.
 
 ## Contents
 
@@ -63,6 +64,10 @@ follows from that:
   the change.
 - There is no delete tool. "Delete everything" is not a request the tool surface
   can express.
+- A project's details and documents cannot be written at all: an agent can only
+  propose a change, which applies when a project manager approves it in the UI.
+- Administration stays in the UI. No tool archives tickets or projects, creates
+  people, adds members, or links repositories and integrations.
 
 There is no service account and no elevated path. The bridge could not grant more
 access, because it has none of its own.
@@ -302,6 +307,95 @@ embeddings are disabled on the deployment.
 | `ticketKey` | string, required | |
 | `body` | string, required | 1–5,000 characters, Markdown |
 
+### Project details and documents
+
+A project's description, status and dates, and its documents — the handbook and
+named documents such as Overview, Architecture or a support runbook — can be
+read directly, but **never written directly**. An agent proposes; the proposal
+waits on the project's **Proposals** page; a project manager reads the diff and
+approves or rejects it. Only the approval changes anything. This is how project
+context that lives somewhere TaskForge cannot index (a repository that must not
+be linked, say) gets into the project's documents and memory, with a person
+reading every word first.
+
+**`get_project`** — the project's status, owner, dates and description, every
+document with its name, latest version, how many versions are kept and how the
+latest was written, and how many proposals are waiting.
+
+| Argument | Type | |
+|---|---|---|
+| `projectCode` | string | |
+
+**`get_document`** — one document's Markdown: the latest version, or the one
+asked for. The reply starts with the title, version and how it was written, and
+ends the header by telling the agent to propose changes with `baseVersion` set
+to the version it read. An unknown name lists the documents that exist.
+
+| Argument | Type | |
+|---|---|---|
+| `name` | string, required | The document's name or key: `Architecture`, `support-runbook`, `handbook` |
+| `version` | integer | Omit for the latest |
+| `projectCode` | string | |
+
+**`propose_document`** — propose a new document, or a new version of one,
+the handbook included. The body is the whole document, not a patch.
+
+| Argument | Type | |
+|---|---|---|
+| `name` | string, required | As for `get_document`. A new name starts a new document. |
+| `body` | string, required | Markdown, 20–100,000 characters |
+| `title` | string | Up to 120 characters; keeps the current title when omitted |
+| `baseVersion` | integer | The version the text was written from; 0 for a new document; the latest when omitted |
+| `summary` | string | One line, up to 300 characters, shown in lists and notifications |
+| `rationale` | string | Why, up to 2,000 characters, shown to the reviewer |
+| `projectCode` | string | |
+
+**`propose_project_update`** — propose new project details. At least one of the
+four fields.
+
+| Argument | Type | |
+|---|---|---|
+| `description` | string | Up to 2,000 characters; empty clears it |
+| `status` | enum | `PLANNING`, `ACTIVE`, `ON_HOLD`, `COMPLETED`. Archiving is never proposed. |
+| `startDate`, `endDate` | string | `YYYY-MM-DD`, or `none` to clear |
+| `summary`, `rationale`, `projectCode` | string | As above |
+
+**`list_proposals`** — up to 25 proposals, newest first: id, status, what it
+changes, the version it was written against and the one it became, who proposed
+and who reviewed it, its summary and its review link. A pending proposal whose
+target has changed since is marked STALE.
+
+| Argument | Type | |
+|---|---|---|
+| `status` | enum | `PENDING`, `APPROVED`, `REJECTED`, `SUPERSEDED`; omit for all |
+| `projectCode` | string | |
+
+What a proposal reply looks like:
+
+```
+Proposal cmv… — a change to the Architecture document in Demo — is PENDING APPROVAL.
+Nothing has changed yet: it applies only when a project manager approves it at
+https://your-app.vercel.app/projects/<projectId>/proposals/<proposalId>. …
+```
+
+The review page is always `/projects/<projectId>/proposals/<proposalId>`; the
+link is absolute when the deployment knows its address (`NEXT_PUBLIC_APP_URL`,
+`AUTH_URL`, or Vercel's production host).
+
+How proposals behave:
+
+| Rule | Detail |
+|---|---|
+| Who proposes | `proposal:create` on the project — Admin, Project Manager and User have it by default — and a project role that may write (owner, Manager or Member). Not on an archived project. |
+| Who approves | Details: `project:update`. Documents: `project:manage-config`, as for editing the handbook. In both cases the owner or a Manager. |
+| Always a click | Every proposal needs **Approve** in the UI, even one made through a manager's own token: the point is that a person has read what the agent wrote. |
+| Revising | A new proposal for the same document (or for the details) supersedes the same person's earlier pending one. Other people's proposals are left alone. |
+| Overtaken | If the document gained a version, or a proposed field changed, after the proposal was written, the review page says so and approval needs **Approve anyway**. |
+| Nothing to change | A proposal identical to what is there is refused, and so is a details change the details form would refuse (an end date before the start). |
+| On approval | One transaction: the proposal is claimed, the change goes through the same writer as a person's edit, and the activity log records the approver as the actor and names the proposer. An approved document joins project memory. |
+| On rejection | The proposal is kept with the reviewer's note, for the record. |
+| Telling people | The approvers — the owner and the project's managers whose role can approve, the proposer included — get a notification linking to the review page; the proposer is told the outcome. |
+
 ## 6. Example calls
 
 What a person might say to an MCP client, and the call it should make:
@@ -318,6 +412,10 @@ What a person might say to an MCP client, and the call it should make:
 | "Break authentication into Login API, Login UI and Password Reset" | `bulk_create_tickets { "parentTitle": "Authentication", "children": [ { "title": "Login API" }, { "title": "Login UI" }, { "title": "Password reset" } ] }` |
 | "Move DEMO-14 to Testing and give it to Arjun" | `update_ticket { "ticketKey": "DEMO-14", "status": "Testing", "assignee": "Arjun" }` |
 | "Tell @arjun.mehta on DEMO-14 that the fix is deployed" | `comment_on_ticket { "ticketKey": "DEMO-14", "body": "@arjun.mehta the fix is deployed." }` |
+| "What documents does DEMO have?" | `get_project { "projectCode": "DEMO" }` |
+| "Put our architecture notes into DEMO" | `get_document { "name": "Architecture" }`, then `propose_document { "name": "Architecture", "body": "# Architecture\n…", "baseVersion": 2, "summary": "Adds the queue and the worker" }` |
+| "Mark DEMO on hold until March" | `propose_project_update { "status": "ON_HOLD", "endDate": "2027-03-31", "rationale": "Client paused the work" }` |
+| "Has anyone approved my handbook change?" | `list_proposals { "projectCode": "DEMO" }` |
 
 The tool's reply is plain text written for a model to read — for example:
 
@@ -331,8 +429,10 @@ A refused or failed tool is returned to the client as an error result
 
 ## 7. Permissions and audit
 
-**Writes execute directly.** The in-app Copilot proposes a write and waits for the
-person to approve it. Over MCP there is no proposal step: MCP clients show their
+**Writes execute directly** — except to a project's details and documents, which
+are always proposals (see [above](#project-details-and-documents)). The in-app
+Copilot proposes a write and waits for the person to approve it. Over MCP there
+is no proposal step for tickets and comments: MCP clients show their
 own tool-call confirmation, and asking again would mean approving twice. An agent
 asked to create fifty tickets will create fifty tickets. Every one is audited and
 can be edited or undone by hand, but treat a write-capable token accordingly — a
@@ -346,6 +446,7 @@ token for a role with narrower permissions is a narrower agent.
 | `create_ticket`, `bulk_create_tickets` | `ticket:create` on the project; the project must not be archived |
 | `update_ticket` | `ticket:update` on the ticket's project (and whatever the status's entry rules require) |
 | `comment_on_ticket` | `comment:create` on the ticket's project |
+| `propose_document`, `propose_project_update` | `proposal:create` on the project. Approving needs `project:manage-config` (documents) or `project:update` (details), in the UI only. |
 
 The endpoint does not require `ai:use`: no model runs on TaskForge's side for an
 MCP call, so nothing is metered on the AI usage ledger either. The client's own
@@ -414,6 +515,10 @@ path of its own to get wrong.
 | `GET /api/v1/tickets/DEMO-12` | `get_ticket` | — |
 | `PATCH /api/v1/tickets/DEMO-12` | `update_ticket` | `{ status?, priority?, assignee?, title?, dueInDays?, addLabels? }` |
 | `POST /api/v1/tickets/DEMO-12/comments` | `comment_on_ticket` | `{ body }` |
+| `GET /api/v1/projects/DEMO` | `get_project` | — |
+| `GET /api/v1/projects/DEMO/documents/architecture` | `get_document` | `?version=2` |
+| `GET /api/v1/projects/DEMO/proposals` | `list_proposals` | `?status=pending` |
+| `POST /api/v1/projects/DEMO/proposals` | `propose_document` or `propose_project_update` | `{ kind: "DOCUMENT", name, body, … }` or `{ kind: "PROJECT_DETAILS", description?, status?, startDate?, endDate?, … }` |
 
 ```bash
 curl -X POST https://your-app.vercel.app/api/v1/tickets \
@@ -426,8 +531,8 @@ curl -X POST https://your-app.vercel.app/api/v1/tickets \
 { "ok": true, "message": "Created DEMO-31 — \"Checkout button does nothing on Safari\" in Demo…" }
 ```
 
-Replies are `{ ok, message, data? }` (`{ ok, data }` for projects). `201` for a
-created ticket or comment, `200` otherwise; `400` for a body that is not a JSON
+Replies are `{ ok, message, data? }` (`{ ok, data }` for the project list). `201`
+for a created ticket, comment or proposal, `200` otherwise; `400` for a body that is not a JSON
 object; `401` without a valid token; `404` for a project code the user cannot see
 or a ticket that does not exist; `422` when the tool refused. Memory search,
 duplicates, insights and bulk creation are MCP and `/api/mcp` only.

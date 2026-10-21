@@ -517,8 +517,8 @@ Kept short because it is re-sent on every request. In substance
 ### Tools
 
 Defined once in Zod ([`tools.ts`](../src/features/ai/tools.ts)); the JSON Schema
-the model sees is generated from it. The same nine tools are served over MCP and
-the REST API ([MCP.md](MCP.md)).
+the model sees is generated from it. The same fourteen tools are served over MCP
+and the REST API ([MCP.md](MCP.md)).
 
 | Tool | Reads or writes | Arguments (all optional unless marked) |
 |---|---|---|
@@ -531,8 +531,18 @@ the REST API ([MCP.md](MCP.md)).
 | `bulk_create_tickets` | **Write** | `parentTitle` (required), `parentDescription`, `projectCode`, `children` (required, 1–30, each `title`, `description`, `assignee`, `labels`) |
 | `update_ticket` | **Write** | `ticketKey` (required), `status`, `priority`, `assignee` (`none` unassigns), `dueInDays`, `addLabels`, `title` |
 | `comment_on_ticket` | **Write** | `ticketKey`, `body` (both required; Markdown, `@username` notifies) |
+| `get_project` | Read | `projectCode`. Status, owner, dates, description, every document with its latest version, and how many proposals wait |
+| `get_document` | Read | `name` (required: `Architecture`, `handbook`…), `version`, `projectCode`. The document's Markdown |
+| `propose_document` | **Proposal** | `name` and `body` (required; the whole document), `title`, `baseVersion`, `summary`, `rationale`, `projectCode` |
+| `propose_project_update` | **Proposal** | `description`, `status` (never `ARCHIVED`), `startDate`, `endDate` (`YYYY-MM-DD` or `none`), `summary`, `rationale`, `projectCode` |
+| `list_proposals` | Read | `status`, `projectCode`. Up to 25 proposals with their review links |
 
-There is deliberately no delete tool.
+There is deliberately no delete tool, and no tool that writes a project's details
+or documents: the two propose_ tools record a proposal that a project manager
+approves on the project's Proposals page ([MCP.md](MCP.md#project-details-and-documents)).
+Their length and date rules live in the Server Action's schema
+(`proposals/schemas.ts`) rather than the model-facing one, which keeps them
+cheap in tokens; a refusal comes back as one sentence naming the bad field.
 
 Names are resolved server-side against the project — "prakhar" to a person, "In
 Review" to a status — by the same resolver for every surface. An assignee that
@@ -568,6 +578,12 @@ Writes are **proposed, not performed**:
 
 Tool calls to unknown tools, or that fail validation or a guard, are reported
 back to the model as tool failures so it can explain rather than crash.
+
+`propose_document` and `propose_project_update` are not proposed in the panel:
+they change nothing but a pending proposal, which already waits for a project
+manager on the Proposals page, so asking first would mean approving twice. Their
+result tells the model the change is pending and not to claim otherwise, and the
+panel shows a "Proposed — waiting for approval" card linking to the review page.
 
 ### Screen awareness
 
@@ -614,7 +630,8 @@ history, so "assign the first one to me" works on the next line.
 
 `search_memory` searches the project's memory (§22) by meaning and returns up to
 five pieces scoring at least 0.3 — finished tickets, repository docs, the
-handbook — each with its title, link and a 280-character excerpt. It is the tool
+handbook and the project's named documents — each with its title, link and a
+280-character excerpt. It is the tool
 for "how did we…" and "where is…".
 
 ### Token budget
@@ -623,8 +640,9 @@ The constraint is Groq's free tier: about 8,000 tokens a minute and 200,000 a
 day, shared by the whole workspace. Hence:
 
 - tool descriptions are one line each, and `npm run verify` fails the build if
-  the whole tool payload exceeds **1,200 tokens** (raised from 1,100 when
-  `search_memory` was added — one memory search replaces several ticket searches);
+  the whole tool payload exceeds **1,700 tokens** (raised from 1,100 when
+  `search_memory` was added — one memory search replaces several ticket searches —
+  and to 1,700 for the five project tools, about 500 tokens a request);
 - the system prompt and screen context are a few lines;
 - history is capped at six turns and the loop at four rounds;
 - Groq and Ollama answers are capped at `AI_MAX_TOKENS` (default 2,048);
@@ -998,12 +1016,13 @@ ticket similarity, so indexing costs database space and nothing else:
 | Finished tickets | Up to 1,500, newest first: type, finish date, description (900 characters), the last two comments by people, and merged pull requests |
 | Repository docs | For each linked repository, up to 25 documentation files under 200 KB: `README`, `CONTRIBUTING`, `ARCHITECTURE`, `AGENTS`, `CLAUDE`, `CONVENTIONS`, `CHANGELOG` at the root, anything under `docs/`, `doc/`, `documentation/`, `adr/`, `decisions/`, and the GitHub contributing and pull request templates |
 | The handbook | Its latest version |
+| Named documents | The latest version of each (Overview, Architecture, a runbook…), linked to its page. A proposed document is indexed only once it is approved |
 
 Documents are split at headings, then by paragraph, into pieces of at most 1,200
 characters. Only new or changed text is embedded again (by content hash), and
 pieces whose source is gone are removed. The index is capped at **3,000 pieces
 per project** because the free database is small. It is refreshed nightly, after
-a handbook is written or edited, and on *Re-index*; **turning memory off deletes
+a handbook or document is written, edited or approved, and on *Re-index*; **turning memory off deletes
 the index**, since it is only ever a copy.
 
 **Used by:** the Copilot's `search_memory` (five hits, score 0.3 or more), and
@@ -1022,7 +1041,10 @@ the email-in address; open sprints and milestones; open ticket count and what
 needs attention (blocked, breached targets, high priority); what was finished in
 the last 90 days; links people attached; and for each linked repository its
 languages, top-level layout, CI workflows, `package.json` scripts and
-dependencies, README and conventions file.
+dependencies, README and conventions file. The project's named documents come
+too, each at its latest version (8,000 characters each, 24,000 in all), and the
+writer is told to prefer them and point readers to them by title, since people
+wrote or approved them.
 
 **Then the Release Manager writes it** (up to 60,000 characters of facts in, 6,000
 tokens out) in eight sections: what this project is; who's who; how work flows
@@ -1031,8 +1053,10 @@ live; your first week. Under 1,800 words, only the facts given, "Not recorded ye
 where something is unknown. A reply shorter than 400 characters, a failure, or no
 engine at all means **the facts themselves are the handbook**.
 
-Every version is kept, marked as written by AI, from facts, or edited by a person;
-a person's edit is a new version, never an overwrite. Generating and editing need
+Every version is kept, marked as written by AI, from facts, edited by a person, or
+from an approved proposal; a new version never overwrites one. An agent can
+propose a handbook version (`propose_document` with `name: "handbook"`), which
+applies only when a project manager approves it. Generating and editing need
 `project:manage-config`. With **`handbookAutoRefresh`** on, a new version is
 written every Monday. People who joined in the last month see a banner until they
 have opened the latest version.

@@ -31,7 +31,7 @@ belongs. For the reasoning behind the layering see
 ├── evals/                 live-model Copilot evaluation
 ├── mcp/                   the MCP server (stdio), a thin client of the app
 ├── prisma/
-│   ├── schema.prisma      79 models, 26 enums
+│   ├── schema.prisma      80 models, 28 enums
 │   ├── migrations/        hand-reviewed SQL, one folder per migration
 │   └── seed.ts            roles, first admin, templates; demo data with SEED_DEMO=true
 ├── scripts/               domain suite, smoke test, embedding tools
@@ -97,6 +97,7 @@ Actions), `queries.ts` (reads), `service.ts` (server-side logic), `schemas.ts`
 | `cycles` | Sprints and milestones: planning actions, the backlog, burn-up read models, close with carry-over. |
 | `dashboard` | Dashboard and Insights aggregates, computed in SQL. |
 | `delivery` | DORA metrics per project from deployments, status history and incidents. |
+| `documents` | Named project documents: saving a new version (`service.ts`, `writeDocumentVersion`, also used by the handbook), New document, Edit, the version menu and the `.md` download. |
 | `errors` | Production error ingest: fingerprint grouping, regression detection, and the Production tickets Triage files. |
 | `export` | Excel and CSV export of the current view, with formula-injection escaping. |
 | `filters` | Filter criteria, saved filters, and "Describe a view" (natural language to filter). |
@@ -108,13 +109,14 @@ Actions), `queries.ts` (reads), `service.ts` (server-side logic), `schemas.ts`
 | `jobs` | The Postgres job queue: `enqueue`, `drain`, `queueSummary`, `retryFailed`. |
 | `labels` | Label management and copying labels between projects. |
 | `live` | The client component that polls `/api/live` and refreshes the page when a project changes. |
-| `memory` | Project memory indexing (tickets, repository docs, handbook) and the handbook generator. |
+| `memory` | Project memory indexing (tickets, repository docs, handbook, named documents) and the handbook generator. |
 | `monitors` | Uptime monitors, their checks, and the incidents they open and close. |
 | `msteams` | The Teams bot conversation logic and the downloadable Teams app package. |
 | `notifications` | In-app notifications (written in the caller's transaction), notification emails, the chime. |
 | `portal` | The client portal: requests, previews, approvals. |
 | `profile` | Profile, photo upload, role rim colours. |
 | `projects` | Project creation from templates, workflow configuration (`config-actions.ts`), members, teams on projects, settings, landing views (`views.ts`). |
+| `proposals` | Change proposals to project details and documents: proposing (and superseding the proposer's own pending one), staleness, approval in one transaction through the same writers as a person's edit, rejection, notifying approvers, and the review pages' diff components. |
 | `public-api` | The `/api/v1` REST handler over the Copilot's tools. |
 | `recurring` | Recurring ticket schedules and generation. |
 | `releases` | Release notes for Deployment tickets, by the Release Manager. |
@@ -158,6 +160,7 @@ No imports from Next.js, Prisma or React. Everything here is asserted by
 | `ai-budget.ts`, `pricing.ts`, `engine-catalog.ts`, `agent-models.ts` | Cost arithmetic, alert thresholds, engine and model catalogue |
 | `error-events.ts`, `releases.ts`, `dora.ts` | Error fingerprints, release sections, DORA metrics |
 | `memory.ts` | Chunking for project memory |
+| `project-documents.ts` | Document keys from names, suggested names, the line diff of a document proposal, and whether a proposal has been overtaken (stale) |
 | `time.ts` | Duration parsing (`1h 30m`, `1:30`) |
 | `jobs.ts` | Queue backoff and stale-lock rule |
 | `network.ts` | URL checks and private-address refusal for monitors and webhooks |
@@ -212,6 +215,10 @@ No imports from Next.js, Prisma or React. Everything here is asserted by
 | `/projects/[projectId]/calendar` | `…/calendar/page.tsx` | Calendar |
 | `/projects/[projectId]/timeline` | `…/timeline/page.tsx` | Timeline |
 | `/projects/[projectId]/handbook` | `…/handbook/page.tsx` | The project handbook |
+| `/projects/[projectId]/docs` | `…/docs/page.tsx` | Named documents, with New document |
+| `/projects/[projectId]/docs/[docKey]` | `…/docs/[docKey]/page.tsx` | One document: versions, `.md` download, Edit |
+| `/projects/[projectId]/proposals` | `…/proposals/page.tsx` | Proposals, filtered by status |
+| `/projects/[projectId]/proposals/[proposalId]` | `…/proposals/[proposalId]/page.tsx` | One proposal: what changes, and approve or reject |
 | `/projects/[projectId]/activity` | `…/activity/page.tsx` | Project activity |
 | `/projects/[projectId]/members` | `…/members/page.tsx` | Members and attached teams |
 | `/projects/[projectId]/labels` | `…/labels/page.tsx` | Labels |
@@ -253,6 +260,9 @@ Also under `app/`: `layout.tsx` (root), `globals.css`, `icon.tsx`,
 | `/api/cron/recurring` | GET | `CRON_SECRET` (Bearer or `?key=`) | Daily sweep; see [OPERATIONS.md](OPERATIONS.md#the-daily-cron-apicronrecurring) |
 | `/api/cron/monitors` | GET | `CRON_SECRET` (Bearer only) | Five-minute sweep; see [OPERATIONS.md](OPERATIONS.md#the-five-minute-cron-apicronmonitors) |
 | `/api/v1/projects` | GET | Access token | REST API |
+| `/api/v1/projects/[code]` | GET | Access token | Project details, documents and pending proposals (`get_project`) |
+| `/api/v1/projects/[code]/documents/[name]` | GET | Access token | A document's Markdown, latest or `?version=` (`get_document`) |
+| `/api/v1/projects/[code]/proposals` | GET, POST | Access token | List proposals (`?status=`), or propose a change (`propose_*`); POST returns 201 |
 | `/api/v1/tickets` | GET, POST | Access token | REST API |
 | `/api/v1/tickets/[key]` | GET, PATCH | Access token | REST API |
 | `/api/v1/tickets/[key]/comments` | POST | Access token | REST API |
@@ -281,7 +291,8 @@ The full contract, including Server Actions, is in [API.md](API.md).
 | `scripts/smoke.sh` | `npm run smoke` | Signs in against a running server, walks every route, checks anonymous rejection, greps the server log for render errors |
 | `scripts/verify-embeddings.ts` | `npm run verify:embeddings` | Semantic similarity and the embedding freshness invariant, against a real database |
 | `scripts/embed-backfill.ts` | `npm run embed:backfill` | Resumable backfill of ticket embeddings |
-| `e2e/*.spec.ts` | `npm run e2e` | Playwright: `layout` (scroll containment, five viewports), `forced-password-change`, `notifications`, `rbac`, `project-teams`; `helpers.ts` holds the overflow detector |
+| `scripts/migrate-on-deploy.mjs` | `npm run vercel-build` (Vercel production builds) | Runs `prisma migrate deploy` before `next build`, only when `VERCEL_ENV=production`; a failure fails the build |
+| `e2e/*.spec.ts` | `npm run e2e` | Playwright: `layout` (scroll containment, five viewports, including Docs and Proposals), `forced-password-change`, `notifications`, `rbac`, `project-teams`, `proposals`; `helpers.ts` holds the overflow detector |
 | `evals/cases.ts`, `evals/run.ts` | `npm run eval:ai` | Graded Copilot cases (routing, extraction, grounding, safety) against a live model; stops at the tool call |
 | `mcp/server.ts` | `npm run mcp` | The stdio MCP server; reads `TASKFORGE_URL` and `TASKFORGE_TOKEN` and calls `/api/mcp`. See [MCP.md](MCP.md) |
 | `prisma/seed.ts` | `npm run db:seed` | Roles, the first admin, templates; `SEED_DEMO=true` adds demo projects |
