@@ -6,6 +6,7 @@ const SELECT = {
   type: true,
   title: true,
   body: true,
+  link: true,
   readAt: true,
   createdAt: true,
   actor: { select: { id: true, name: true, avatarColor: true } },

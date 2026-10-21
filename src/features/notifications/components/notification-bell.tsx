@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
-import { AtSign, Bell, CheckCheck, MessageSquare, UserPlus, Volume2, VolumeX, Timer, TimerOff } from 'lucide-react'
+import { AtSign, Bell, CheckCheck, FileCheck, FileDiff, MessageSquare, UserPlus, Volume2, VolumeX, Timer, TimerOff } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,8 @@ const ICONS = {
   TICKET_BLOCKED: Bell,
   SLA_AT_RISK: Timer,
   SLA_BREACHED: TimerOff,
+  PROPOSAL_PENDING: FileDiff,
+  PROPOSAL_REVIEWED: FileCheck,
 } as const
 
 /**
@@ -191,7 +193,7 @@ export function NotificationBell({
             <ul className="divide-y">
               {items.map((item) => {
                 const Icon = ICONS[item.type] ?? Bell
-                const href = item.ticket ? `/tickets/${item.ticket.key}` : '/inbox'
+                const href = item.ticket ? `/tickets/${item.ticket.key}` : (item.link ?? '/inbox')
 
                 return (
                   <li key={item.id}>

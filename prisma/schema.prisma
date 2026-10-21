@@ -270,6 +270,10 @@ enum NotificationType {
   SLA_AT_RISK
   /// A ticket's response or resolution target has passed.
   SLA_BREACHED
+  /// A change to a project's details or documents is waiting for approval.
+  PROPOSAL_PENDING
+  /// A proposal you made was approved or rejected.
+  PROPOSAL_REVIEWED
 }
 
 enum FilterField {
@@ -482,39 +486,41 @@ model User {
   createdTeams    Team[]             @relation("TeamCreatedBy")
 
   // --- reverse relations -----------------------------------------------------
-  ownedProjects       Project[]             @relation("ProjectOwner")
-  createdProjects     Project[]             @relation("ProjectCreatedBy")
-  defaultForSettings  ProjectSettings[]     @relation("ProjectDefaultAssignee")
-  memberships         ProjectMember[]       @relation("ProjectMemberUser")
-  membershipsAdded    ProjectMember[]       @relation("ProjectMemberAddedBy")
-  assignedTickets     Ticket[]              @relation("TicketAssignee")
-  reportedTickets     Ticket[]              @relation("TicketReporter")
-  createdTickets      Ticket[]              @relation("TicketCreatedBy")
+  ownedProjects       Project[]               @relation("ProjectOwner")
+  createdProjects     Project[]               @relation("ProjectCreatedBy")
+  defaultForSettings  ProjectSettings[]       @relation("ProjectDefaultAssignee")
+  memberships         ProjectMember[]         @relation("ProjectMemberUser")
+  membershipsAdded    ProjectMember[]         @relation("ProjectMemberAddedBy")
+  assignedTickets     Ticket[]                @relation("TicketAssignee")
+  reportedTickets     Ticket[]                @relation("TicketReporter")
+  createdTickets      Ticket[]                @relation("TicketCreatedBy")
   comments            Comment[]
   mentions            CommentMention[]
-  activities          ActivityLog[]         @relation("ActivityActor")
+  activities          ActivityLog[]           @relation("ActivityActor")
   resources           TicketResource[]
   savedFilters        SavedFilter[]
   aiFixRuns           AiFixRun[]
   aiUsage             AiUsageEvent[]
   githubToken         GithubUserToken?
-  reportSubscriptions ReportSubscription[]  @relation("ReportSubscriber")
-  reportSubsCreated   ReportSubscription[]  @relation("ReportSubscriptionCreatedBy")
+  reportSubscriptions ReportSubscription[]    @relation("ReportSubscriber")
+  reportSubsCreated   ReportSubscription[]    @relation("ReportSubscriptionCreatedBy")
   sessions            UserSession[]
   accessTokens        AccessToken[]
-  notifications       Notification[]        @relation("NotificationRecipient")
-  notificationsCaused Notification[]        @relation("NotificationActor")
+  notifications       Notification[]          @relation("NotificationRecipient")
+  notificationsCaused Notification[]          @relation("NotificationActor")
   createdTemplates    ProjectTemplate[]
-  recurringTickets    RecurringTicket[]     @relation("RecurringCreatedBy")
-  recurringAssignee   RecurringTicket[]     @relation("RecurringAssignee")
-  checklistDone       TicketChecklistItem[] @relation("ChecklistDoneBy")
-  cyclesCreated       Cycle[]               @relation("CycleCreatedBy")
-  timeEntries         TimeEntry[]           @relation("TimeEntryUser")
-  bulkOperations      BulkOperation[]       @relation("BulkOperationActor")
-  inboundEmails       InboundEmail[]        @relation("InboundEmailSender")
-  teamsAccounts       MsTeamsUser[]         @relation("MsTeamsAccount")
-  documentsWritten    ProjectDocument[]     @relation("DocumentAuthor")
-  checklistCreated    TicketChecklistItem[] @relation("ChecklistCreatedBy")
+  recurringTickets    RecurringTicket[]       @relation("RecurringCreatedBy")
+  recurringAssignee   RecurringTicket[]       @relation("RecurringAssignee")
+  checklistDone       TicketChecklistItem[]   @relation("ChecklistDoneBy")
+  cyclesCreated       Cycle[]                 @relation("CycleCreatedBy")
+  timeEntries         TimeEntry[]             @relation("TimeEntryUser")
+  bulkOperations      BulkOperation[]         @relation("BulkOperationActor")
+  inboundEmails       InboundEmail[]          @relation("InboundEmailSender")
+  teamsAccounts       MsTeamsUser[]           @relation("MsTeamsAccount")
+  documentsWritten    ProjectDocument[]       @relation("DocumentAuthor")
+  proposalsMade       ProjectChangeProposal[] @relation("ProposalProposer")
+  proposalsReviewed   ProjectChangeProposal[] @relation("ProposalReviewer")
+  checklistCreated    TicketChecklistItem[]   @relation("ChecklistCreatedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -578,6 +584,9 @@ model Notification {
   /// Rendered at write time so the row reads correctly after a rename.
   title String
   body  String?
+  /// Where the notification leads when it is not about a ticket, as an in-app
+  /// path (a proposal waiting for review, say).
+  link  String?
 
   readAt    DateTime?
   createdAt DateTime  @default(now())
@@ -792,6 +801,7 @@ model Project {
   teamsChannels    MsTeamsConversation[]
   memoryChunks     MemoryChunk[]
   documents        ProjectDocument[]
+  proposals        ProjectChangeProposal[]
   webhooks         OutboundWebhook[]
   activities       ActivityLog[]
   recurringTickets RecurringTicket[]
@@ -1469,7 +1479,7 @@ model MemoryChunk {
   id         String                 @id @default(cuid())
   projectId  String
   project    Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  /// TICKET, REPO_DOC or HANDBOOK.
+  /// TICKET, REPO_DOC, HANDBOOK or DOCUMENT (a named project document).
   sourceType String
   sourceId   String
   chunkIndex Int                    @default(0)
@@ -1489,16 +1499,20 @@ model MemoryChunk {
 }
 
 /// A generated or edited project document, every version kept. The handbook
-/// is the first kind: what a new member reads on their first day.
+/// is the first: what a new member reads on their first day. Beside it a
+/// project keeps named documents (Overview, Architecture, a support runbook…).
 model ProjectDocument {
   id        String  @id @default(cuid())
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Which document this is a version of: HANDBOOK, or the slug of a named
+  /// document such as `architecture` (see core/domain/project-documents.ts).
   kind      String  @default("HANDBOOK")
   version   Int
   title     String
   body      String
-  /// AI, FACTS (assembled without a model) or EDIT (a person's revision).
+  /// AI, FACTS (assembled without a model), EDIT (a person's revision) or
+  /// PROPOSAL (an approved change proposal; the author is its proposer).
   source    String
   engine    String?
   authorId  String?
@@ -1508,6 +1522,61 @@ model ProjectDocument {
 
   @@unique([projectId, kind, version])
   @@map("project_documents")
+}
+
+/// A change to a project's details or one of its documents, proposed — usually
+/// by an agent over MCP — and applied only when a project manager approves it.
+/// Approved, rejected and superseded proposals are kept for the record.
+model ProjectChangeProposal {
+  id          String         @id @default(cuid())
+  projectId   String
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind        ProposalKind
+  /// The document a DOCUMENT proposal writes (HANDBOOK or a slug); null for
+  /// PROJECT_DETAILS.
+  documentKey String?
+  /// PROJECT_DETAILS: { description?, status?, startDate?, endDate? }, dates as
+  /// YYYY-MM-DD and null to clear. DOCUMENT: { title, body }.
+  payload     Json
+  summary     String?
+  rationale   String?
+  status      ProposalStatus @default(PENDING)
+
+  /// What it was written against, so a proposal overtaken by another change
+  /// is flagged before anyone approves it. DOCUMENT: the latest version then
+  /// (0 for a new document). PROJECT_DETAILS: the proposed fields' values then.
+  baseVersion Int?
+  baseValues  Json?
+
+  proposedById   String?
+  proposedBy     User?     @relation("ProposalProposer", fields: [proposedById], references: [id], onDelete: SetNull)
+  reviewedById   String?
+  reviewedBy     User?     @relation("ProposalReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime?
+  reviewNote     String?
+  /// The document version an approved DOCUMENT proposal became.
+  appliedVersion Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, status, createdAt])
+  @@map("project_change_proposals")
+}
+
+enum ProposalKind {
+  /// Description, status, start and end dates.
+  PROJECT_DETAILS
+  /// A new document, or a new version of one (the handbook included).
+  DOCUMENT
+}
+
+enum ProposalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  /// Replaced by a later proposal from the same person for the same target.
+  SUPERSEDED
 }
 
 /// The latest version of a document someone has opened.

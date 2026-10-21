@@ -1,8 +1,9 @@
-import type { Prisma } from '@prisma/client'
+import type { Prisma, ProjectStatus } from '@prisma/client'
 
 import { buildTicketKey } from '@/core/domain/ticket-rules'
 import { NotFoundError } from '@/core/domain/errors'
-import type { TxClient } from '@/features/activity/service'
+import { recordActivity, type TxClient } from '@/features/activity/service'
+import type { UpdateProjectInput } from './schemas'
 
 /**
  * Project instantiation.
@@ -227,4 +228,77 @@ export async function allocateTicketNumber(
   // The update returns the value AFTER incrementing, so the number just
   // allocated is one less.
   return settings.nextTicketNumber - 1
+}
+
+/**
+ * Writes a project's details: what the details form saves, and what an approved
+ * change proposal applies. Runs in the caller's transaction, so a proposal's
+ * approval and the change it makes commit together.
+ *
+ * `before` is the row as it stood, read by the caller; `proposedBy` names the
+ * proposer when this applies a proposal, so the activity entry records both
+ * the approver (its actor) and who asked for the change.
+ */
+export async function writeProjectDetails(
+  tx: Prisma.TransactionClient,
+  input: {
+    actorId: string
+    data: UpdateProjectInput
+    before: { status: ProjectStatus; ownerId: string }
+    proposedBy?: string
+  },
+): Promise<void> {
+  const { actorId, data, before } = input
+
+  await tx.project.update({
+    where: { id: data.id },
+    data: {
+      name: data.name,
+      description: data.description || null,
+      status: data.status,
+      startDate: data.startDate ?? null,
+      endDate: data.endDate ?? null,
+      ownerId: data.ownerId,
+    },
+  })
+
+  // A new owner must also be a member, with manager rights.
+  if (before.ownerId !== data.ownerId) {
+    await tx.projectMember.upsert({
+      where: { projectId_userId: { projectId: data.id, userId: data.ownerId } },
+      update: { role: 'MANAGER' },
+      create: {
+        projectId: data.id,
+        userId: data.ownerId,
+        role: 'MANAGER',
+        addedById: actorId,
+      },
+    })
+  }
+
+  const via = input.proposedBy ? `, approving ${input.proposedBy}'s proposal` : ''
+  if (before.status !== data.status) {
+    await recordActivity(tx, {
+      action: 'UPDATED',
+      entityType: 'PROJECT',
+      entityId: data.id,
+      entityLabel: data.name,
+      projectId: data.id,
+      actorId,
+      field: 'status',
+      oldValue: before.status,
+      newValue: data.status,
+      summary: `set project status to ${data.status}${via}`,
+    })
+  } else {
+    await recordActivity(tx, {
+      action: 'UPDATED',
+      entityType: 'PROJECT',
+      entityId: data.id,
+      entityLabel: data.name,
+      projectId: data.id,
+      actorId,
+      summary: `updated project details${via}`,
+    })
+  }
 }

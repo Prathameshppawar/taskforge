@@ -5,13 +5,17 @@ import { asInstallation } from '@/infrastructure/github/client'
 import { getEmbedder } from '@/infrastructure/ai/embedder'
 import { clip } from '@/core/domain/ticket-context'
 import { chunkMarkdown, isDocPath } from '@/core/domain/memory'
+import { HANDBOOK_KEY } from '@/core/domain/project-documents'
 
 /**
  * Project memory: what the project already knows, made searchable.
  *
  * Three sources, re-read on each run and embedded only where the text
  * changed: finished tickets with how they were resolved, the linked
- * repositories' documentation, and the handbook. Embedded in-process by the
+ * repositories' documentation, and the project's own documents — the handbook
+ * and the named ones beside it, each at its latest version. A proposed
+ * document is not indexed until it is approved, because until then it is not
+ * something the project knows. Embedded in-process by the
  * same free model as ticket similarity, so indexing costs database space and
  * nothing else — which is why it is capped per project.
  */
@@ -20,7 +24,7 @@ export const MAX_CHUNKS_PER_PROJECT = 3000
 const MAX_DOC_FILES = 25
 
 interface Chunk {
-  sourceType: 'TICKET' | 'REPO_DOC' | 'HANDBOOK'
+  sourceType: 'TICKET' | 'REPO_DOC' | 'HANDBOOK' | 'DOCUMENT'
   sourceId: string
   chunkIndex: number
   title: string
@@ -45,7 +49,7 @@ export async function indexProject(projectId: string): Promise<{ chunks: number;
   const embedder = getEmbedder()
   if (!settings?.memoryEnabled || !embedder) return null
 
-  const chunks = [...(await ticketChunks(projectId)), ...(await repoChunks(projectId)), ...(await handbookChunks(projectId))].slice(0, MAX_CHUNKS_PER_PROJECT)
+  const chunks = [...(await ticketChunks(projectId)), ...(await repoChunks(projectId)), ...(await documentChunks(projectId))].slice(0, MAX_CHUNKS_PER_PROJECT)
 
   const existing = await prisma.memoryChunk.findMany({
     where: { projectId },
@@ -156,17 +160,29 @@ async function repoChunks(projectId: string): Promise<Chunk[]> {
   return out
 }
 
-async function handbookChunks(projectId: string): Promise<Chunk[]> {
-  const latest = await prisma.projectDocument.findFirst({ where: { projectId, kind: 'HANDBOOK' }, orderBy: { version: 'desc' }, select: { id: true, body: true } })
-  if (!latest) return []
-  return chunkMarkdown(latest.body).map((piece, index) => ({
-    sourceType: 'HANDBOOK' as const,
-    sourceId: 'handbook',
-    chunkIndex: index,
-    title: `Handbook${piece.heading ? ` · ${piece.heading}` : ''}`,
-    url: null,
-    text: piece.text,
-  }))
+/**
+ * The latest version of each project document, by section. The handbook keeps
+ * the source type and id it has always been indexed under, so existing rows
+ * are not re-embedded; named documents are DOCUMENT, keyed by their slug.
+ */
+async function documentChunks(projectId: string): Promise<Chunk[]> {
+  const groups = await prisma.projectDocument.groupBy({ by: ['kind'], where: { projectId }, _max: { version: true } })
+  if (groups.length === 0) return []
+  const latest = await prisma.projectDocument.findMany({
+    where: { projectId, OR: groups.map((group) => ({ kind: group.kind, version: group._max.version ?? 0 })) },
+    select: { kind: true, title: true, body: true },
+  })
+  return latest.flatMap((doc) => {
+    const handbook = doc.kind === HANDBOOK_KEY
+    return chunkMarkdown(doc.body).map((piece, index) => ({
+      sourceType: handbook ? ('HANDBOOK' as const) : ('DOCUMENT' as const),
+      sourceId: handbook ? 'handbook' : doc.kind,
+      chunkIndex: index,
+      title: `${handbook ? 'Handbook' : doc.title}${piece.heading ? ` · ${piece.heading}` : ''}`,
+      url: handbook ? null : `/projects/${projectId}/docs/${doc.kind}`,
+      text: piece.text,
+    }))
+  })
 }
 
 export interface MemoryHit {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
-import { AtSign, Bell, MessageSquare, UserPlus, Timer, TimerOff } from 'lucide-react'
+import { AtSign, Bell, FileCheck, FileDiff, MessageSquare, UserPlus, Timer, TimerOff } from 'lucide-react'
 
 import { requireUser } from '@/features/auth/guards'
 import { getNotifications } from '@/features/notifications/queries'
@@ -18,6 +18,8 @@ const ICONS = {
   TICKET_BLOCKED: Bell,
   SLA_AT_RISK: Timer,
   SLA_BREACHED: TimerOff,
+  PROPOSAL_PENDING: FileDiff,
+  PROPOSAL_REVIEWED: FileCheck,
 } as const
 
 export default async function InboxPage() {
@@ -48,7 +50,7 @@ export default async function InboxPage() {
               return (
                 <li key={item.id}>
                   <Link
-                    href={item.ticket ? `/tickets/${item.ticket.key}` : '/inbox'}
+                    href={item.ticket ? `/tickets/${item.ticket.key}` : (item.link ?? '/inbox')}
                     className={cn(
                       'flex gap-3 p-3 transition-colors hover:bg-accent/50',
                       !item.readAt && 'bg-primary/5',

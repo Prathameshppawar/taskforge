@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MarkdownEditor } from '@/components/shared/markdown-editor'
 import { RichText } from '@/components/shared/rich-text'
+import { DOCUMENT_SOURCE_LABELS as SOURCE_LABEL } from '@/core/domain/project-documents'
 import { generateHandbookAction, markHandbookReadAction, saveHandbookAction } from '../actions'
 
 export interface HandbookVersion {
@@ -22,7 +23,6 @@ export interface HandbookVersion {
   createdAt: Date
 }
 
-const SOURCE_LABEL: Record<string, string> = { AI: 'Written by the Release Manager', FACTS: 'Assembled from the recorded facts', EDIT: 'Edited' }
 
 /** The handbook, its versions, and — for managers — regenerate and edit. */
 export function HandbookView({ projectId, versions, canManage }: { projectId: string; versions: HandbookVersion[]; canManage: boolean }) {

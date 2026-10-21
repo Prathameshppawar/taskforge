@@ -12,7 +12,7 @@ import {
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { BusinessRuleError, NotFoundError } from '@/core/domain/errors'
 import { runAction } from '@/lib/safe-action'
-import { instantiateTemplate } from './service'
+import { instantiateTemplate, writeProjectDetails } from './service'
 import {
   addMemberSchema,
   projectTeamSchema,
@@ -147,58 +147,7 @@ export async function updateProjectAction(
     })
     if (!before) throw new NotFoundError('Project', data.id)
 
-    await prisma.$transaction(async (tx) => {
-      await tx.project.update({
-        where: { id: data.id },
-        data: {
-          name: data.name,
-          description: data.description || null,
-          status: data.status,
-          startDate: data.startDate ?? null,
-          endDate: data.endDate ?? null,
-          ownerId: data.ownerId,
-        },
-      })
-
-      // A new owner must also be a member, with manager rights.
-      if (before.ownerId !== data.ownerId) {
-        await tx.projectMember.upsert({
-          where: { projectId_userId: { projectId: data.id, userId: data.ownerId } },
-          update: { role: 'MANAGER' },
-          create: {
-            projectId: data.id,
-            userId: data.ownerId,
-            role: 'MANAGER',
-            addedById: actor.id,
-          },
-        })
-      }
-
-      if (before.status !== data.status) {
-        await recordActivity(tx, {
-          action: 'UPDATED',
-          entityType: 'PROJECT',
-          entityId: data.id,
-          entityLabel: data.name,
-          projectId: data.id,
-          actorId: actor.id,
-          field: 'status',
-          oldValue: before.status,
-          newValue: data.status,
-          summary: `set project status to ${data.status}`,
-        })
-      } else {
-        await recordActivity(tx, {
-          action: 'UPDATED',
-          entityType: 'PROJECT',
-          entityId: data.id,
-          entityLabel: data.name,
-          projectId: data.id,
-          actorId: actor.id,
-          summary: `updated project details`,
-        })
-      }
-    })
+    await prisma.$transaction((tx) => writeProjectDetails(tx, { actorId: actor.id, data, before }))
 
     revalidatePath(`/projects/${data.id}`)
     revalidatePath('/projects')

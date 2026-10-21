@@ -56,6 +56,12 @@ export const PERMISSIONS = [
    * very different grants, and a Project Manager should have only the first.
    */
   'project:access-all',
+  /**
+   * Propose a change to a project's details or documents. Nothing applies until
+   * a project manager approves it, so it is a contribution like filing a
+   * ticket — and, like one, needs a project role that may write.
+   */
+  'proposal:create',
 
   // Labels
   'label:create',
@@ -173,6 +179,11 @@ export const PERMISSION_GROUPS: ReadonlyArray<{
         label: 'Act in every project',
         note: 'Waives membership — their permissions apply in projects they were never added to.',
       },
+      {
+        key: 'proposal:create',
+        label: 'Propose project changes',
+        note: 'Details and documents, usually through an agent. Nothing changes until a project manager approves.',
+      },
     ],
   },
   {
@@ -245,6 +256,7 @@ const USER_PERMISSIONS: Permission[] = [
   'ticket:transition',
   'comment:create',
   'ai:use',
+  'proposal:create',
 ]
 
 const PROJECT_MANAGER_PERMISSIONS: Permission[] = [

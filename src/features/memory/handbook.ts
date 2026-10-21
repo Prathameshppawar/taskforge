@@ -10,6 +10,7 @@ import { TICKET_KIND_LABELS } from '@/core/domain/git-refs'
 import { CATEGORY_LABELS } from '@/core/domain/ticket-rules'
 import { REQUIREMENT_LABELS, type BuiltInRequirement } from '@/core/domain/transitions'
 import { clip } from '@/core/domain/ticket-context'
+import { HANDBOOK_KEY } from '@/core/domain/project-documents'
 
 /**
  * The project handbook: what someone joining the project reads on day one.
@@ -17,8 +18,8 @@ import { clip } from '@/core/domain/ticket-context'
  * Built in two steps. First the facts are gathered — the project, its people
  * and their roles, how work flows (statuses, rules, service targets, fields),
  * the current sprint or milestone, what has been finished and decided, what is
- * at risk, and for each linked repository its README, layout, dependencies and
- * conventions. Then, with an engine connected, the Release Manager (the
+ * at risk, the project's own documents (Overview, Architecture…), and for
+ * each linked repository its README, layout, dependencies and conventions. Then, with an engine connected, the Release Manager (the
  * writing agent) turns them into a readable guide; without one, the facts
  * themselves are the handbook. Every version is kept, and a person's edit is a
  * version too.
@@ -71,6 +72,24 @@ async function repoFacts(fullName: string, branch: string, installationId: bigin
     .join('\n')
 }
 
+/**
+ * The project's named documents at their latest versions — written or approved
+ * by people, so the best source there is for what the project is and how it is
+ * built. Each is clipped, and all of them together, so a long runbook cannot
+ * crowd the rest of the facts out.
+ */
+async function projectDocumentFacts(projectId: string): Promise<string> {
+  const groups = await prisma.projectDocument.groupBy({ by: ['kind'], where: { projectId, kind: { not: HANDBOOK_KEY } }, _max: { version: true } })
+  if (groups.length === 0) return ''
+  const latest = await prisma.projectDocument.findMany({
+    where: { projectId, OR: groups.map((group) => ({ kind: group.kind, version: group._max.version ?? 0 })) },
+    orderBy: { title: 'asc' },
+    select: { title: true, version: true, body: true },
+  })
+  const text = latest.map((doc) => `### ${doc.title} (version ${doc.version})\n${clip(doc.body, 8000)}`).join('\n\n')
+  return `## Project documents\n${clip(text, 24_000)}`
+}
+
 /** Everything the handbook is written from, as plain text a person could read. */
 export async function gatherHandbookFacts(projectId: string): Promise<{ projectName: string; facts: string }> {
   const since = new Date(Date.now() - 90 * 86_400_000)
@@ -118,6 +137,7 @@ export async function gatherHandbookFacts(projectId: string): Promise<{ projectN
     }),
     prisma.ticketResource.findMany({ where: { ticket: { projectId } }, distinct: ['url'], take: 20, select: { name: true, type: true, url: true } }),
   ])
+  const documents = await projectDocumentFacts(projectId)
   const fieldNames = new Map(project.customFields.map((field) => [field.id, field.name]))
   const repos = await Promise.all(project.repos.map(({ repo }) => repoFacts(repo.fullName, repo.defaultBranch, repo.installation.installationId).catch(() => `### Repository ${repo.fullName}\n(could not be read)`)))
   const address = project.settings?.emailIntake ? projectIntakeAddress(project.code) : null
@@ -126,6 +146,7 @@ export async function gatherHandbookFacts(projectId: string): Promise<{ projectN
     `# ${project.name} (${project.code})`,
     `Status: ${project.status.toLowerCase()}. Owner: ${project.owner.name}.${project.startDate ? ` Started ${project.startDate.toISOString().slice(0, 10)}.` : ''}${project.endDate ? ` Due ${project.endDate.toISOString().slice(0, 10)}.` : ''}`,
     project.description ? `Description:\n${project.description}` : 'No description.',
+    documents,
     '## People',
     ...project.members.map((member) => `- ${member.user.name}${member.user.jobTitle ? `, ${member.user.jobTitle}` : ''} — ${member.user.role.name}; ${member.role.toLowerCase()} on this project`),
     '## Workflow',
@@ -159,7 +180,7 @@ export async function gatherHandbookFacts(projectId: string): Promise<{ projectN
 
 const PROMPT = `You write a project handbook: what a developer or project manager joining this project reads on their first day, so they can start without a handover meeting.
 
-Use only the facts given. Where something useful is not known, say so plainly ("Not recorded yet") rather than guess. Write clear Markdown with these sections, in this order:
+Use only the facts given. The project's own documents, where there are any, were written or approved by its people: prefer them, and point readers to them by title. Where something useful is not known, say so plainly ("Not recorded yet") rather than guess. Write clear Markdown with these sections, in this order:
 1. What this project is — purpose, client or users, status, dates, in a short paragraph.
 2. Who's who — each person and what to go to them for.
 3. How work flows here — the statuses and what each means, the rules for moving tickets, service targets, fields that matter, how to file work (including email if given).

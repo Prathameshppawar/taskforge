@@ -15,6 +15,7 @@ export const LANDING_VIEWS = [
   { segment: 'calendar', label: 'Calendar' },
   { segment: 'timeline', label: 'Timeline' },
   { segment: 'handbook', label: 'Handbook' },
+  { segment: 'docs', label: 'Docs' },
   { segment: 'activity', label: 'Activity' },
 ] as const
 

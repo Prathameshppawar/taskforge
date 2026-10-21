@@ -6,6 +6,7 @@ import { LiveRefresher } from '@/features/live/live-refresher'
 
 import { requireProjectViewPage } from '@/features/auth/guards'
 import { getProjectDetail } from '@/features/projects/queries'
+import { pendingProposalCount } from '@/features/proposals/queries'
 import { ProjectTabs } from '@/features/projects/components/project-tabs'
 import { PROJECT_STATUS_LABELS } from '@/features/projects/components/project-card'
 import { UserAvatar } from '@/components/shared/user-avatar'
@@ -25,7 +26,7 @@ export default async function ProjectLayout({
   // surfacing a 500 for what is really an access decision.
   const { actor } = await requireProjectViewPage(projectId)
 
-  const project = await getProjectDetail(projectId)
+  const [project, pendingProposals] = await Promise.all([getProjectDetail(projectId), pendingProposalCount(projectId)])
   if (!project) notFound()
 
   const color = project.settings?.color ?? 'indigo'
@@ -98,7 +99,7 @@ export default async function ProjectLayout({
           </div>
         </div>
 
-        <ProjectTabs projectId={projectId} />
+        <ProjectTabs projectId={projectId} pendingProposals={pendingProposals} />
         {showHandbook && (
           <p className="flex flex-wrap items-center gap-2 border-t bg-primary/5 px-4 py-2 text-sm sm:px-6">
             <BookOpen className="size-4 text-primary" aria-hidden />

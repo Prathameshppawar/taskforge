@@ -12,6 +12,13 @@ export interface NotifyInput {
   commentId?: string | null
   title: string
   body?: string | null
+  /** An in-app path to open, for a notification that is not about a ticket. */
+  link?: string | null
+  /**
+   * Tell the actor too. Only for work done in their name by an agent — a
+   * proposal made through their access token still needs them to review it.
+   */
+  includeActor?: boolean
 }
 
 /**
@@ -26,7 +33,7 @@ export interface NotifyInput {
  * transaction is over, never from inside it (see `emailNotificationsLater`).
  */
 export async function notify(tx: Tx, input: NotifyInput): Promise<number> {
-  const recipients = [...new Set(input.userIds)].filter((id) => id && id !== input.actorId)
+  const recipients = [...new Set(input.userIds)].filter((id) => id && (input.includeActor || id !== input.actorId))
   if (recipients.length === 0) return 0
 
   const created = await tx.notification.createManyAndReturn({
@@ -38,6 +45,7 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<number> {
       commentId: input.commentId ?? null,
       title: input.title,
       body: input.body ?? null,
+      link: input.link ?? null,
     })),
     select: { id: true },
   })

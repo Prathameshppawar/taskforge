@@ -7,6 +7,8 @@ import {
   BookOpen,
   CalendarDays,
   CalendarRange,
+  FileDiff,
+  FileText,
   GanttChartSquare,
   LayoutGrid,
   ListTree,
@@ -30,6 +32,8 @@ const TABS = [
   { segment: 'timeline', label: 'Timeline', icon: GanttChartSquare },
   { segment: 'insights', label: 'Insights', icon: PieChart },
   { segment: 'handbook', label: 'Handbook', icon: BookOpen },
+  { segment: 'docs', label: 'Docs', icon: FileText },
+  { segment: 'proposals', label: 'Proposals', icon: FileDiff },
   { segment: 'recurring', label: 'Recurring', icon: Repeat },
   { segment: 'labels', label: 'Labels', icon: Tags },
   { segment: 'members', label: 'Members', icon: Users },
@@ -37,7 +41,11 @@ const TABS = [
   { segment: 'settings', label: 'Settings', icon: Settings },
 ] as const
 
-export function ProjectTabs({ projectId }: { projectId: string }) {
+/**
+ * `pendingProposals` puts a count on the Proposals tab: changes agents have
+ * proposed wait there for a manager, and a number is harder to miss than a tab.
+ */
+export function ProjectTabs({ projectId, pendingProposals = 0 }: { projectId: string; pendingProposals?: number }) {
   const pathname = usePathname()
   const base = `/projects/${projectId}`
 
@@ -63,6 +71,14 @@ export function ProjectTabs({ projectId }: { projectId: string }) {
             >
               <Icon className="size-4" />
               {tab.label}
+              {tab.segment === 'proposals' && pendingProposals > 0 && (
+                <span
+                  className="rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums"
+                  aria-label={`${pendingProposals} waiting for approval`}
+                >
+                  {pendingProposals > 99 ? '99+' : pendingProposals}
+                </span>
+              )}
               {active && (
                 <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />
               )}

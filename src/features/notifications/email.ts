@@ -36,6 +36,7 @@ async function emailNotifications(ids: string[]): Promise<void> {
     select: {
       title: true,
       body: true,
+      link: true,
       user: { select: { email: true, name: true } },
       ticket: { select: { key: true, title: true, projectId: true } },
     },
@@ -55,11 +56,13 @@ export function renderNotificationEmail(
     title: string
     body: string | null
     ticket: { key: string; title: string } | null
+    /** An in-app path, for a notification that is not about a ticket. */
+    link?: string | null
   },
   replyable = false,
 ) {
   const app = appName()
-  const link = row.ticket ? `${appUrl()}/tickets/${row.ticket.key}` : `${appUrl()}/inbox`
+  const link = row.ticket ? `${appUrl()}/tickets/${row.ticket.key}` : `${appUrl()}${row.link ?? '/inbox'}`
   const footer = `You are receiving this because notifications are emailed to you. Turn them off in Settings → Notifications: ${appUrl()}/settings/notifications`
 
   const replyNote = replyable && row.ticket ? `Reply to this email to comment on ${row.ticket.key}.` : ''
@@ -72,7 +75,7 @@ export function renderNotificationEmail(
       `<h2 style="margin:4px 0 12px;font:600 18px system-ui">${escapeHtml(row.title)}</h2>
 ${row.ticket ? `<p style="margin:0 0 8px;color:#737373">${escapeHtml(row.ticket.key)} · ${escapeHtml(row.ticket.title)}</p>` : ''}
 ${row.body && row.body !== row.ticket?.title ? `<blockquote style="margin:12px 0;padding:8px 12px;border-left:3px solid #e5e5e5;color:#404040">${escapeHtml(row.body)}</blockquote>` : ''}
-${button(row.ticket ? `Open ${row.ticket.key}` : 'Open inbox', link)}${replyNote ? `<p style="margin:12px 0 0;color:#737373;font-size:13px">${escapeHtml(replyNote)}</p>` : ''}`,
+${button(row.ticket ? `Open ${row.ticket.key}` : row.link ? 'Open in TaskForge' : 'Open inbox', link)}${replyNote ? `<p style="margin:12px 0 0;color:#737373;font-size:13px">${escapeHtml(replyNote)}</p>` : ''}`,
       `You are receiving this because notifications are emailed to you. <a href="${escapeHtml(`${appUrl()}/settings/notifications`)}" style="color:#737373">Turn them off</a>.`,
     ),
     text: `${row.title}\n${row.ticket ? `${row.ticket.key} · ${row.ticket.title}\n` : ''}${row.body && row.body !== row.ticket?.title ? `\n${row.body}\n` : ''}\n${link}\n${replyNote ? `\n${replyNote}\n` : ''}\n${footer}\n`,

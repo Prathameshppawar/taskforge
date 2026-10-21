@@ -9,6 +9,9 @@ import { requireProjectPermission, requireProjectView } from '@/features/auth/gu
 import { enqueue } from '@/features/jobs/queue'
 import { ok, fail, type ActionResult } from '@/core/domain/result'
 import { runAction } from '@/lib/safe-action'
+import { writeDocumentVersion } from '@/features/documents/service'
+import { documentBody } from '@/features/documents/schemas'
+import { HANDBOOK_KEY } from '@/core/domain/project-documents'
 import { generateHandbook } from './handbook'
 import { indexProject } from './index-service'
 
@@ -24,24 +27,12 @@ export async function generateHandbookAction(projectId: string): Promise<ActionR
 /** A person's revision is a new version, never an overwrite. */
 export async function saveHandbookAction(input: { projectId: string; body: string }): Promise<ActionResult<{ version: number }>> {
   return runAction(async () => {
-    const data = z.object({ projectId: z.string().min(1), body: z.string().trim().min(20).max(100_000) }).parse(input)
+    const data = z.object({ projectId: z.string().min(1), body: documentBody }).parse(input)
     const { actor } = await requireProjectPermission(data.projectId, 'project:manage-config')
-    const last = await prisma.projectDocument.findFirst({ where: { projectId: data.projectId, kind: 'HANDBOOK' }, orderBy: { version: 'desc' }, select: { version: true, title: true } })
-    const project = await prisma.project.findUniqueOrThrow({ where: { id: data.projectId }, select: { name: true } })
-    const version = (last?.version ?? 0) + 1
-    await prisma.projectDocument.create({
-      data: { projectId: data.projectId, kind: 'HANDBOOK', version, title: last?.title ?? `${project.name} handbook`, body: data.body, source: 'EDIT', authorId: actor.id },
-    })
-    await recordActivity(prisma, {
-      action: 'UPDATED',
-      entityType: 'PROJECT',
-      entityId: data.projectId,
-      projectId: data.projectId,
-      actorId: actor.id,
-      field: 'handbook',
-      newValue: String(version),
-      summary: `edited the project handbook (version ${version})`,
-    })
+    // The same write as any other document edit, and as an approved proposal.
+    const { version } = await prisma.$transaction((tx) =>
+      writeDocumentVersion(tx, { projectId: data.projectId, key: HANDBOOK_KEY, body: data.body, source: 'EDIT', authorId: actor.id, actorId: actor.id }),
+    )
     await enqueue('memory.index', { projectId: data.projectId }, { dedupeKey: `memory:${data.projectId}` })
     revalidatePath(`/projects/${data.projectId}`, 'layout')
     return ok({ version })
