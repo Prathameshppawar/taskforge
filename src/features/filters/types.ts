@@ -89,6 +89,18 @@ export function parseFiltersFromParams(
   })
 }
 
+/**
+ * Ticket lists (a project's Tickets tab, My Tickets) open newest first, so
+ * the work someone was just handed is at the top. Priority stays the default
+ * everywhere else; an explicit `?sortBy=` in the URL still wins.
+ */
+export function newestFirstUnlessSorted(
+  filters: TicketFilters,
+  rawParams: Record<string, string | string[] | undefined>,
+): TicketFilters {
+  return rawParams.sortBy ? filters : { ...filters, sortBy: 'key', sortDir: 'desc' }
+}
+
 /** Serializes filters back into a query string for shareable URLs. */
 export function filtersToSearchParams(filters: TicketFilters): URLSearchParams {
   const params = new URLSearchParams()

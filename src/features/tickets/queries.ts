@@ -130,7 +130,9 @@ function buildOrderBy(filters: TicketFilters): Prisma.TicketOrderByWithRelationI
     case 'title':
       return [{ title: dir }]
     case 'key':
-      return [{ number: dir }]
+      // Numbers are per project; across projects (My Tickets) creation time
+      // breaks the tie so "newest first" still holds.
+      return [{ number: dir }, { createdAt: dir }]
     case 'createdAt':
       return [{ createdAt: dir }]
     default:

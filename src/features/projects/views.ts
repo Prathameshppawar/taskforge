@@ -10,7 +10,7 @@ export const LANDING_VIEWS = [
   { segment: 'insights', label: 'Insights' },
   { segment: 'board', label: 'Board' },
   { segment: 'plan', label: 'Plan' },
-  { segment: 'table', label: 'Table' },
+  { segment: 'table', label: 'Tickets' },
   { segment: 'tree', label: 'Tree' },
   { segment: 'calendar', label: 'Calendar' },
   { segment: 'timeline', label: 'Timeline' },

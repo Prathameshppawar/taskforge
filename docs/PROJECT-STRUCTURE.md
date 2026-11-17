@@ -210,7 +210,7 @@ No imports from Next.js, Prisma or React. Everything here is asserted by
 | `/projects/[projectId]/board` | `…/board/page.tsx` | Kanban |
 | `/projects/[projectId]/plan` | `…/plan/page.tsx` | Backlog, sprints and milestones |
 | `/projects/[projectId]/plan/[cycleId]` | `…/plan/[cycleId]/page.tsx` | One cycle: burn-up, forecast |
-| `/projects/[projectId]/table` | `…/table/page.tsx` | Table view |
+| `/projects/[projectId]/table` | `…/table/page.tsx` | Tickets view (newest first) |
 | `/projects/[projectId]/tree` | `…/tree/page.tsx` | Parent and child tree |
 | `/projects/[projectId]/calendar` | `…/calendar/page.tsx` | Calendar |
 | `/projects/[projectId]/timeline` | `…/timeline/page.tsx` | Timeline |

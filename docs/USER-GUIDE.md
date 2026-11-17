@@ -250,7 +250,7 @@ Opens on** (Insights unless changed). The tabs are:
 |---|---|
 | Board | Kanban columns by status. Drag cards between columns to change status. Shows stuck cards, service-target warnings and WIP limits (see [Flow](#4-flow)). |
 | Plan | Sprints and milestones above the ranked backlog. See [Planning](#5-planning). |
-| Table | Sortable table with **Group**, column visibility, inline editing of status, priority and assignee, and row checkboxes for [bulk edit](#bulk-edit-and-undo). |
+| Tickets | Every ticket, newest first, in a sortable table with **Group**, column visibility, inline editing of status, priority and assignee, and row checkboxes for [bulk edit](#bulk-edit-and-undo). |
 | Tree | Parent tickets with their children and roll-up progress. |
 | Calendar | Tickets on their due dates. Tickets without a due date do not appear. |
 | Timeline | A roadmap of tickets with a start or due date, with a marker for today. |

@@ -7,7 +7,7 @@ import { TicketTable } from '@/features/tickets/components/ticket-table'
 import { TicketToolbar } from '@/features/filters/components/ticket-toolbar'
 import { SavedFilterBar } from '@/features/filters/components/saved-filter-bar'
 import { listSavedFilters } from '@/features/filters/actions'
-import { parseFiltersFromParams } from '@/features/filters/types'
+import { newestFirstUnlessSorted, parseFiltersFromParams } from '@/features/filters/types'
 import { PageHeader } from '@/components/shared/page-header'
 
 export const metadata: Metadata = { title: 'My Tickets' }
@@ -23,7 +23,7 @@ export default async function MyTicketsPage({
   const context = await getWorkspaceViewContext()
   const savedFilters = await listSavedFilters()
 
-  const parsed = parseFiltersFromParams(rawParams)
+  const parsed = newestFirstUnlessSorted(parseFiltersFromParams(rawParams), rawParams)
 
   // "My Tickets" is scoped to the current user unless they explicitly widen it
   // by choosing assignees in the filter bar.
