@@ -85,11 +85,11 @@ export function TicketTable({
   showProjectColumn?: boolean
 }) {
   const router = useRouter()
-  // The server already returns rows priority-first; seeding the table's own
-  // sort state to match keeps the header indicator honest and survives the
-  // user clicking another column and back.
+  // Newest tickets first, matching the order the server returns them in;
+  // seeding the table's own sort state keeps the header indicator honest and
+  // survives the user clicking another column and back.
   const [sorting, setSorting] = React.useState<SortingState>([
-    { id: 'priority', desc: true },
+    { id: 'key', desc: true },
   ])
   const [grouping, setGrouping] = React.useState<GroupingState>([])
   const [rowSelection, setRowSelection] = React.useState({})
@@ -133,6 +133,11 @@ export function TicketTable({
         accessorKey: 'key',
         header: 'Key',
         enableGrouping: false,
+        // By ticket number, not text: RC-78 is newer than RC-5. Numbers are
+        // per project, so creation time breaks ties across projects.
+        sortingFn: (a, b) =>
+          a.original.number - b.original.number ||
+          a.original.createdAt.getTime() - b.original.createdAt.getTime(),
         size: 100,
         cell: ({ row }) => (
           <Link

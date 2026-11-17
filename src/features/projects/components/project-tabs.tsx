@@ -26,7 +26,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 const TABS = [
   { segment: 'board', label: 'Board', icon: LayoutGrid },
   { segment: 'plan', label: 'Plan', icon: CalendarRange },
-  { segment: 'table', label: 'Table', icon: Table2 },
+  { segment: 'table', label: 'Tickets', icon: Table2 },
   { segment: 'tree', label: 'Tree', icon: ListTree },
   { segment: 'calendar', label: 'Calendar', icon: CalendarDays },
   { segment: 'timeline', label: 'Timeline', icon: GanttChartSquare },

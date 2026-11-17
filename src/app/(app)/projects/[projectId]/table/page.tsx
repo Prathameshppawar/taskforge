@@ -4,12 +4,12 @@ import { listTickets } from '@/features/tickets/queries'
 import { getProjectViewContext } from '@/features/projects/project-context'
 import { TicketTable } from '@/features/tickets/components/ticket-table'
 import { TicketToolbar } from '@/features/filters/components/ticket-toolbar'
-import { parseFiltersFromParams } from '@/features/filters/types'
+import { newestFirstUnlessSorted, parseFiltersFromParams } from '@/features/filters/types'
 import { isCopilotAvailable } from '@/features/ai-admin/engines'
 
-export const metadata: Metadata = { title: 'Table' }
+export const metadata: Metadata = { title: 'Tickets' }
 
-export default async function TablePage({
+export default async function TicketsPage({
   params,
   searchParams,
 }: {
@@ -20,7 +20,7 @@ export default async function TablePage({
   const rawParams = await searchParams
 
   const context = await getProjectViewContext(projectId)
-  const filters = parseFiltersFromParams(rawParams)
+  const filters = newestFirstUnlessSorted(parseFiltersFromParams(rawParams), rawParams)
   const { items, total } = await listTickets(context.actor, filters, { projectId })
 
   return (
